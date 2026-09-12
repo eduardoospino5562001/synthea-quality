@@ -52,12 +52,17 @@ from synthea_quality.schema.keys import primary_key_for
 from synthea_quality.schema.quality import DATE_COLUMNS, DateColumn, date_columns_for
 from synthea_quality.schema.tables import SYNTHEA_TABLES
 
-#: A date that cannot be interpreted breaks every downstream comparison.
-DATE_SEVERITY = Severity.HIGH
-#: Repeated rows and fully empty columns are row-level anomalies, not broken joins.
+#: A date that cannot be interpreted is a row-level defect: it makes that row's
+#: value unusable, but it breaks no join and no whole table, so it is not ``HIGH``.
+#: ``HIGH`` stays reserved for violations of the relational contract (see models).
+DATE_SEVERITY = Severity.MEDIUM
+#: Repeated rows are row-level anomalies, not broken joins.
 ROW_SEVERITY = Severity.MEDIUM
 #: Null counts are recorded, not judged.
 NULL_SEVERITY = Severity.LOW
+#: An empty column is informative: whether it matters depends on its purpose, which
+#: the data alone cannot settle.
+EMPTY_COLUMN_SEVERITY = Severity.LOW
 
 
 def check_duplicate_rows(
@@ -159,7 +164,7 @@ def check_empty_columns(
         return CheckResult(
             check_id=check_id,
             status=Status.PASS,
-            severity=ROW_SEVERITY,
+            severity=EMPTY_COLUMN_SEVERITY,
             message=f"every column of {table} holds at least one value",
             table=table,
             metrics=metrics,
@@ -169,7 +174,7 @@ def check_empty_columns(
     return CheckResult(
         check_id=check_id,
         status=Status.WARNING,
-        severity=ROW_SEVERITY,
+        severity=EMPTY_COLUMN_SEVERITY,
         message=(
             f"{len(empty)} column(s) of {table} hold no value at all: {empty[:sample_limit]}"
             f"{' ...' if len(empty) > sample_limit else ''}"

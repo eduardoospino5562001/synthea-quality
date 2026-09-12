@@ -14,7 +14,7 @@ from synthea_quality.checks.quality import (
     check_nulls,
     run_quality_checks,
 )
-from synthea_quality.models import Status
+from synthea_quality.models import Severity, Status
 from synthea_quality.schema.quality import DATE_FORMAT, TIMESTAMP_FORMAT, DateColumn
 
 DATE_RULE = DateColumn("patients", "BIRTHDATE", DATE_FORMAT)
@@ -135,8 +135,25 @@ def test_a_column_that_is_empty_for_every_row_is_not_a_failure() -> None:
     result = check_empty_columns("patients", frame)
 
     assert result.status is Status.WARNING
-    assert result.severity.value == "MEDIUM"
+    # LOW: whether an empty column matters depends on the column's purpose, which
+    # the data alone cannot settle, so no stronger impact can be justified.
+    assert result.severity is Severity.LOW
     assert result.samples == ({"column": "DEATHDATE"},)
+
+
+def test_severity_reflects_impact_and_not_merely_determinism() -> None:
+    """A malformed date is deterministic, but its impact is a single row.
+
+    HIGH is reserved for breaches of the relational contract (duplicate or null
+    primary keys, orphan foreign keys), which break joins for the whole dataset.
+    """
+    broken_date = check_date_values(DATE_RULE, pd.Series(["31/12/1980"]))
+    duplicate_key = check_duplicate_rows("patients", pd.DataFrame({"Id": ["p1", "p1"]}))
+
+    assert broken_date.status is Status.FAIL
+    assert broken_date.severity is Severity.MEDIUM
+    assert broken_date.severity is not Severity.HIGH
+    assert duplicate_key.severity is Severity.MEDIUM
 
 
 def test_nulls_are_counted_and_never_treated_as_errors() -> None:

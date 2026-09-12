@@ -69,16 +69,17 @@ class Status(str, Enum):
 class Severity(str, Enum):
     """Impact a check would have if it failed.
 
-    ``HIGH``    breaks the relational contract or the meaning of the data:
+    ``HIGH``    breaks the relational contract or the meaning of a whole table:
                 missing schema columns, duplicate or null primary keys, orphan
-                foreign keys, unparsable dates in columns that drive other
-                checks.
+                foreign keys. A failure here means joins or a table's contents
+                cannot be trusted.
     ``MEDIUM``  row-level inconsistencies that do not break joins: inverted date
-                intervals, birth after death, missing required values, exact
+                intervals, birth after death, a value in a documented date column
+                that matches no date format, missing required values, exact
                 duplicate rows.
     ``LOW``     anomalies that are informative but do not corrupt data:
                 unexpected extra files or columns, nulls in optional columns,
-                empty tables.
+                a column that is empty for every row, empty tables.
     """
 
     HIGH = "HIGH"
