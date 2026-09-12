@@ -1,0 +1,29 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+
+# Test & tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local working data (downloaded Synthea samples are never committed)
+data/
+sample_data/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

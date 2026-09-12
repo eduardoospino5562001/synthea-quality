@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synthea-quality"
+version = "0.1.0"
+description = "Data quality and integrity checks for Synthea CSV datasets"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Eduardo Ospino" }]
+keywords = ["synthea", "synthetic-data", "data-quality", "data-integrity", "healthcare"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+  # Pandas is the only runtime dependency: Synthea CSV tables reach millions of rows
+  # (observations.csv), and vectorised checks are the safe way to handle them.
+  "pandas>=2.2,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["synthea_quality"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

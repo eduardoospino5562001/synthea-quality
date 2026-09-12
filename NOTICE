@@ -1,0 +1,27 @@
+synthea-quality
+Copyright 2026 Eduardo Ospino
+
+This is an independent tool. It is not part of the official Synthea
+distribution and it does not modify it.
+
+Attribution
+-----------
+The Synthea CSV schema facts used by this project (table names and column
+headers) were derived from the Synthea source code, file
+`src/main/java/org/mitre/synthea/export/CSVConstants.java`:
+
+    Synthea(TM) Patient Generator
+    https://github.com/synthetichealth/synthea
+    Copyright 2017-2026 The MITRE Corporation
+    Licensed under the Apache License, Version 2.0
+
+    Reference version:
+    commit d9d07a6eef91ee5144293b42ab64224d84d124f8 (master, 2026-08-17)
+
+Verification data: the CSV sample datasets published by the Synthea project at
+https://github.com/synthetichealth/synthea-sample-data (Apache License, 2.0),
+which are generated from the same commit.
+
+No source code from Synthea has been copied into this project. Only publicly
+documented schema facts (table and column names) are reused, and their origin
+is recorded in the schema definitions.
