@@ -65,6 +65,25 @@ NULL_SEVERITY = Severity.LOW
 #: the data alone cannot settle.
 EMPTY_COLUMN_SEVERITY = Severity.LOW
 
+#: Severity of each quality check, by check-id prefix. Used when a check does not run
+#: (``SKIPPED``, ``NOT_APPLICABLE``): severity is a property of the check, so a check
+#: that produced no verdict must not be reported with the severity of another family.
+SEVERITY_BY_CHECK_PREFIX: tuple[tuple[str, Severity], ...] = (
+    ("duplicates.", ROW_SEVERITY),
+    ("empty_columns.", EMPTY_COLUMN_SEVERITY),
+    ("nulls.", NULL_SEVERITY),
+    ("dates.", DATE_SEVERITY),
+)
+
+
+def _severity_for(check_id: str) -> Severity:
+    """Severity the check identified by ``check_id`` carries, whatever its outcome."""
+    for prefix, severity in SEVERITY_BY_CHECK_PREFIX:
+        if check_id.startswith(prefix):
+            return severity
+    return ROW_SEVERITY
+
+
 def check_duplicate_rows(
     table: str,
     frame: pd.DataFrame,
@@ -422,7 +441,7 @@ def _not_applicable(check_id: str, table: str, message: str) -> CheckResult:
     return CheckResult(
         check_id=check_id,
         status=Status.NOT_APPLICABLE,
-        severity=ROW_SEVERITY,
+        severity=_severity_for(check_id),
         message=message,
         table=table,
     )
@@ -432,7 +451,7 @@ def _skipped(check_id: str, table: str, reason: str) -> CheckResult:
     return CheckResult(
         check_id=check_id,
         status=Status.SKIPPED,
-        severity=ROW_SEVERITY,
+        severity=_severity_for(check_id),
         message=f"check not run for {check_id}: {reason}",
         table=table,
     )

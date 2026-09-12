@@ -375,3 +375,46 @@ def test_quality_checks_do_not_duplicate_the_key_checks(tmp_path: Path) -> None:
     results = run_quality_checks(tmp_path)
 
     assert all(not result.check_id.startswith(("pk.", "fk.")) for result in results)
+
+
+# --------------------------------------------------------------------------- #
+# Severity belongs to the check, whatever the outcome
+# --------------------------------------------------------------------------- #
+
+
+def test_a_check_that_could_not_run_keeps_its_own_severity(tmp_path: Path) -> None:
+    """Severity is a property of the check, not of the result.
+
+    Measured before the fix: every ``nulls.*`` and ``empty_columns.*`` check that ended
+    in ``SKIPPED`` or ``NOT_APPLICABLE`` was reported as ``MEDIUM``, which is the
+    severity of a different check family. A check that never ran must not appear more
+    severe than the same check would be if it had run.
+    """
+    write(tmp_path, "patients.csv", "Id,BIRTHDATE\np1,1980-01-01\n")
+
+    results = {result.check_id: result for result in run_quality_checks(tmp_path)}
+
+    assert results["nulls.allergies"].status is Status.SKIPPED
+    assert results["nulls.allergies"].severity is Severity.LOW
+    assert results["empty_columns.allergies"].severity is Severity.LOW
+    # the families that are MEDIUM keep MEDIUM, skipped or not
+    assert results["duplicates.allergies"].severity is Severity.MEDIUM
+    assert results["dates.encounters.START"].severity is Severity.MEDIUM
+
+
+def test_an_empty_table_keeps_the_severity_of_each_check(tmp_path: Path) -> None:
+    write(tmp_path, "patients.csv", "Id,BIRTHDATE\n")
+
+    results = {result.check_id: result for result in run_quality_checks(tmp_path)}
+
+    assert results["nulls.patients"].status is Status.NOT_APPLICABLE
+    assert results["nulls.patients"].severity is Severity.LOW
+    assert results["empty_columns.patients"].status is Status.NOT_APPLICABLE
+    assert results["empty_columns.patients"].severity is Severity.LOW
+    assert results["duplicates.patients"].severity is Severity.MEDIUM
+
+
+# --------------------------------------------------------------------------- #
+# An empty table has zero rows, not an unknown number of them
+# --------------------------------------------------------------------------- #
+
