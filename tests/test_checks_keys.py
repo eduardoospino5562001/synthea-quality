@@ -329,3 +329,54 @@ def test_runner_holds_only_compact_parent_keys(tmp_path: Path, monkeypatch) -> N
     assert len(conditions_loads) == 1
     # parent keys are read one column at a time, never as whole tables
     assert ("Id",) in loaded
+
+
+# --------------------------------------------------------------------------- #
+# Samples must keep evidence of every defect, not only of the first one
+# --------------------------------------------------------------------------- #
+
+
+def test_nulls_and_duplicates_each_keep_their_own_sample_budget() -> None:
+    """A null sample must not consume the budget and hide the duplicate evidence.
+
+    Measured before the fix: with four nulls and one duplicated value, the three
+    samples were all nulls and the duplicated value appeared nowhere, so the report
+    showed no evidence at all for half of the defect it was reporting.
+    """
+    values = pd.Series([None, None, None, None, "dup", "dup", "dup", "x"], index=range(8))
+
+    result = check_primary_key(PATIENT_PK, values, sample_limit=2)
+
+    null_samples = [sample for sample in result.samples if "row" in sample]
+    duplicate_samples = [sample for sample in result.samples if "value" in sample]
+    assert result.status is Status.FAIL
+    assert len(null_samples) == 2
+    assert len(duplicate_samples) == 1
+    assert duplicate_samples[0]["value"] == "dup"
+    assert result.metrics["nulls"] == 4
+    assert result.metrics["duplicate_rows"] == 3
+
+
+def test_each_defect_sample_stays_bounded() -> None:
+    """Each defect is bounded by the limit; the total is at most twice the limit."""
+    values = pd.Series([None] * 6 + [f"v{index}" for index in range(6)] * 2, index=range(18))
+
+    result = check_primary_key(PATIENT_PK, values, sample_limit=3)
+
+    assert len(result.samples) == 6
+    assert len([sample for sample in result.samples if "row" in sample]) == 3
+    assert len([sample for sample in result.samples if "value" in sample]) == 3
+
+
+def test_a_primary_key_with_only_one_defect_is_unchanged() -> None:
+    """Splitting the budget must not alter the single-defect case."""
+    duplicated = pd.Series(["a", "a", "b"], index=range(3))
+    nulls = pd.Series(["a", None, "b"], index=range(3))
+
+    duplicates_only = check_primary_key(PATIENT_PK, duplicated, sample_limit=5)
+    nulls_only = check_primary_key(PATIENT_PK, nulls, sample_limit=5)
+
+    assert len(duplicates_only.samples) == 1
+    assert "occurrences" in duplicates_only.samples[0]
+    assert len(nulls_only.samples) == 1
+    assert "row" in nulls_only.samples[0]

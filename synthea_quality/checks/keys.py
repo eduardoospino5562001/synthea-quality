@@ -93,22 +93,26 @@ def check_primary_key(
     metadata = _metadata(rule, sample_limit)
 
     problems: list[str] = []
-    samples: list[Mapping[str, object]] = []
+    # Nulls and duplicates are different defects, so each keeps its own samples: a table
+    # with many null rows used to fill the whole budget and leave the duplicated values
+    # invisible in the report, half of the finding with no evidence behind it.
+    null_samples: list[Mapping[str, object]] = []
+    duplicate_samples: list[Mapping[str, object]] = []
 
     if nulls:
         problems.append(f"{nulls} null value(s)")
         null_rows = [int(index) + 1 for index in values.index[null_mask][:sample_limit]]
-        samples.extend({"row": row} for row in null_rows)
+        null_samples = [{"row": row} for row in null_rows]
 
     if duplicate_rows:
         problems.append(
             f"{duplicate_values} duplicated value(s) covering {duplicate_rows} row(s)"
         )
         counts = non_null[duplicate_mask].value_counts()
-        samples.extend(
+        duplicate_samples = [
             {"value": str(value), "occurrences": int(count)}
             for value, count in counts.head(sample_limit).items()
-        )
+        ]
 
     if problems:
         message = (
@@ -122,7 +126,7 @@ def check_primary_key(
             message=message,
             table=rule.table,
             metrics=metrics,
-            samples=tuple(samples[:sample_limit]),
+            samples=tuple((*null_samples, *duplicate_samples)),
             metadata=metadata,
         )
 
