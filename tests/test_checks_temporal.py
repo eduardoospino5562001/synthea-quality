@@ -428,3 +428,71 @@ def test_runner_loads_one_table_at_a_time_with_only_the_columns_it_needs(
     encounters_loads = [columns for columns in loaded if set(columns) >= {"START", "STOP", "PATIENT"}]
     assert len(encounters_loads) == 1
     assert len(encounters_loads[0]) <= 5  # rule columns plus a bounded set of identifiers
+
+
+# --------------------------------------------------------------------------- #
+# One birth date per patient: never pick one silently
+# --------------------------------------------------------------------------- #
+
+
+def test_event_checks_are_skipped_when_patients_id_is_not_unique(tmp_path: Path) -> None:
+    """A repeated patient id makes "the patient's birth date" undecidable.
+
+    Measured before the fix: the birth date map kept the *last* row of a duplicated id
+    (``{'p1': '1990-05-05'}``) with no sign that a choice had been made, and the event
+    checks then reported ``PASS`` against that arbitrary date.
+    """
+    (tmp_path / "patients.csv").write_text(
+        "Id,BIRTHDATE,DEATHDATE\np1,2000-01-01,\np1,1990-05-05,\n",
+        encoding="utf-8",
+        newline="",
+    )
+    (tmp_path / "encounters.csv").write_text(
+        "Id,START,STOP,PATIENT\n"
+        "e1,1995-01-01T00:00:00Z,1995-01-02T00:00:00Z,p1\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    results = {result.check_id: result for result in run_temporal_checks(tmp_path)}
+
+    event = results["temporal.event_after_birth.encounters.START"]
+    assert event.status is Status.SKIPPED
+    assert "not unique" in event.message
+    assert "p1" not in event.message and "1990" not in event.message
+
+
+def test_a_unique_patients_id_keeps_the_event_checks_running(tmp_path: Path) -> None:
+    """The gate must be about ambiguity, not about the table being present."""
+    (tmp_path / "patients.csv").write_text(
+        "Id,BIRTHDATE,DEATHDATE\np1,1980-01-01,\np2,1990-06-15,\n",
+        encoding="utf-8",
+        newline="",
+    )
+    (tmp_path / "encounters.csv").write_text(
+        "Id,START,STOP,PATIENT\n"
+        "e1,2020-01-01T00:00:00Z,2020-01-02T00:00:00Z,p1\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    results = {result.check_id: result for result in run_temporal_checks(tmp_path)}
+
+    assert results["temporal.event_after_birth.encounters.START"].status is Status.PASS
+
+
+def test_a_single_row_check_is_unaffected_by_a_duplicated_patient_id(
+    tmp_path: Path,
+) -> None:
+    """``BIRTHDATE <= DEATHDATE`` reads one row, so it needs no unique patient id."""
+    (tmp_path / "patients.csv").write_text(
+        "Id,BIRTHDATE,DEATHDATE\np1,2000-01-01,\np1,1990-05-05,\n",
+        encoding="utf-8",
+        newline="",
+    )
+
+    results = {result.check_id: result for result in run_temporal_checks(tmp_path)}
+
+    life_span = results["temporal.birth_le_death.patients"]
+    assert life_span.status is Status.NOT_APPLICABLE  # no death date to compare against
+    assert "not unique" not in life_span.message

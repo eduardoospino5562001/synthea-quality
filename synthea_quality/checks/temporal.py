@@ -431,7 +431,13 @@ def _patient_birth_dates(
     problems: Mapping[str, str],
     structure: Mapping[str, StructureReport] | None = None,
 ) -> tuple[dict[str, str] | None, str | None]:
-    """Map patient identifier to a usable birth date, or explain why it is missing."""
+    """Map patient identifier to a usable birth date, or explain why it is missing.
+
+    Two ways of losing the answer, both reported instead of guessed: the table cannot be
+    read or lacks a column, and — the reason this function is careful — the patient
+    identifiers are not unique, in which case "the patient's birth date" has no single
+    value and picking one row (the last, say) would be an invented verdict.
+    """
     header = headers.get("patients")
     if "patients" not in paths:
         return None, "table 'patients' is not present in this dataset"
@@ -447,6 +453,14 @@ def _patient_birth_dates(
         frame = load_table(paths["patients"], columns=["Id", "BIRTHDATE"]).frame
     except TableLoadError as exc:
         return None, f"table 'patients' could not be read: {exc}"
+
+    identifiers = frame["Id"]
+    repeated = int(identifiers.dropna().duplicated().sum())
+    if repeated:
+        return None, (
+            f"patients.Id is not unique: {repeated} repeated value(s), so a single birth "
+            f"date per patient cannot be chosen"
+        )
 
     usable = _usable(frame["BIRTHDATE"], "patients", "BIRTHDATE")
     selected = frame[usable]
