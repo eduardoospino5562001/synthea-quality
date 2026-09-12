@@ -28,7 +28,7 @@ import csv
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, cast
 
 import pandas as pd
 
@@ -111,7 +111,6 @@ def load_table(
     header_tuple = tuple(header) if header is not None else read_header(file_path)
     table_name = table or file_path.stem
 
-    notes: list[str] = []
     usecols: list[str] | None = None
     if columns is not None:
         requested = tuple(columns)
@@ -124,23 +123,32 @@ def load_table(
 
     frame = _read_frame(file_path, usecols=usecols)
 
-    expected_columns = header_tuple if usecols is None else tuple(usecols)
-    actual_columns = tuple(str(column) for column in frame.columns)
-    if actual_columns != expected_columns:
-        raise TableLoadError(
-            f"{file_path} header could not be read verbatim: expected {list(expected_columns)}, "
-            f"pandas produced {list(actual_columns)} (duplicate or malformed column names)"
-        )
-
-    if usecols is not None:
-        notes.append(f"loaded {len(usecols)} of {len(header_tuple)} columns: {usecols}")
+    if usecols is None:
+        actual_columns = tuple(str(column) for column in frame.columns)
+        if actual_columns != header_tuple:
+            raise TableLoadError(
+                f"{file_path} header could not be read verbatim: expected {list(header_tuple)}, "
+                f"pandas produced {list(actual_columns)} (duplicate or malformed column names)"
+            )
+        notes_wanted: tuple[str, ...] = ()
+    else:
+        # pandas returns the requested columns in file order, not in the order that
+        # was asked for, so reorder them to give the caller a deterministic layout.
+        produced = tuple(str(column) for column in frame.columns)
+        if sorted(produced) != sorted(usecols):
+            raise TableLoadError(
+                f"{file_path} columns could not be read as requested: expected "
+                f"{sorted(usecols)}, pandas produced {sorted(produced)}"
+            )
+        frame = cast(pd.DataFrame, frame[list(usecols)])
+        notes_wanted = (f"loaded {len(usecols)} of {len(header_tuple)} columns: {usecols}",)
 
     return LoadedTable(
         table=table_name,
         path=file_path,
         header=header_tuple,
         frame=frame,
-        notes=tuple(notes),
+        notes=notes_wanted,
     )
 
 

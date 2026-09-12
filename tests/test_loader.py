@@ -111,6 +111,21 @@ def test_read_header_returns_the_first_line_only(tmp_path: Path) -> None:
     assert read_header(path) == ("Id", "BIRTHDATE", "DEATHDATE", "CODE", "VALUE")
 
 
+def test_requested_columns_come_back_in_the_requested_order(tmp_path: Path) -> None:
+    """pandas returns a subset in file order; the loader normalises it.
+
+    Without this, a caller asking for ``("VALUE", "Id")`` would silently receive
+    ``("Id", "VALUE")``, and any code pairing the two column by column would be
+    wrong.
+    """
+    path = write_text(tmp_path, "patients.csv", PATIENTS_TEXT)
+
+    loaded = load_table(path, columns=("VALUE", "Id"))
+
+    assert loaded.columns == ("VALUE", "Id")
+    assert loaded.frame["VALUE"][0] == "7.2"
+
+
 # --------------------------------------------------------------------------- #
 # edge cases
 # --------------------------------------------------------------------------- #
