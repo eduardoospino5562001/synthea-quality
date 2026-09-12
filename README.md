@@ -71,9 +71,12 @@ synthea_quality/
     models.py         structured results (CheckResult, DatasetReport)
     discovery.py      which tables a dataset directory contains
     loader.py         safe CSV reading (text identifiers, no silent data loss)
+    checks/
+        keys.py       primary key and foreign key integrity
     schema/
         tables.py     the 19 Synthea CSV tables and their expected columns
         contract.py   versioned contracts + header matching
+        keys.py       confirmed primary/foreign key rules
 tests/
     test_package.py
     test_models.py
@@ -81,10 +84,27 @@ tests/
     test_schema_tables.py
     test_contract.py
     test_loader.py
+    test_keys_catalogue.py
+    test_checks_keys.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
 check needs them.
+
+## Scalability
+
+Loading reads a whole table into memory; chunking is deliberately not implemented
+yet. It is not needed for the current MVP, which targets sample-sized datasets, but
+the limit is measured rather than theoretical:
+
+| Measurement | Result |
+| --- | --- |
+| One full `observations.csv` (1.78 GB, 10,209,651 rows x 9 columns) | 24.7 s, ~1.64 GB peak RSS |
+| Key checks over the official sample (18 tables, 201,657 rows) | 1.1 s, ~103 MB peak RSS |
+
+The key checks therefore keep only compact parent key sets in memory and release
+each child table before reading the next one. A dataset whose large tables are much
+bigger than the sample will need chunked/streamed processing.
 
 ## Development status
 
@@ -95,7 +115,7 @@ check needs them.
 | 3. Dataset discovery | done |
 | 4. Versioned schema contracts | done |
 | 5. Safe loading | done |
-| 6. Primary key / referential integrity checks | pending |
+| 6. Primary key / referential integrity checks | done |
 | 7. Data quality checks | pending |
 | 8. Temporal checks | pending |
 | 9. Markdown + JSON reports | pending |
