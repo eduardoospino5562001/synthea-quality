@@ -13,7 +13,7 @@ from synthea_quality.schema import keys
 from synthea_quality.schema.keys import (
     FOREIGN_KEYS,
     PRIMARY_KEYS,
-    REJECTED_FOREIGN_KEYS,
+    UNRESOLVED_FOREIGN_KEYS,
     ForeignKeyRule,
     PrimaryKeyRule,
     foreign_keys_for,
@@ -79,15 +79,43 @@ def test_parent_columns_lists_only_enforced_targets() -> None:
     assert ("payer_transitions", "MEMBERID") not in parents
 
 
-def test_rejected_relationship_is_documented_and_not_enforced() -> None:
-    rejected = REJECTED_FOREIGN_KEYS[0]
+def test_unresolved_relationship_is_documented_and_not_applied() -> None:
+    unresolved = UNRESOLVED_FOREIGN_KEYS[0]
 
-    assert rejected.rule.check_id == (
+    assert unresolved.rule.check_id == (
         "fk.claims_transactions.PATIENTINSURANCEID->payer_transitions.MEMBERID"
     )
-    assert rejected.rule not in FOREIGN_KEYS
-    assert "170 references" in rejected.reason
-    assert "CSVExporter.java" in rejected.reason
+    # documented, but neither applied as a rule nor declared wrong
+    assert unresolved.rule not in FOREIGN_KEYS
+    assert "Foreign key to the Payer Transitions table member ID" in unresolved.documented_as
+    assert "170 of 79,453" in unresolved.observed
+    assert "CSVExporter.java:1566" in unresolved.implemented_as
+    assert "false alarm" in unresolved.why_not_enforced
+    assert "maintainer's confirmation" in unresolved.pending
+
+
+def test_unresolved_relationship_produces_no_verdict() -> None:
+    """It must not appear among the checks that are run, so it can never FAIL."""
+    from synthea_quality.schema.keys import FOREIGN_KEYS as applied
+
+    assert all(
+        rule.check_id != UNRESOLVED_FOREIGN_KEYS[0].rule.check_id for rule in applied
+    )
+
+
+def test_unresolved_rule_without_its_documentation_is_rejected(monkeypatch) -> None:
+    incomplete = keys.UnresolvedForeignKey(
+        rule=ForeignKeyRule("conditions", "PATIENT", "patients"),
+        documented_as="something",
+        observed="",
+        implemented_as="x",
+        why_not_enforced="y",
+        pending="z",
+    )
+    monkeypatch.setattr(keys, "UNRESOLVED_FOREIGN_KEYS", (incomplete,))
+
+    with pytest.raises(keys._CatalogueError, match="needs a 'observed' note"):
+        keys._validate_catalogue()
 
 
 def test_every_rule_records_its_provenance() -> None:
@@ -146,12 +174,11 @@ def test_duplicate_rules_are_rejected(monkeypatch) -> None:
         keys._validate_catalogue()
 
 
-def test_rejected_rule_without_a_reason_is_rejected(monkeypatch) -> None:
+def test_local_and_unknown_rule_failures_stay_distinguishable(monkeypatch) -> None:
+    """A rule pointing at an unknown table must not be confused with a dataset problem."""
     monkeypatch.setattr(
-        keys,
-        "REJECTED_FOREIGN_KEYS",
-        (keys.RejectedForeignKey(ForeignKeyRule("conditions", "PATIENT", "patients"), "  "),),
+        keys, "FOREIGN_KEYS", (ForeignKeyRule("conditions", "PATIENT", "ghosts"),)
     )
 
-    with pytest.raises(keys._CatalogueError, match="needs a reason"):
+    with pytest.raises(keys._CatalogueError, match="unknown table 'ghosts'"):
         keys._validate_catalogue()

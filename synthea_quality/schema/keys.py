@@ -17,15 +17,13 @@ Two facts are deliberately *not* modelled as rules:
     of 478 rows repeat it, which is expected. It is not a primary key.
 
 ``claims_transactions.PATIENTINSURANCEID``
-    The dictionary calls it a foreign key to the payer transition member id, but
-    it cannot be enforced as one. On the official sample 170 references (5 distinct
-    values, belonging to 3 patients) match no ``payer_transitions.MEMBERID``, and
-    those 3 patients have no rows in ``payer_transitions`` at all: the column is
-    written from the claim's plan record (``CSVExporter.java``:
-    ``this.memberId = claim.getPlanRecordMemberId()``), while
-    ``payer_transitions.MEMBERID`` is an independent export. Enforcing it would
-    report legitimate data as broken, so it is listed in
-    ``REJECTED_FOREIGN_KEYS`` with the reason and left for the maintainers.
+    Documented as a foreign key to the payer transition member id, but **not applied
+    as a constraint**. See :data:`UNRESOLVED_FOREIGN_KEYS`: the dictionary states the
+    relationship, the official sample shows 170 references (3 patients) that match no
+    ``payer_transitions.MEMBERID``, and ``CSVExporter.java`` writes the value from the
+    claim's plan record (``this.memberId = claim.getPlanRecordMemberId()``). Until a
+    maintainer confirms the intended semantics, the relationship is neither enforced
+    (which would emit ``FAIL`` for legitimate data) nor declared wrong.
 
 The catalogue is validated on import against the generated table catalogue: a rule
 pointing at a table or column that does not exist is a bug here, not a dataset
@@ -41,14 +39,6 @@ from synthea_quality.schema.tables import TableSpec, tables_by_name
 
 #: Provenance recorded on every rule derived from Synthea's own documentation.
 DATA_DICTIONARY = "Synthea CSV File Data Dictionary (:key: / :old_key:)"
-
-#: Documented relationship that is intentionally not enforced. See module docstring.
-REJECTION_REASON = (
-    "not enforceable as a constraint: on the official 2026-08 sample 170 references "
-    "(5 values, 3 patients) match no payer_transitions.MEMBERID, and those patients "
-    "have no payer_transitions rows; CSVExporter.java writes the column from "
-    "claim.getPlanRecordMemberId(), a different source than payer_transitions.MEMBERID"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,11 +72,25 @@ class ForeignKeyRule:
 
 
 @dataclass(frozen=True, slots=True)
-class RejectedForeignKey:
-    """A documented relationship that this tool refuses to enforce, with the reason."""
+class UnresolvedForeignKey:
+    """A documented relationship that is not applied as a constraint yet.
+
+    Kept separate from :data:`FOREIGN_KEYS` on purpose: the relationship is not
+    declared wrong, it is simply not safe to enforce, so no ``FAIL`` is produced
+    for it until a maintainer confirms the intended semantics.
+    """
 
     rule: ForeignKeyRule
-    reason: str
+    #: What Synthea's own documentation states about the relationship.
+    documented_as: str
+    #: What the official sample data shows.
+    observed: str
+    #: What the generator source does.
+    implemented_as: str
+    #: Why this tool does not turn the above into a failure.
+    why_not_enforced: str
+    #: What is still needed before it can become a rule.
+    pending: str
 
 
 #: Columns the data dictionary marks as primary keys (``:key:``).
@@ -147,13 +151,39 @@ FOREIGN_KEYS: tuple[ForeignKeyRule, ...] = (
     ForeignKeyRule("supplies", "ENCOUNTER", "encounters"),
 )
 
-#: Documented relationship that is deliberately not enforced (evidence in the reason).
-REJECTED_FOREIGN_KEYS: tuple[RejectedForeignKey, ...] = (
-    RejectedForeignKey(
-        ForeignKeyRule(
+#: Documented relationships that are **not applied** yet (evidence in each entry).
+#:
+#: These are not declared invalid: the documentation states the relationship, the
+#: data shows it does not hold as a strict constraint, and the pending item is a
+#: maintainer's confirmation. Until then they produce no verdict at all.
+UNRESOLVED_FOREIGN_KEYS: tuple[UnresolvedForeignKey, ...] = (
+    UnresolvedForeignKey(
+        rule=ForeignKeyRule(
             "claims_transactions", "PATIENTINSURANCEID", "payer_transitions", "MEMBERID"
         ),
-        REJECTION_REASON,
+        documented_as=(
+            "CSV File Data Dictionary, claims_transactions: 'Patient Insurance ID ... "
+            "Foreign key to the Payer Transitions table member ID'"
+        ),
+        observed=(
+            "official 2026-08 sample: 170 of 79,453 non-null references (5 distinct values, "
+            "belonging to 3 patients) match no payer_transitions.MEMBERID, and those 3 "
+            "patients have no row in payer_transitions at all"
+        ),
+        implemented_as=(
+            "CSVExporter.java:1566 sets 'this.memberId = claim.getPlanRecordMemberId()' and "
+            "line 1686 writes it to PATIENTINSURANCEID, while payer_transitions.MEMBERID is "
+            "produced by a separate export"
+        ),
+        why_not_enforced=(
+            "applying it as a strict foreign key would emit FAIL for data the generator "
+            "produces on purpose, and a false alarm is worse than a missing check"
+        ),
+        pending=(
+            "a maintainer's confirmation of whether PATIENTINSURANCEID is meant to reference "
+            "payer_transitions.MEMBERID; until then the relationship is neither enforced nor "
+            "declared wrong"
+        ),
     ),
 )
 
@@ -191,9 +221,19 @@ def _validate_catalogue() -> None:
         _check_rule(known, rule.parent_table, rule.parent_column, "foreign key target")
         _check_unique(seen, "fk", rule.table, rule.column)
 
-    for rejected in REJECTED_FOREIGN_KEYS:
-        if not rejected.reason.strip():
-            raise _CatalogueError(f"rejected rule {rejected.rule.check_id} needs a reason")
+    for unresolved in UNRESOLVED_FOREIGN_KEYS:
+        _check_rule(known, unresolved.rule.table, unresolved.rule.column, "unresolved rule")
+        _check_rule(
+            known,
+            unresolved.rule.parent_table,
+            unresolved.rule.parent_column,
+            "unresolved rule target",
+        )
+        for field_name in ("documented_as", "observed", "implemented_as", "why_not_enforced", "pending"):
+            if not getattr(unresolved, field_name).strip():
+                raise _CatalogueError(
+                    f"unresolved rule {unresolved.rule.check_id} needs a '{field_name}' note"
+                )
 
 
 def _check_rule(
