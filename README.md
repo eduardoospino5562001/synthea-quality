@@ -74,11 +74,13 @@ synthea_quality/
     checks/
         keys.py       primary key and foreign key integrity
         quality.py    duplicate rows, empty columns, nulls, date shapes
+        temporal.py   start <= stop, birth <= death, event >= birth
     schema/
         tables.py     the 19 Synthea CSV tables and their expected columns
         contract.py   versioned contracts + header matching
         keys.py       confirmed primary/foreign key rules
         quality.py    confirmed date columns and their formats
+        temporal.py   confirmed temporal relations
 tests/
     test_package.py
     test_models.py
@@ -90,6 +92,8 @@ tests/
     test_checks_keys.py
     test_quality_rules.py
     test_checks_quality.py
+    test_temporal_rules.py
+    test_checks_temporal.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -106,6 +110,7 @@ the limit is measured rather than theoretical:
 | One full `observations.csv` (1.78 GB, 10,209,651 rows x 9 columns) | 24.7 s, ~1.64 GB peak RSS |
 | Key checks over the official sample (18 tables, 201,657 rows) | 1.1 s, ~103 MB peak RSS |
 | Quality checks over the official sample (86 checks, 18 tables) | 3.0 s, ~144 MB peak RSS |
+| Temporal checks over the official sample (19 checks) | 0.6 s, ~95 MB peak RSS |
 | Key checks over a 2021 dataset (17 tables, 12M+ rows) | 65.0 s, ~772 MB peak RSS |
 
 The key checks keep only compact parent key sets in memory and release each child
@@ -125,7 +130,7 @@ chunked/streamed processing.
 | 5. Safe loading | done |
 | 6. Primary key / referential integrity checks | done |
 | 7. Data quality checks | done |
-| 8. Temporal checks | pending |
+| 8. Temporal checks | done |
 | 9. Markdown + JSON reports | pending |
 | 10. CLI | pending |
 | 11. Verification against the official sample dataset | pending |

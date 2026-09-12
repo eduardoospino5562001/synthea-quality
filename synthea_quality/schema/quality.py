@@ -146,6 +146,18 @@ def date_columns_for(table: str) -> tuple[DateColumn, ...]:
     return tuple(rule for rule in DATE_COLUMNS if rule.table == table)
 
 
+def date_rule_for(table: str, column: str) -> DateColumn | None:
+    """The confirmed date rule of one column, or ``None`` if it has none.
+
+    Other check families use this to reuse the confirmed format instead of
+    re-implementing date parsing.
+    """
+    return next(
+        (rule for rule in DATE_COLUMNS if rule.table == table and rule.column == column),
+        None,
+    )
+
+
 class _CatalogueError(ValueError):
     """A date rule points at something the table catalogue does not declare."""
 
