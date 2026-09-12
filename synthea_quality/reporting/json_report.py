@@ -18,14 +18,8 @@ without drift.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from synthea_quality.models import DatasetReport
-
-
-def to_payload(report: DatasetReport) -> dict[str, Any]:
-    """Return the JSON-compatible payload of ``report``."""
-    return report.to_dict()
 
 
 def dumps(report: DatasetReport, *, indent: int | None = 2) -> str:

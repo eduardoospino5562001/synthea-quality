@@ -33,7 +33,6 @@ birth before death, events before birth) belongs to the temporal checks.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
 
 from synthea_quality.schema.tables import TableSpec, tables_by_name
 

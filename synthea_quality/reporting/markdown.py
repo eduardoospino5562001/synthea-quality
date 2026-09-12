@@ -25,7 +25,6 @@ from synthea_quality.models import (
     DatasetReport,
     Severity,
     Status,
-    category_of,
 )
 
 #: How long a message or a metric value may be inside a table cell.
@@ -414,9 +413,4 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _category_titles() -> dict[str, str]:
-    """Category name to human title, exposed for tests and future renderers."""
-    return dict(_CATEGORY_TITLES)
-
-
-__all__ = ["render_markdown", "write_markdown", "category_of"]
+__all__ = ["render_markdown", "write_markdown"]

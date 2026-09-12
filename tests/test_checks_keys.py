@@ -9,8 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-import pytest
-
 from synthea_quality.checks.keys import (
     check_foreign_key,
     check_primary_key,

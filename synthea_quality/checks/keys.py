@@ -38,7 +38,7 @@ before this tool can be called scalable.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Sequence, cast
+from typing import Mapping, cast
 
 import pandas as pd
 

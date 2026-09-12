@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-import pytest
-
 from synthea_quality.checks.quality import (
     check_date_values,
     check_duplicate_rows,

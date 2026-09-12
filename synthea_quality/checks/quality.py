@@ -40,7 +40,7 @@ table is measured: see the Scalability section of the README.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Sequence, cast
+from typing import cast
 
 import pandas as pd
 
@@ -49,7 +49,7 @@ from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table
 from synthea_quality.models import DEFAULT_SAMPLE_LIMIT, CheckResult, Severity, Status
 from synthea_quality.schema.keys import primary_key_for
-from synthea_quality.schema.quality import DATE_COLUMNS, DateColumn, date_columns_for
+from synthea_quality.schema.quality import DateColumn, date_columns_for
 from synthea_quality.schema.tables import SYNTHEA_TABLES
 
 #: A date that cannot be interpreted is a row-level defect: it makes that row's
