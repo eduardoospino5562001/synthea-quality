@@ -70,6 +70,7 @@ synthea_quality/
     errors.py         expected, user-actionable errors
     models.py         structured results (CheckResult, DatasetReport)
     discovery.py      which tables a dataset directory contains
+    loader.py         safe CSV reading (text identifiers, no silent data loss)
     schema/
         tables.py     the 19 Synthea CSV tables and their expected columns
         contract.py   versioned contracts + header matching
@@ -79,6 +80,7 @@ tests/
     test_discovery.py
     test_schema_tables.py
     test_contract.py
+    test_loader.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -92,7 +94,7 @@ check needs them.
 | 2. Structured result models (`CheckResult`, report) | done |
 | 3. Dataset discovery | done |
 | 4. Versioned schema contracts | done |
-| 5. Safe loading | pending |
+| 5. Safe loading | done |
 | 6. Primary key / referential integrity checks | pending |
 | 7. Data quality checks | pending |
 | 8. Temporal checks | pending |

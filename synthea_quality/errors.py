@@ -18,3 +18,15 @@ class SyntheaQualityError(Exception):
 
 class DiscoveryError(SyntheaQualityError):
     """The dataset directory cannot be inspected as given."""
+
+
+class LoadingError(SyntheaQualityError):
+    """A table could not be read from disk as a Synthea CSV file."""
+
+
+class TableLoadError(LoadingError):
+    """One specific table is unreadable, empty, malformed or not UTF-8.
+
+    The failure is scoped to a single table on purpose: the caller can record it
+    and keep analysing the rest of the dataset.
+    """
