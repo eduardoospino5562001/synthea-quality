@@ -67,8 +67,16 @@ directory (git-ignored) and is never modified.
 ```
 synthea_quality/
     __init__.py       package root (no heavy imports)
+    errors.py         expected, user-actionable errors
+    models.py         structured results (CheckResult, DatasetReport)
+    discovery.py      which tables a dataset directory contains
+    schema/
+        tables.py     the 19 Synthea CSV tables (provenance recorded)
 tests/
     test_package.py
+    test_models.py
+    test_discovery.py
+    test_schema_tables.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -79,8 +87,8 @@ check needs them.
 | Step | Status |
 | --- | --- |
 | 1. Project skeleton, packaging, test runner | done |
-| 2. Structured result models (`CheckResult`, report) | pending |
-| 3. Dataset discovery | pending |
+| 2. Structured result models (`CheckResult`, report) | done |
+| 3. Dataset discovery | done |
 | 4. Versioned schema contracts | pending |
 | 5. Safe loading | pending |
 | 6. Primary key / referential integrity checks | pending |
