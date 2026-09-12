@@ -288,12 +288,20 @@ def _unresolved_section(report: DatasetReport) -> str:
         "not dataset defects**: they are pending a maintainer's confirmation of how the "
         "data is meant to be read.",
         "",
+        "The reference evidence quoted below was measured on the reference dataset named "
+        f"in each entry, **not on the dataset analysed in this report** "
+        f"(`{_cell(report.data_dir)}`).",
+        "",
     ]
     for relation in report.unresolved_relations:
         lines.append(f"### `{_cell(relation.relation)}` ({relation.kind})")
         lines.append("")
         lines.append(f"- Documented as: {_cell(relation.documented_as, limit=500)}")
-        lines.append(f"- What the data shows: {_cell(relation.observed, limit=500)}")
+        lines.append(f"- Implemented in Synthea as: {_cell(relation.implemented_as, limit=500)}")
+        lines.append(
+            f"- Reference evidence (`{_cell(relation.reference_dataset, limit=200)}`): "
+            f"{_cell(relation.reference_evidence, limit=500)}"
+        )
         lines.append(f"- Why it is not enforced: {_cell(relation.why_not_enforced, limit=500)}")
         lines.append(f"- Pending: {_cell(relation.pending, limit=500)}")
         lines.append("")

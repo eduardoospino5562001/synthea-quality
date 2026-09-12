@@ -6,7 +6,7 @@ import pytest
 
 from synthea_quality.schema import temporal
 from synthea_quality.schema.quality import date_rule_for
-from synthea_quality.schema.tables import tables_by_name
+from synthea_quality.schema.tables import REFERENCE_DATASET, tables_by_name
 from synthea_quality.schema.temporal import (
     EVENT_DATE_RULES,
     INTERVAL_RULES,
@@ -122,13 +122,18 @@ def test_unresolved_relations_are_documented_and_not_applied() -> None:
     claims, coverage = UNRESOLVED_TEMPORAL_RELATIONS
     # the epoch sentinel is the reason the claim transaction pair is not enforced
     assert claims.relation.startswith("claims_transactions")
-    assert "1970-01-01T00:00:00Z" in claims.observed
-    assert "6,555 of 85,047" in claims.observed
+    assert "1970-01-01T00:00:00Z" in claims.reference_evidence
+    assert "6,555 of 85,047" in claims.reference_evidence
     assert "false failures" in claims.why_not_enforced
+    # the evidence is attributed to the reference dataset, never to a reported one
+    assert claims.reference_dataset == REFERENCE_DATASET
+    assert "2026-08" in claims.reference_dataset
+    assert "claimEntry.entry.stop" in claims.implemented_as
     # the coverage pair is clean today, but its writer is the risky one
     assert coverage.relation.startswith("payer_transitions")
-    assert "3,815 of 3,815" in coverage.observed
-    assert "iso8601Timestamp" in coverage.why_not_enforced
+    assert "3,815 of 3,815" in coverage.reference_evidence
+    assert coverage.reference_dataset == REFERENCE_DATASET
+    assert "iso8601Timestamp" in coverage.implemented_as
     for entry in UNRESOLVED_TEMPORAL_RELATIONS:
         assert entry.documented_as.strip() and entry.pending.strip()
 
@@ -201,9 +206,15 @@ def test_comparing_a_column_without_a_confirmed_format_is_rejected(monkeypatch) 
 
 def test_unresolved_relation_without_its_notes_is_rejected(monkeypatch) -> None:
     incomplete = temporal.UnresolvedTemporalRelation(
-        relation="a <= b", documented_as="x", observed="", why_not_enforced="y", pending="z"
+        relation="a <= b",
+        documented_as="x",
+        implemented_as="y",
+        reference_dataset="",
+        reference_evidence="e",
+        why_not_enforced="w",
+        pending="p",
     )
     monkeypatch.setattr(temporal, "UNRESOLVED_TEMPORAL_RELATIONS", (incomplete,))
 
-    with pytest.raises(temporal._CatalogueError, match="needs a 'observed' note"):
+    with pytest.raises(temporal._CatalogueError, match="needs a 'reference_dataset' note"):
         temporal._validate_catalogue()

@@ -36,6 +36,15 @@ SOURCE_REPOSITORY = "synthetichealth/synthea"
 SOURCE_COMMIT = "d9d07a6eef91ee5144293b42ab64224d84d124f8"
 SOURCE_FILE = "src/main/java/org/mitre/synthea/export/CSVConstants.java"
 
+#: The dataset this project uses as *reference evidence* when a question cannot be
+#: settled from the sources alone. Every quantity quoted in a report must be
+#: attributed to it, because that evidence comes from this dataset and was never
+#: measured on the dataset a report is about.
+REFERENCE_DATASET = (
+    "official 2026-08 Synthea sample (synthea-sample-data, downloads/latest, "
+    "generated from synthea commit d9d07a6e, 100 patients)"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TableSpec:

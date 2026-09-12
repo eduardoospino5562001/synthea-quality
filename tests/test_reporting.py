@@ -394,8 +394,52 @@ def test_markdown_reports_unresolved_relations_as_pending_not_defects() -> None:
     assert "fk.claims_transactions.PATIENTINSURANCEID->payer_transitions.MEMBERID" in text
     assert "claims_transactions.FROMDATE <= TODATE" in text
     assert "Pending:" in text
+    assert "Implemented in Synthea as:" in text
+    assert "Reference evidence (" in text
     # and it is not counted as a failure
     assert "Verdict: no check failed and no check produced a warning." in text
+
+
+def test_unresolved_relations_do_not_depend_on_the_reported_dataset(tmp_path: Path) -> None:
+    """They describe the tool, not the dataset, so they are identical for any input."""
+    other = build_report(clean_dataset(tmp_path), generated_at=FIXED_TIME)
+
+    assert other.unresolved_relations == unresolved_relations()
+
+
+def test_a_report_for_another_dataset_never_claims_the_reference_numbers(
+    tmp_path: Path,
+) -> None:
+    """Evidence measured on the reference sample must not read as this dataset's."""
+    report = build_report(clean_dataset(tmp_path), generated_at=FIXED_TIME)
+
+    text = render_markdown(report)
+    head, separator, section = text.partition("## Documented relations not applied")
+
+    assert separator, "the unresolved section must be present"
+    assert "not on the dataset analysed in this report" in section
+    assert f"`{report.data_dir}`" in section
+    for entry in report.unresolved_relations:
+        # the quantities and their origin appear only inside that section
+        assert entry.reference_dataset not in head
+        assert entry.reference_evidence not in head
+        assert entry.reference_evidence in section
+        assert f"Reference evidence (`{entry.reference_dataset}`)" in section
+        assert "2026-08" in entry.reference_dataset
+
+
+def test_json_attributes_the_reference_evidence_to_its_dataset(tmp_path: Path) -> None:
+    report = build_report(clean_dataset(tmp_path), generated_at=FIXED_TIME)
+
+    payload = json.loads(json_report.dumps(report))
+    entries = payload["dataset"]["unresolved_relations"]
+
+    assert entries
+    for entry in entries:
+        assert entry["reference_dataset"].strip()
+        assert entry["reference_evidence"].strip()
+        assert entry["implemented_as"].strip()
+        assert "observed" not in entry
 
 
 def test_markdown_of_an_incompatible_contract_is_explicit(tmp_path: Path) -> None:

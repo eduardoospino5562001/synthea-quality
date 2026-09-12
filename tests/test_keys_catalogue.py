@@ -20,7 +20,7 @@ from synthea_quality.schema.keys import (
     parent_columns,
     primary_key_for,
 )
-from synthea_quality.schema.tables import tables_by_name
+from synthea_quality.schema.tables import REFERENCE_DATASET, tables_by_name
 
 
 def test_every_rule_points_at_a_real_table_and_column() -> None:
@@ -88,10 +88,14 @@ def test_unresolved_relationship_is_documented_and_not_applied() -> None:
     # documented, but neither applied as a rule nor declared wrong
     assert unresolved.rule not in FOREIGN_KEYS
     assert "Foreign key to the Payer Transitions table member ID" in unresolved.documented_as
-    assert "170 of 79,453" in unresolved.observed
+    assert "170 of 79,453" in unresolved.reference_evidence
     assert "CSVExporter.java:1566" in unresolved.implemented_as
     assert "false alarm" in unresolved.why_not_enforced
     assert "maintainer's confirmation" in unresolved.pending
+    # the measurement is attributed to the reference dataset, not to a reported one
+    assert unresolved.reference_dataset == REFERENCE_DATASET
+    assert "2026-08" in unresolved.reference_dataset
+    assert "official" not in unresolved.reference_evidence.lower()
 
 
 def test_unresolved_relationship_produces_no_verdict() -> None:
@@ -107,14 +111,31 @@ def test_unresolved_rule_without_its_documentation_is_rejected(monkeypatch) -> N
     incomplete = keys.UnresolvedForeignKey(
         rule=ForeignKeyRule("conditions", "PATIENT", "patients"),
         documented_as="something",
-        observed="",
         implemented_as="x",
+        reference_dataset=REFERENCE_DATASET,
+        reference_evidence="",
         why_not_enforced="y",
         pending="z",
     )
     monkeypatch.setattr(keys, "UNRESOLVED_FOREIGN_KEYS", (incomplete,))
 
-    with pytest.raises(keys._CatalogueError, match="needs a 'observed' note"):
+    with pytest.raises(keys._CatalogueError, match="needs a 'reference_evidence' note"):
+        keys._validate_catalogue()
+
+
+def test_unresolved_rule_without_a_reference_dataset_is_rejected(monkeypatch) -> None:
+    incomplete = keys.UnresolvedForeignKey(
+        rule=ForeignKeyRule("conditions", "PATIENT", "patients"),
+        documented_as="documented",
+        implemented_as="implemented",
+        reference_dataset="   ",
+        reference_evidence="170 of 79,453",
+        why_not_enforced="why",
+        pending="pending",
+    )
+    monkeypatch.setattr(keys, "UNRESOLVED_FOREIGN_KEYS", (incomplete,))
+
+    with pytest.raises(keys._CatalogueError, match="needs a 'reference_dataset' note"):
         keys._validate_catalogue()
 
 

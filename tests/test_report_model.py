@@ -133,7 +133,9 @@ def test_new_report_fields_survive_a_json_round_trip() -> None:
                 kind="foreign_key",
                 relation="fk.claims_transactions.PATIENTINSURANCEID->payer_transitions.MEMBERID",
                 documented_as="documented",
-                observed="observed",
+                implemented_as="implemented",
+                reference_dataset="official 2026-08 Synthea sample",
+                reference_evidence="170 of 79,453 references",
                 why_not_enforced="why",
                 pending="pending",
             ),
@@ -182,7 +184,24 @@ def test_unresolved_relation_requires_every_note() -> None:
             kind="temporal",
             relation="a <= b",
             documented_as="d",
-            observed="o",
+            implemented_as="i",
+            reference_dataset="official 2026-08 Synthea sample",
+            reference_evidence="o",
             why_not_enforced="w",
             pending="",
+        )
+
+
+def test_unresolved_relation_requires_a_reference_dataset() -> None:
+    """Evidence with no dataset attached could be read as measured on the report's dataset."""
+    with pytest.raises(ValueError, match="reference_dataset must be a non-empty string"):
+        UnresolvedRelation(
+            kind="temporal",
+            relation="a <= b",
+            documented_as="d",
+            implemented_as="i",
+            reference_dataset="  ",
+            reference_evidence="6,555 of 85,047 rows",
+            why_not_enforced="w",
+            pending="p",
         )

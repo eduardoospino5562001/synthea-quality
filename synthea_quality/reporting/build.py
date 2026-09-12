@@ -113,7 +113,9 @@ def unresolved_relations() -> tuple[UnresolvedRelation, ...]:
             kind="foreign_key",
             relation=entry.rule.check_id,
             documented_as=entry.documented_as,
-            observed=entry.observed,
+            implemented_as=entry.implemented_as,
+            reference_dataset=entry.reference_dataset,
+            reference_evidence=entry.reference_evidence,
             why_not_enforced=entry.why_not_enforced,
             pending=entry.pending,
         )
@@ -124,7 +126,9 @@ def unresolved_relations() -> tuple[UnresolvedRelation, ...]:
             kind="temporal",
             relation=entry.relation,
             documented_as=entry.documented_as,
-            observed=entry.observed,
+            implemented_as=entry.implemented_as,
+            reference_dataset=entry.reference_dataset,
+            reference_evidence=entry.reference_evidence,
             why_not_enforced=entry.why_not_enforced,
             pending=entry.pending,
         )

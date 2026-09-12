@@ -70,7 +70,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from synthea_quality.schema.quality import date_rule_for
-from synthea_quality.schema.tables import TableSpec, tables_by_name
+from synthea_quality.schema.tables import REFERENCE_DATASET, TableSpec, tables_by_name
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,11 +117,18 @@ class EventDateRule:
 
 @dataclass(frozen=True, slots=True)
 class UnresolvedTemporalRelation:
-    """A relation the documentation suggests but that is not safe to enforce yet."""
+    """A relation the documentation suggests but that is not safe to enforce yet.
+
+    As in the key catalogue, the five things a reader must tell apart are stored
+    apart, and the quantitative evidence is attributed to the dataset it was
+    measured on rather than to the dataset a report is about.
+    """
 
     relation: str
     documented_as: str
-    observed: str
+    implemented_as: str
+    reference_dataset: str
+    reference_evidence: str
     why_not_enforced: str
     pending: str
 
@@ -249,21 +256,27 @@ UNRESOLVED_TEMPORAL_RELATIONS: tuple[UnresolvedTemporalRelation, ...] = (
         documented_as=(
             "dictionary: From Date 'Transaction start date' / To Date 'Transaction end date'"
         ),
-        observed=(
-            "official 2026-08 sample: 6,555 of 85,047 rows (7.7%) carry "
-            "'1970-01-01T00:00:00Z' in TODATE, which inverts the pair in 6,541 rows; "
-            "no other date column of the sample contains that value"
+        implemented_as=(
+            "CSVExporter.java: ClaimTransaction.toString() writes FROMDATE from the "
+            "transaction start and TODATE from its stop ('this.stop = claimEntry.entry.stop'), "
+            "and an unset stop is the value 0, which iso8601Timestamp renders as "
+            "'1970-01-01T00:00:00Z'"
+        ),
+        reference_dataset=REFERENCE_DATASET,
+        reference_evidence=(
+            "6,555 of 85,047 rows (7.7%) carry '1970-01-01T00:00:00Z' in TODATE, which "
+            "inverts the pair in 6,541 rows; no other date column of that sample contains "
+            "that value"
         ),
         why_not_enforced=(
-            "the epoch is what iso8601Timestamp writes for an unset stop time "
-            "(CSVExporter.java: this.stop = claimEntry.entry.stop), so the inversion "
-            "means 'no end', not 'ends before it starts'; enforcing it would report "
-            "6,541 false failures"
+            "the epoch is what an unset stop time looks like in this table, so the "
+            "inversion means 'no end' rather than 'ends before it starts'; enforcing the "
+            "relation would report 6,541 false failures on that reference dataset"
         ),
         pending=(
-            "confirmation of how a missing end is meant to be interpreted in this "
-            "table, or an explicit sentinel rule; until then the relation is neither "
-            "enforced nor declared a Synthea defect"
+            "confirmation of how a missing end is meant to be interpreted in this table, "
+            "or an explicit sentinel rule; until then the relation is neither enforced nor "
+            "declared a Synthea defect"
         ),
     ),
     UnresolvedTemporalRelation(
@@ -272,18 +285,25 @@ UNRESOLVED_TEMPORAL_RELATIONS: tuple[UnresolvedTemporalRelation, ...] = (
             "dictionary (under the stale names START_YEAR/END_YEAR): 'The year the "
             "coverage started (inclusive)' / '... the year the coverage ended (inclusive)'"
         ),
-        observed=(
-            "official 2026-08 sample: 3,815 of 3,815 rows are ordered correctly and "
-            "none is null, so enforcing it would not fire today"
+        implemented_as=(
+            "CSVExporter.java:1044 exportPayerTransition writes START_DATE with "
+            "iso8601Timestamp(planRecord.getStartTime()) and END_DATE with "
+            "iso8601Timestamp(planRecord.getStopTime()), the same writer that turns an "
+            "unset value into the epoch; its own comment still says START_YEAR/END_YEAR"
+        ),
+        reference_dataset=REFERENCE_DATASET,
+        reference_evidence=(
+            "3,815 of 3,815 rows are ordered correctly and none is null, so enforcing the "
+            "relation would not fire on that reference dataset"
         ),
         why_not_enforced=(
-            "its end date is written with iso8601Timestamp of a possibly unset value, "
-            "the same code path that produces the epoch sentinel in "
-            "claims_transactions, so an open-ended plan could invert the pair"
+            "the end date goes through the same possibly-unset timestamp path that "
+            "produces the epoch sentinel in claims_transactions, so an open-ended plan "
+            "could invert the pair"
         ),
         pending=(
-            "evidence that a missing coverage end is written as an empty field rather "
-            "than the epoch, as it is for conditions.stop"
+            "evidence that a missing coverage end is written as an empty field rather than "
+            "the epoch, as it is for conditions.stop"
         ),
     ),
 )
@@ -329,7 +349,15 @@ def _validate_catalogue() -> None:
         _check_unique(seen, rule.check_id)
 
     for unresolved in UNRESOLVED_TEMPORAL_RELATIONS:
-        for field_name in ("relation", "documented_as", "observed", "why_not_enforced", "pending"):
+        for field_name in (
+            "relation",
+            "documented_as",
+            "implemented_as",
+            "reference_dataset",
+            "reference_evidence",
+            "why_not_enforced",
+            "pending",
+        ):
             if not getattr(unresolved, field_name).strip():
                 raise _CatalogueError(
                     f"unresolved temporal relation {unresolved.relation} needs a "

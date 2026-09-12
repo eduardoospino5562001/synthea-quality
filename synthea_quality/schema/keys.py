@@ -19,11 +19,13 @@ Two facts are deliberately *not* modelled as rules:
 ``claims_transactions.PATIENTINSURANCEID``
     Documented as a foreign key to the payer transition member id, but **not applied
     as a constraint**. See :data:`UNRESOLVED_FOREIGN_KEYS`: the dictionary states the
-    relationship, the official sample shows 170 references (3 patients) that match no
-    ``payer_transitions.MEMBERID``, and ``CSVExporter.java`` writes the value from the
-    claim's plan record (``this.memberId = claim.getPlanRecordMemberId()``). Until a
-    maintainer confirms the intended semantics, the relationship is neither enforced
-    (which would emit ``FAIL`` for legitimate data) nor declared wrong.
+    relationship, the reference dataset (see
+    :data:`~synthea_quality.schema.tables.REFERENCE_DATASET`) shows 170 references
+    (3 patients) that match no ``payer_transitions.MEMBERID``, and
+    ``CSVExporter.java`` writes the value from the claim's plan record
+    (``this.memberId = claim.getPlanRecordMemberId()``). Until a maintainer confirms
+    the intended semantics, the relationship is neither enforced (which would emit
+    ``FAIL`` for legitimate data) nor declared wrong.
 
 The catalogue is validated on import against the generated table catalogue: a rule
 pointing at a table or column that does not exist is a bug here, not a dataset
@@ -35,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from synthea_quality.schema.tables import TableSpec, tables_by_name
+from synthea_quality.schema.tables import REFERENCE_DATASET, TableSpec, tables_by_name
 
 #: Provenance recorded on every rule derived from Synthea's own documentation.
 DATA_DICTIONARY = "Synthea CSV File Data Dictionary (:key: / :old_key:)"
@@ -78,15 +80,23 @@ class UnresolvedForeignKey:
     Kept separate from :data:`FOREIGN_KEYS` on purpose: the relationship is not
     declared wrong, it is simply not safe to enforce, so no ``FAIL`` is produced
     for it until a maintainer confirms the intended semantics.
+
+    The five things a reader must be able to tell apart are stored apart, and the
+    quantitative evidence is attributed to the dataset it came from:
+    ``documented_as`` (documentation), ``implemented_as`` (generator code),
+    ``reference_dataset`` + ``reference_evidence`` (a measurement on that dataset,
+    never on the dataset a report is about), ``why_not_enforced`` and ``pending``.
     """
 
     rule: ForeignKeyRule
     #: What Synthea's own documentation states about the relationship.
     documented_as: str
-    #: What the official sample data shows.
-    observed: str
     #: What the generator source does.
     implemented_as: str
+    #: Which dataset produced ``reference_evidence``.
+    reference_dataset: str
+    #: The measurement made on ``reference_dataset``, not on the reported dataset.
+    reference_evidence: str
     #: Why this tool does not turn the above into a failure.
     why_not_enforced: str
     #: What is still needed before it can become a rule.
@@ -165,15 +175,16 @@ UNRESOLVED_FOREIGN_KEYS: tuple[UnresolvedForeignKey, ...] = (
             "CSV File Data Dictionary, claims_transactions: 'Patient Insurance ID ... "
             "Foreign key to the Payer Transitions table member ID'"
         ),
-        observed=(
-            "official 2026-08 sample: 170 of 79,453 non-null references (5 distinct values, "
-            "belonging to 3 patients) match no payer_transitions.MEMBERID, and those 3 "
-            "patients have no row in payer_transitions at all"
-        ),
         implemented_as=(
             "CSVExporter.java:1566 sets 'this.memberId = claim.getPlanRecordMemberId()' and "
             "line 1686 writes it to PATIENTINSURANCEID, while payer_transitions.MEMBERID is "
             "produced by a separate export"
+        ),
+        reference_dataset=REFERENCE_DATASET,
+        reference_evidence=(
+            "170 of 79,453 non-null references (5 distinct values, belonging to 3 patients) "
+            "match no payer_transitions.MEMBERID, and those 3 patients have no row in "
+            "payer_transitions at all"
         ),
         why_not_enforced=(
             "applying it as a strict foreign key would emit FAIL for data the generator "
@@ -229,7 +240,14 @@ def _validate_catalogue() -> None:
             unresolved.rule.parent_column,
             "unresolved rule target",
         )
-        for field_name in ("documented_as", "observed", "implemented_as", "why_not_enforced", "pending"):
+        for field_name in (
+            "documented_as",
+            "implemented_as",
+            "reference_dataset",
+            "reference_evidence",
+            "why_not_enforced",
+            "pending",
+        ):
             if not getattr(unresolved, field_name).strip():
                 raise _CatalogueError(
                     f"unresolved rule {unresolved.rule.check_id} needs a '{field_name}' note"

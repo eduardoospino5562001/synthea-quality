@@ -288,19 +288,39 @@ class UnresolvedRelation:
 
     It is reported so a reader knows it was considered, and it must never be
     presented as a dataset defect: it is pending a maintainer's confirmation.
+
+    Five different things are kept apart, and the quantitative evidence is
+    attributed to the dataset that produced it:
+
+    * ``documented_as`` — what Synthea's documentation states;
+    * ``implemented_as`` — what the generator source does;
+    * ``reference_dataset`` + ``reference_evidence`` — a measurement made on that
+      dataset, never on the dataset a report is about;
+    * ``why_not_enforced`` — why it is not applied as a constraint;
+    * ``pending`` — the question only a maintainer can answer.
     """
 
     kind: str
     relation: str
     documented_as: str
-    observed: str
+    implemented_as: str
+    reference_dataset: str
+    reference_evidence: str
     why_not_enforced: str
     pending: str
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, str) or not self.kind.strip():
             raise ValueError("kind must be a non-empty string")
-        for name in ("relation", "documented_as", "observed", "why_not_enforced", "pending"):
+        for name in (
+            "relation",
+            "documented_as",
+            "implemented_as",
+            "reference_dataset",
+            "reference_evidence",
+            "why_not_enforced",
+            "pending",
+        ):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
@@ -310,7 +330,9 @@ class UnresolvedRelation:
             "kind": self.kind,
             "relation": self.relation,
             "documented_as": self.documented_as,
-            "observed": self.observed,
+            "implemented_as": self.implemented_as,
+            "reference_dataset": self.reference_dataset,
+            "reference_evidence": self.reference_evidence,
             "why_not_enforced": self.why_not_enforced,
             "pending": self.pending,
         }
@@ -321,7 +343,9 @@ class UnresolvedRelation:
             kind=data["kind"],
             relation=data["relation"],
             documented_as=data["documented_as"],
-            observed=data["observed"],
+            implemented_as=data["implemented_as"],
+            reference_dataset=data["reference_dataset"],
+            reference_evidence=data["reference_evidence"],
             why_not_enforced=data["why_not_enforced"],
             pending=data["pending"],
         )
