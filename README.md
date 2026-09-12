@@ -75,6 +75,10 @@ synthea_quality/
         keys.py       primary key and foreign key integrity
         quality.py    duplicate rows, empty columns, nulls, date shapes
         temporal.py   start <= stop, birth <= death, event >= birth
+    reporting/
+        build.py      aggregate one dataset into a DatasetReport
+        json_report.py  deterministic JSON serialisation
+        markdown.py   human-readable rendering
     schema/
         tables.py     the 19 Synthea CSV tables and their expected columns
         contract.py   versioned contracts + header matching
@@ -94,10 +98,36 @@ tests/
     test_checks_quality.py
     test_temporal_rules.py
     test_checks_temporal.py
+    test_report_model.py
+    test_reporting.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
 check needs them.
+
+## Reports
+
+One run of the tool produces the same structured result in two forms:
+
+| Output | Purpose |
+| --- | --- |
+| Markdown | for a person: scope and contract verdict, summary, findings, detail, what was deliberately not checked |
+| JSON | for people and automation: versioned, deterministic, every metric and sample |
+
+The pipeline is kept in separate layers: `data -> checks -> structured model
+(DatasetReport) -> renderer`. The check modules only ever see data that was already
+loaded, and the renderers only ever see a report: rendering reads no CSV, runs no
+check and imports no data library, so the JSON of a report reproduces its Markdown
+exactly. Every check identifier, metric and sample survives into the JSON; the
+Markdown summarises passing checks by identifier and shows metrics and samples for
+the findings.
+
+A report states what was observed and never more: the contract result is
+`COMPATIBLE`, `INCOMPATIBLE` or `UNKNOWN`, and `COMPATIBLE` is presented as evidence
+of consistency among the tables the dataset actually contains, not as proof of the
+Synthea version that produced it. Relationships the documentation describes but the
+tool does not enforce are listed in their own section, marked as pending a
+maintainer's confirmation rather than as dataset defects.
 
 ## Scalability
 
@@ -131,7 +161,7 @@ chunked/streamed processing.
 | 6. Primary key / referential integrity checks | done |
 | 7. Data quality checks | done |
 | 8. Temporal checks | done |
-| 9. Markdown + JSON reports | pending |
+| 9. Markdown + JSON reports | done |
 | 10. CLI | pending |
 | 11. Verification against the official sample dataset | pending |
 | 12. README completion and final review | pending |

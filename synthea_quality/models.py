@@ -29,6 +29,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from synthea_quality import __version__
+from synthea_quality.schema.contract import ContractStatus
 
 #: Version of the JSON layout produced by :meth:`DatasetReport.to_dict`.
 REPORT_SCHEMA_VERSION = 1
@@ -105,6 +106,38 @@ _SEVERITY_RANK: dict[Severity, int] = {
 def utc_now_iso() -> str:
     """Current UTC time as an ISO-8601 string with second precision."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+#: Categories a check belongs to, in the order a report should present them.
+#: The category is derived from the check identifier, so adding a check to an
+#: existing family needs no change here.
+CHECK_CATEGORIES: tuple[str, ...] = (
+    "schema",
+    "primary_keys",
+    "foreign_keys",
+    "data_quality",
+    "temporal",
+    "other",
+)
+
+_CATEGORY_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("schema.", "schema"),
+    ("pk.", "primary_keys"),
+    ("fk.", "foreign_keys"),
+    ("dates.", "data_quality"),
+    ("duplicates.", "data_quality"),
+    ("empty_columns.", "data_quality"),
+    ("nulls.", "data_quality"),
+    ("temporal.", "temporal"),
+)
+
+
+def category_of(check_id: str) -> str:
+    """Category a check belongs to, or ``other`` for an unrecognised identifier."""
+    for prefix, category in _CATEGORY_PREFIXES:
+        if check_id.startswith(prefix):
+            return category
+    return "other"
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +257,77 @@ class TableSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class LoadError:
+    """A table the tool could not read at all.
+
+    Only reading failures detected while inspecting the dataset are listed here; a
+    table whose content turns out to be malformed when a check loads it appears as
+    ``SKIPPED`` in that check, with the reason in its message.
+    """
+
+    table: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.table, str) or not self.table.strip():
+            raise ValueError("table must be a non-empty string")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("reason must be a non-empty string")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"table": self.table, "reason": self.reason}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "LoadError":
+        return cls(table=data["table"], reason=data["reason"])
+
+
+@dataclass(frozen=True, slots=True)
+class UnresolvedRelation:
+    """A relationship the documentation describes but the tool does not enforce.
+
+    It is reported so a reader knows it was considered, and it must never be
+    presented as a dataset defect: it is pending a maintainer's confirmation.
+    """
+
+    kind: str
+    relation: str
+    documented_as: str
+    observed: str
+    why_not_enforced: str
+    pending: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not self.kind.strip():
+            raise ValueError("kind must be a non-empty string")
+        for name in ("relation", "documented_as", "observed", "why_not_enforced", "pending"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "relation": self.relation,
+            "documented_as": self.documented_as,
+            "observed": self.observed,
+            "why_not_enforced": self.why_not_enforced,
+            "pending": self.pending,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "UnresolvedRelation":
+        return cls(
+            kind=data["kind"],
+            relation=data["relation"],
+            documented_as=data["documented_as"],
+            observed=data["observed"],
+            why_not_enforced=data["why_not_enforced"],
+            pending=data["pending"],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetReport:
     """Complete result of one run of the tool over one dataset directory."""
 
@@ -236,6 +340,19 @@ class DatasetReport:
     generated_at: str = field(default_factory=utc_now_iso)
     tool_version: str = __version__
     schema_version: int = REPORT_SCHEMA_VERSION
+    #: Number of tables the contract describes, so a report can state how much of
+    #: it was actually observed.
+    contract_tables: int = 0
+    #: ``COMPATIBLE`` / ``INCOMPATIBLE`` / ``UNKNOWN``, or ``None`` when no contract
+    #: was assessed at all. Deliberately never "the dataset is version X".
+    contract_status: ContractStatus | None = None
+    #: One-line statement of what was compared against the contract.
+    contract_summary: str | None = None
+    #: Per-table deviations from the contract, as written by the contract check.
+    contract_findings: tuple[str, ...] = ()
+    load_errors: tuple[LoadError, ...] = ()
+    #: Documented relations that are not enforced (see the schema catalogue).
+    unresolved_relations: tuple[UnresolvedRelation, ...] = ()
 
     @property
     def counts_by_status(self) -> dict[str, int]:
@@ -262,6 +379,40 @@ class DatasetReport:
             return None
         return max(findings, key=lambda check: check.severity.rank).severity
 
+    @property
+    def findings(self) -> tuple[CheckResult, ...]:
+        """Checks that reported something to look at, most severe and urgent first."""
+        selected = [
+            check
+            for check in self.checks
+            if check.status in (Status.FAIL, Status.WARNING, Status.ERROR)
+        ]
+        order = {Status.FAIL: 0, Status.ERROR: 1, Status.WARNING: 2}
+        return tuple(
+            sorted(selected, key=lambda check: (order[check.status], -check.severity.rank, check.check_id))
+        )
+
+    @property
+    def findings_by_severity(self) -> dict[str, int]:
+        """How many findings (FAIL, WARNING, ERROR) of each severity, zero included."""
+        counts = {severity.value: 0 for severity in Severity}
+        for check in self.findings:
+            counts[check.severity.value] += 1
+        return counts
+
+    @property
+    def checks_by_category(self) -> dict[str, tuple[CheckResult, ...]]:
+        """Checks grouped by category, in ``CHECK_CATEGORIES`` order."""
+        grouped: dict[str, list[CheckResult]] = {name: [] for name in CHECK_CATEGORIES}
+        for check in self.checks:
+            grouped[category_of(check.check_id)].append(check)
+        return {name: tuple(grouped[name]) for name in CHECK_CATEGORIES}
+
+    @property
+    def counts_by_category(self) -> dict[str, int]:
+        """Number of checks per category, including empty categories."""
+        return {name: len(checks) for name, checks in self.checks_by_category.items()}
+
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible representation of the whole report."""
         highest = self.highest_severity_finding
@@ -272,14 +423,25 @@ class DatasetReport:
                 "generated_at": self.generated_at,
                 "tool_version": self.tool_version,
                 "schema_contract": self.schema_contract,
+                "contract_tables": self.contract_tables,
+                "contract_status": self.contract_status.value if self.contract_status else None,
+                "contract_summary": self.contract_summary,
+                "contract_findings": list(self.contract_findings),
                 "unknown_files": list(self.unknown_files),
                 "missing_known_tables": list(self.missing_known_tables),
+                "tables_observed": len(self.tables),
+                "load_errors": [error.to_dict() for error in self.load_errors],
+                "unresolved_relations": [
+                    relation.to_dict() for relation in self.unresolved_relations
+                ],
             },
             "tables": [table.to_dict() for table in self.tables],
             "checks": [check.to_dict() for check in self.checks],
             "summary": {
                 "checks_total": len(self.checks),
                 "by_status": self.counts_by_status,
+                "by_category": self.counts_by_category,
+                "findings_by_severity": self.findings_by_severity,
                 "highest_severity_finding": highest.value if highest else None,
                 "has_failures": self.has_failures,
             },
@@ -291,7 +453,11 @@ class DatasetReport:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DatasetReport":
-        """Rebuild a report from :meth:`to_dict` output."""
+        """Rebuild a report from :meth:`to_dict` output.
+
+        Keys added within the same report schema version are optional here, so a
+        report written by an earlier build of the tool still loads.
+        """
         version = data.get("schema_version")
         if version != REPORT_SCHEMA_VERSION:
             raise ValueError(
@@ -299,6 +465,7 @@ class DatasetReport:
                 f"this version of the tool reads {REPORT_SCHEMA_VERSION}"
             )
         dataset = data.get("dataset") or {}
+        status = dataset.get("contract_status")
         return cls(
             data_dir=dataset["data_dir"],
             tables=tuple(TableSummary.from_dict(item) for item in (data.get("tables") or ())),
@@ -309,6 +476,17 @@ class DatasetReport:
             generated_at=dataset["generated_at"],
             tool_version=dataset["tool_version"],
             schema_version=version,
+            contract_tables=int(dataset.get("contract_tables") or 0),
+            contract_status=ContractStatus(status) if status else None,
+            contract_summary=dataset.get("contract_summary"),
+            contract_findings=tuple(dataset.get("contract_findings") or ()),
+            load_errors=tuple(
+                LoadError.from_dict(item) for item in (dataset.get("load_errors") or ())
+            ),
+            unresolved_relations=tuple(
+                UnresolvedRelation.from_dict(item)
+                for item in (dataset.get("unresolved_relations") or ())
+            ),
         )
 
     @classmethod
