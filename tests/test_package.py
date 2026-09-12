@@ -11,6 +11,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 import synthea_quality
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -28,13 +30,14 @@ def test_version_matches_pyproject() -> None:
     assert synthea_quality.__version__ == project["version"]
 
 
-def test_importing_the_package_does_not_import_pandas() -> None:
-    """Importing the package root must stay lightweight.
+@pytest.mark.parametrize("module", ["synthea_quality", "synthea_quality.models"])
+def test_importing_package_modules_does_not_import_pandas(module: str) -> None:
+    """Importing the package modules that do not need pandas must stay lightweight.
 
-    pandas is only needed once a dataset is actually loaded, so the package
-    root must not pull it in at import time.
+    pandas is only needed once a dataset is actually loaded, so the package root
+    and the result models must not pull it in at import time.
     """
-    code = "import sys, synthea_quality; print('pandas' in sys.modules)"
+    code = f"import sys, {module}; print('pandas' in sys.modules)"
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
