@@ -480,3 +480,16 @@ def test_an_unreadable_table_is_recorded_and_the_run_continues(tmp_path: Path, c
     patients = [check for check in report["checks"] if check["table"] == "patients"]
     assert any(check["status"] == "PASS" for check in patients)
 
+
+def test_a_header_only_table_reports_zero_rows_in_the_json(tmp_path: Path) -> None:
+    """``rows`` must be 0 for an empty table, not unknown."""
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text("Id,BIRTHDATE\n", encoding="utf-8", newline="")
+    output = tmp_path / "out"
+
+    main([str(dataset), "--output-dir", str(output)])
+
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    summary = next(table for table in report["tables"] if table["name"] == "patients")
+    assert summary["rows"] == 0

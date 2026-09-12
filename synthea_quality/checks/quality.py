@@ -99,8 +99,13 @@ def check_duplicate_rows(
     check_id = f"duplicates.{table}"
 
     if rows == 0:
+        # Zero rows is a fact about the table, not an unknown: the report has to be able
+        # to tell "no rows" from "this table could not be read".
         return _not_applicable(
-            check_id, table, f"table {table} has no row, so no row can be duplicated"
+            check_id,
+            table,
+            f"table {table} has no row, so no row can be duplicated",
+            metrics=_empty_table_metrics(frame),
         )
 
     duplicated_mask = frame.duplicated(keep=False)
@@ -173,7 +178,10 @@ def check_empty_columns(
 
     if rows == 0:
         return _not_applicable(
-            check_id, table, f"table {table} has no row, so its columns cannot be judged"
+            check_id,
+            table,
+            f"table {table} has no row, so its columns cannot be judged",
+            metrics=_empty_table_metrics(frame),
         )
 
     empty = [str(column) for column in frame.columns if bool(frame[column].isna().all())]
@@ -221,7 +229,10 @@ def check_nulls(
 
     if rows == 0:
         return _not_applicable(
-            check_id, table, f"table {table} has no row, so it has no null to count"
+            check_id,
+            table,
+            f"table {table} has no row, so it has no null to count",
+            metrics=_empty_table_metrics(frame),
         )
 
     counts = frame.isna().sum()
@@ -437,13 +448,25 @@ def _table_check_ids(table: str) -> tuple[str, ...]:
     return (f"duplicates.{table}", f"empty_columns.{table}", f"nulls.{table}")
 
 
-def _not_applicable(check_id: str, table: str, message: str) -> CheckResult:
+def _empty_table_metrics(frame: pd.DataFrame) -> Mapping[str, object]:
+    """Metrics of a table with no data row: zero rows, and the columns it declares."""
+    return {"rows": 0, "columns": int(len(frame.columns))}
+
+
+def _not_applicable(
+    check_id: str,
+    table: str,
+    message: str,
+    *,
+    metrics: Mapping[str, object] | None = None,
+) -> CheckResult:
     return CheckResult(
         check_id=check_id,
         status=Status.NOT_APPLICABLE,
         severity=_severity_for(check_id),
         message=message,
         table=table,
+        metrics=metrics or {},
     )
 
 

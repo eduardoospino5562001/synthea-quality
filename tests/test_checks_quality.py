@@ -418,3 +418,19 @@ def test_an_empty_table_keeps_the_severity_of_each_check(tmp_path: Path) -> None
 # An empty table has zero rows, not an unknown number of them
 # --------------------------------------------------------------------------- #
 
+
+def test_a_header_only_table_reports_zero_rows(tmp_path: Path) -> None:
+    """``rows`` Unknown must be reserved for a table that could not be read.
+
+    Measured before the fix: a file holding only its header produced ``rows=None`` and
+    carried no metrics at all, so the report could not distinguish "no rows" from
+    "nothing is known about this table".
+    """
+    write(tmp_path, "patients.csv", "Id,BIRTHDATE\n")
+
+    results = {result.check_id: result for result in run_quality_checks(tmp_path)}
+
+    assert results["nulls.patients"].metrics["rows"] == 0
+    assert results["nulls.patients"].metrics["columns"] == 2
+    assert results["empty_columns.patients"].metrics["rows"] == 0
+    assert results["duplicates.patients"].metrics["rows"] == 0
