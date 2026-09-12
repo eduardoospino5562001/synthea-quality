@@ -106,6 +106,12 @@ tests/
     test_report_model.py
     test_reporting.py
     test_cli.py
+    integration/
+        test_acceptance_official_sample.py  end-to-end acceptance on the official sample
+scripts/
+    fetch_official_sample.py               download the sample (never into the repository)
+docs/
+    acceptance.md                          baseline: dataset, numbers, how to reproduce
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -161,6 +167,23 @@ Every check is deterministic, so this is not a statistical gate — no prevalenc
 incidence or distribution rule is applied, and no rate deviation fails a run.
 `--help` documents the interface and the exit codes; `--version` prints the version.
 
+## Acceptance baseline
+
+`docs/acceptance.md` records the dataset the tool is measured against, its digest, the
+exact expected numbers and how to reproduce them. The checks live in
+`tests/integration/test_acceptance_official_sample.py` and drive the real command line
+as a user would:
+
+```bash
+python scripts/fetch_official_sample.py   # the official sample, outside this repository
+.venv/bin/pytest -m integration          # the acceptance runs (skip if the dataset is absent)
+```
+
+They verify the full run on the official sample (155 checks, the documented statuses,
+exit code 0, both reports, deterministic output, untouched source files), one known
+corruption (exactly one failure, exit code 1) and a usage error (exit code 2). The
+dataset is never stored in this repository.
+
 ## Scalability
 
 Loading reads a whole table into memory; chunking is deliberately not implemented
@@ -195,7 +218,7 @@ chunked/streamed processing.
 | 8. Temporal checks | done |
 | 9. Markdown + JSON reports | done |
 | 10. CLI | done |
-| 11. Verification against the official sample dataset | pending |
+| 11. Verification against the official sample dataset | done |
 | 12. README completion and final review | pending |
 
 ## License

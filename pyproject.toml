@@ -39,3 +39,6 @@ packages = ["synthea_quality"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+  "integration: end-to-end acceptance runs that need the official Synthea sample (see docs/acceptance.md); they skip when the dataset is absent",
+]
