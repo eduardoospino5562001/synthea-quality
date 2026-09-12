@@ -373,3 +373,49 @@ def test_the_console_script_is_declared() -> None:
 
     assert "[project.scripts]" in pyproject
     assert 'synthea-quality = "synthea_quality.cli:run"' in pyproject
+
+
+# --------------------------------------------------------------------------- #
+# A dataset that cannot be checked is an input error, never a silent success
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unreadable_table_is_recorded_and_the_run_continues(tmp_path: Path, capsys) -> None:
+    """An OS failure on one table must not lose the analysis of the others."""
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text(
+        "Id,BIRTHDATE\np1,1980-01-01\n", encoding="utf-8", newline=""
+    )
+    unreadable = dataset / "encounters.csv"
+    unreadable.write_text(
+        "Id,START,STOP,PATIENT\ne1,2020-01-01T00:00:00Z,,p1\n", encoding="utf-8", newline=""
+    )
+    unreadable.chmod(0o000)
+    try:
+        unreadable.open("rb").close()
+    except OSError:
+        pass
+    else:
+        pytest.skip("this user can read a 0o000 file (running as root?)")
+
+    output = tmp_path / "out"
+    try:
+        code = main([str(dataset), "--output-dir", str(output)])
+    finally:
+        unreadable.chmod(0o644)
+
+    captured = capsys.readouterr()
+    assert code == EXIT_ERROR  # the analysis is incomplete, so the run is not "ok"
+    assert "Traceback" not in captured.err
+    # the terminal summary names the table whose analysis is missing
+    assert "Unreadable: encounters" in captured.out
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    assert [error["table"] for error in report["dataset"]["load_errors"]] == ["encounters"]
+    lost = [check for check in report["checks"] if check["table"] == "encounters"]
+    assert lost
+    assert all(check["status"] != "PASS" for check in lost)
+    # the table that could be read is still analysed
+    patients = [check for check in report["checks"] if check["table"] == "patients"]
+    assert any(check["status"] == "PASS" for check in patients)
+

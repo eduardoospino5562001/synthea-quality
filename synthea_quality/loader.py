@@ -12,14 +12,21 @@ Conventions this module establishes for the whole tool:
 * **Never modify the source.** Files are opened read-only; a test asserts the bytes
   are unchanged after loading.
 * **Nothing is dropped silently.** Anything that would change or lose data is an
-  error: rows whose field count does not match the header, a header pandas cannot
-  reproduce verbatim, non-UTF-8 bytes, an empty file. Errors are scoped to one
-  table (:class:`~synthea_quality.errors.TableLoadError`) so the caller can record
-  the failure and continue with the rest of the dataset.
+  error: a header pandas cannot reproduce verbatim, non-UTF-8 bytes, an empty file.
+  Errors are scoped to one table
+  (:class:`~synthea_quality.errors.TableLoadError`) so the caller can record the
+  failure and continue with the rest of the dataset, and that includes operating-system
+  failures: a file the process cannot open is reported as a ``TableLoadError``, never as
+  a bare ``OSError`` the caller might not catch.
 
-Known limitation: CSV cannot distinguish "a row with fewer fields than the header"
-from "trailing empty fields", and pandas pads such rows with nulls. Detecting it
-would need a second full pass over the file, so it is left to a future check.
+Where a row's field count is validated
+-------------------------------------
+Not here. Rows whose field count does not match the header are checked once per file by
+:mod:`synthea_quality.structure`, with the standard library's CSV reader, before any
+check loads the table. This module keeps pandas' own protection (a long row that would
+lose fields raises) as a second line of defence, but the loader cannot be the primary
+check: pandas only reports a long row when it reads every column, and it silently pads a
+short row with nulls.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ import csv
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence, cast
+from typing import IO, Sequence, cast
 
 import pandas as pd
 
@@ -39,6 +46,20 @@ ENCODING = "utf-8-sig"
 
 #: Value treated as missing. See the module docstring for why this is not pandas' default.
 MISSING_VALUES = ("",)
+
+
+def open_readable(path: str | Path) -> IO[str]:
+    """Open ``path`` for reading as UTF-8 text, or raise a clear :class:`TableLoadError`.
+
+    Every read in the tool goes through here, so an OS-level failure (no such file, not
+    a regular file, no read permission) is reported in the same vocabulary as any other
+    unreadable table instead of escaping as an ``OSError``.
+    """
+    file_path = _check_readable_file(path)
+    try:
+        return file_path.open(newline="", encoding=ENCODING)
+    except OSError as exc:
+        raise TableLoadError(f"{file_path} could not be read: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -78,12 +99,14 @@ def read_header(path: str | Path) -> tuple[str, ...]:
     """
     file_path = _check_readable_file(path)
     try:
-        with file_path.open(newline="", encoding=ENCODING) as handle:
+        with open_readable(file_path) as handle:
             row = next(csv.reader(handle), None)
     except UnicodeDecodeError as exc:
         raise TableLoadError(f"{file_path} is not valid UTF-8: {exc}") from exc
     except csv.Error as exc:
         raise TableLoadError(f"{file_path} has an unreadable header: {exc}") from exc
+    except OSError as exc:
+        raise TableLoadError(f"{file_path} could not be read: {exc}") from exc
 
     if row is None:
         raise TableLoadError(f"{file_path} is empty (no header line)")
@@ -256,3 +279,8 @@ def _read_frame(file_path: Path, *, usecols: list[str] | None) -> pd.DataFrame:
         raise TableLoadError(f"{file_path} is not valid UTF-8: {exc}") from exc
     except ValueError as exc:
         raise TableLoadError(f"{file_path} could not be parsed: {exc}") from exc
+    except OSError as exc:
+        # Permission, a vanished file, a directory passed as a table: an expected
+        # failure of the environment, reported like any other unreadable table so the
+        # caller can record it and keep going with the rest of the dataset.
+        raise TableLoadError(f"{file_path} could not be read: {exc}") from exc

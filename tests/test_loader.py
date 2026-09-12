@@ -321,3 +321,46 @@ def test_clear_releases_cached_tables(tmp_path: Path) -> None:
 
     assert dataset.cache_size == 0
     assert dataset.loaded_tables == ()
+
+
+# --------------------------------------------------------------------------- #
+# A file the operating system refuses to open is not a crash
+# --------------------------------------------------------------------------- #
+
+
+def unreadable_file(directory: Path, name: str = "patients.csv") -> Path:
+    """Return a file this user cannot read, or skip if the platform allows it anyway."""
+    path = write_text(directory, name, PATIENTS_TEXT)
+    path.chmod(0o000)
+    try:
+        path.open("rb").close()
+    except OSError:
+        return path
+    pytest.skip("this user can read a 0o000 file (running as root?)")
+
+
+def test_an_unreadable_file_raises_a_table_load_error(tmp_path: Path) -> None:
+    """An expected OS failure must be reported like any other unreadable table.
+
+    Measured before the fix: a 0o000 file raised ``PermissionError`` out of
+    ``load_table`` and ``read_header``, escaped the loader's error contract, and
+    aborted the whole run with no record of which table was lost.
+    """
+    path = unreadable_file(tmp_path)
+
+    with pytest.raises(TableLoadError) as load_error:
+        load_table(path)
+    with pytest.raises(TableLoadError) as header_error:
+        read_header(path)
+
+    assert "could not be read" in str(load_error.value)
+    assert str(path) in str(load_error.value)
+    assert "could not be read" in str(header_error.value)
+
+
+def test_an_unreadable_file_does_not_escape_the_loader_as_an_oserror(tmp_path: Path) -> None:
+    """``TableLoadError`` is what callers catch; anything else would abort the run."""
+    path = unreadable_file(tmp_path, "encounters.csv")
+
+    with pytest.raises(TableLoadError):
+        DatasetLoader().load(path)

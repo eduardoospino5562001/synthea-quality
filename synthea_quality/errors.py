@@ -28,5 +28,8 @@ class TableLoadError(LoadingError):
     """One specific table is unreadable, empty, malformed or not UTF-8.
 
     The failure is scoped to a single table on purpose: the caller can record it
-    and keep analysing the rest of the dataset.
+    and keep analysing the rest of the dataset. Any operating-system failure while
+    opening or reading the file (a missing file, a directory, a permission the user
+    does not have) is reported as this error too, so a caller never has to catch
+    ``OSError`` from the loader.
     """

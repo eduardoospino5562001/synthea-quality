@@ -17,8 +17,9 @@ Exit codes (stable, so a script can rely on them)
     The run completed but at least one check **failed**: a deterministic violation
     of a confirmed rule, in the data.
 ``2``
-    The tool could not complete the run: the input is not a usable dataset
-    directory, a report could not be written, or a check ended in ``ERROR``, which
+    The tool could not complete the run: the input directory holds no table the tool
+    knows how to check, a table could not be read at all (so the analysis is
+    incomplete), a report could not be written, or a check ended in ``ERROR``, which
     by definition means the tool itself could not do its job.
 
 This is not a statistical gate. Every check is deterministic; nothing here measures
@@ -64,7 +65,8 @@ _EPILOG = """\
 exit codes:
   0  the run completed and no check failed
   1  the run completed but at least one check failed (a data defect)
-  2  the tool could not complete the run (unusable input, write failure, or a check errored)
+  2  the tool could not complete the run (no known table in the input directory, an
+     unreadable table, a write failure, or a check errored)
 
 Warnings never change the exit code: they flag legitimate Synthea data worth a look.
 Only deterministic checks run here; no prevalence, incidence or statistical rule is
@@ -152,9 +154,16 @@ def run() -> None:
 
 
 def exit_code_for(report: DatasetReport) -> int:
-    """Map a finished report to an exit code (see the module docstring)."""
+    """Map a finished report to an exit code (see the module docstring).
+
+    An unreadable table makes the run incomplete, so it is an error even when every
+    table that could be read passed: returning ``0`` there would present an analysis
+    with a hole in it as a clean dataset.
+    """
     counts = report.counts_by_status
     if counts[Status.ERROR.value]:
+        return EXIT_ERROR
+    if report.load_errors:
         return EXIT_ERROR
     if counts[Status.FAIL.value]:
         return EXIT_FINDINGS
@@ -190,6 +199,14 @@ def print_summary(report: DatasetReport, markdown_path: Path, json_path: Path) -
     )
     if report.unknown_files:
         print(f"Unknown:  {', '.join(report.unknown_files)}")
+    if report.load_errors:
+        lost = ", ".join(error.table for error in report.load_errors[:MAX_LISTED_TABLES])
+        more = (
+            f" and {len(report.load_errors) - MAX_LISTED_TABLES} more"
+            if len(report.load_errors) > MAX_LISTED_TABLES
+            else ""
+        )
+        print(f"Unreadable: {lost}{more} (the analysis of those tables is incomplete)")
 
     failing = [
         check for check in report.findings if check.status in (Status.FAIL, Status.ERROR)
