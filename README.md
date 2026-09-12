@@ -51,6 +51,9 @@ uv pip install -e ".[dev]"
 .venv/bin/pytest
 ```
 
+The install also provides the `synthea-quality` command (see below). Without it, the
+same interface runs as `python -m synthea_quality`.
+
 ## Official sample data
 
 Validation uses the sample datasets published by the Synthea project, not
@@ -67,6 +70,8 @@ directory (git-ignored) and is never modified.
 ```
 synthea_quality/
     __init__.py       package root (no heavy imports)
+    __main__.py       python -m synthea_quality
+    cli.py            command line entry point and exit codes
     errors.py         expected, user-actionable errors
     models.py         structured results (CheckResult, DatasetReport)
     discovery.py      which tables a dataset directory contains
@@ -100,6 +105,7 @@ tests/
     test_checks_temporal.py
     test_report_model.py
     test_reporting.py
+    test_cli.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -128,6 +134,32 @@ of consistency among the tables the dataset actually contains, not as proof of t
 Synthea version that produced it. Relationships the documentation describes but the
 tool does not enforce are listed in their own section, marked as pending a
 maintainer's confirmation rather than as dataset defects.
+
+## Command line
+
+```bash
+synthea-quality ./output/csv --output-dir ./reports
+```
+
+One command runs the whole tool: it inspects the dataset, compares it with the
+contract, runs every confirmed check and writes both reports into the output
+directory, which is created if needed and defaults to the current directory. The file
+names are predictable: `synthea_quality_report.md` and `synthea_quality_report.json`.
+The dataset directory is only read, never written.
+
+The terminal summary reports the scope, the contract result, the counts per status
+and the paths of both reports.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | the run completed and no check failed |
+| `1` | the run completed but at least one check failed: a data defect |
+| `2` | the tool could not complete the run: unusable input, a write failure, or a check that errored |
+
+Warnings never change the exit code: they flag legitimate Synthea data worth a look.
+Every check is deterministic, so this is not a statistical gate — no prevalence,
+incidence or distribution rule is applied, and no rate deviation fails a run.
+`--help` documents the interface and the exit codes; `--version` prints the version.
 
 ## Scalability
 
@@ -162,7 +194,7 @@ chunked/streamed processing.
 | 7. Data quality checks | done |
 | 8. Temporal checks | done |
 | 9. Markdown + JSON reports | done |
-| 10. CLI | pending |
+| 10. CLI | done |
 | 11. Verification against the official sample dataset | pending |
 | 12. README completion and final review | pending |
 

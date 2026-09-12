@@ -22,6 +22,10 @@ htmlcov/
 data/
 sample_data/
 
+# Reports written by a local run: the CLI defaults to the current directory
+synthea_quality_report.md
+synthea_quality_report.json
+
 # Editors / OS
 .idea/
 .vscode/
