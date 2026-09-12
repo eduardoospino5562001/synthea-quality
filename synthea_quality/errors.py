@@ -33,3 +33,12 @@ class TableLoadError(LoadingError):
     does not have) is reported as this error too, so a caller never has to catch
     ``OSError`` from the loader.
     """
+
+
+class EmptyDatasetError(SyntheaQualityError):
+    """The directory holds no table this tool knows how to check.
+
+    An input error rather than a finding: with nothing to validate, a report would
+    be a long list of ``SKIPPED`` checks that says nothing about the dataset. The
+    caller must say so instead of returning such a report.
+    """

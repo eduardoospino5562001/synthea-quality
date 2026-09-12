@@ -1,17 +1,20 @@
 """[REPORTING] Aggregate one dataset into a single structured report.
 
 This is the only reporter that reads the dataset. It discovers the tables, reads
-their headers, compares them with the versioned contract, runs the four confirmed
-check families and collects everything into a
-:class:`~synthea_quality.models.DatasetReport`.
+their headers, compares them with the versioned contract, validates that every row has
+as many fields as its header, runs the four confirmed check families and collects
+everything into a :class:`~synthea_quality.models.DatasetReport`.
 
-Two deliberate choices:
+Three deliberate choices:
 
-* the check families receive the discovery result this module already computed, so
-  the directory is inspected once;
+* the check families receive the discovery result and the structural validation this
+  module already computed, so the directory and the row shapes are inspected once;
 * a report never invents a verdict for something that could not be read: tables
   whose header cannot be read are recorded in ``load_errors``, and the checks
   themselves report the tables they had to skip;
+* a directory with no known table at all is an input error
+  (:class:`~synthea_quality.errors.EmptyDatasetError`), not a report of skipped
+  checks that would read as "nothing was wrong".
 
 Table row counts in the report come from the quality checks, which load every
 present table anyway; nothing is loaded a second time just to fill a number.
@@ -25,7 +28,7 @@ from synthea_quality.checks.keys import run_key_checks
 from synthea_quality.checks.quality import run_quality_checks
 from synthea_quality.checks.temporal import run_temporal_checks
 from synthea_quality.discovery import DiscoveryResult, discover_dataset
-from synthea_quality.errors import TableLoadError
+from synthea_quality.errors import EmptyDatasetError, TableLoadError
 from synthea_quality.loader import read_header
 from synthea_quality.models import (
     DEFAULT_SAMPLE_LIMIT,
@@ -36,6 +39,7 @@ from synthea_quality.models import (
 )
 from synthea_quality.schema.contract import assess_contract
 from synthea_quality.schema.keys import UNRESOLVED_FOREIGN_KEYS
+from synthea_quality.schema.tables import SYNTHEA_TABLES
 from synthea_quality.schema.temporal import UNRESOLVED_TEMPORAL_RELATIONS
 from synthea_quality.structure import validate_tables
 
@@ -53,9 +57,18 @@ def build_report(
     :param discovery: reuse an existing discovery result instead of inspecting the
         directory again.
     :param generated_at: timestamp to record; the current UTC time by default.
+    :raises EmptyDatasetError: the directory holds none of the tables of the contract,
+        so there would be nothing to report about.
     """
     data_path = Path(data_dir)
     found = discovery if discovery is not None else discover_dataset(data_path)
+
+    if not found.tables:
+        raise EmptyDatasetError(
+            f"no Synthea CSV table was found in {data_path}: a dataset directory has to "
+            f"hold at least one of the {len(SYNTHEA_TABLES)} tables the schema contract "
+            f"describes (for example patients.csv or encounters.csv)"
+        )
 
     headers: dict[str, tuple[str, ...]] = {}
     load_errors: list[LoadError] = []

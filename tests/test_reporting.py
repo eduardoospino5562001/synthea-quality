@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.models import (
     CheckResult,
     DatasetReport,
@@ -137,12 +138,18 @@ def test_build_report_records_unreadable_tables_as_load_errors(tmp_path: Path) -
     assert "empty" in report.load_errors[0].reason
 
 
-def test_build_report_of_an_empty_directory_is_unknown_not_confirmed(tmp_path: Path) -> None:
-    report = build_report(tmp_path, generated_at=FIXED_TIME)
+def test_build_report_of_an_empty_directory_is_an_input_error(tmp_path: Path) -> None:
+    """A directory with no known table is refused, not reported as entirely skipped.
 
-    assert report.contract_status is ContractStatus.UNKNOWN
-    assert report.tables == ()
-    assert "cannot be assessed" in (report.contract_summary or "")
+    Changed when the audit finding was fixed: this used to return a report whose
+    contract was ``UNKNOWN`` and whose 155 checks were all ``SKIPPED``, which the CLI
+    turned into exit code 0 — that is, a clean verdict about nothing at all.
+    """
+    with pytest.raises(EmptyDatasetError) as error:
+        build_report(tmp_path, generated_at=FIXED_TIME)
+
+    assert "patients.csv" in str(error.value)
+    assert str(tmp_path) in str(error.value)
 
 
 def test_build_report_of_an_old_layout_is_incompatible(tmp_path: Path) -> None:
@@ -469,8 +476,12 @@ def test_markdown_never_claims_the_dataset_version(tmp_path: Path) -> None:
     assert "the dataset is synthea" not in lowered
 
 
-def test_markdown_of_an_unknown_contract(tmp_path: Path) -> None:
-    report = build_report(tmp_path, generated_at=FIXED_TIME)
+def test_markdown_of_an_unknown_contract() -> None:
+    """A report whose contract could not be assessed still has to render."""
+    report = make_report(
+        contract_status=ContractStatus.UNKNOWN,
+        contract_summary="no known table was observed, so the contract cannot be assessed",
+    )
 
     text = render_markdown(report)
 

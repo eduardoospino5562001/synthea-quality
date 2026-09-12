@@ -380,6 +380,39 @@ def test_the_console_script_is_declared() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_a_directory_without_any_synthea_table_is_an_input_error(tmp_path: Path, capsys) -> None:
+    """An empty directory must not become 155 skipped checks and exit code 0.
+
+    Measured before the fix: an empty directory produced a complete report of 155
+    ``SKIPPED`` checks and returned ``EXIT_OK``, which reads as "nothing was wrong".
+    """
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    captured = capsys.readouterr()
+    assert code == EXIT_ERROR
+    assert captured.err.startswith("error:")
+    assert "Traceback" not in captured.err
+    assert "patients.csv" in captured.err  # the message says what a dataset needs
+    assert not (output / MARKDOWN_NAME).exists()
+    assert not (output / JSON_NAME).exists()
+
+
+def test_a_directory_with_only_unknown_files_is_an_input_error(tmp_path: Path, capsys) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "notes.txt").write_text("not a dataset\n", encoding="utf-8")
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    assert code == EXIT_ERROR
+    assert "error:" in capsys.readouterr().err
+
+
 def test_a_structurally_broken_table_is_reported_and_exits_one(tmp_path: Path) -> None:
     """A short row used to be padded with nulls and the run exited 0."""
     dataset = tmp_path / "dataset"
