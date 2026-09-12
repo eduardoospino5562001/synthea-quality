@@ -380,6 +380,34 @@ def test_the_console_script_is_declared() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_a_structurally_broken_table_is_reported_and_exits_one(tmp_path: Path) -> None:
+    """A short row used to be padded with nulls and the run exited 0."""
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text(
+        "Id,BIRTHDATE,GENDER\np1,1980-01-01,M\np2,1990-01-01\n",
+        encoding="utf-8",
+        newline="",
+    )
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    assert code == EXIT_FINDINGS
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    structural = [
+        check for check in report["checks"] if check["check_id"] == "structure.patients"
+    ]
+    assert len(structural) == 1
+    assert structural[0]["status"] == "FAIL"
+    patients_statuses = {
+        check["status"] for check in report["checks"] if check["table"] == "patients"
+    }
+    assert "PASS" not in patients_statuses
+    markdown = (output / MARKDOWN_NAME).read_text(encoding="utf-8")
+    assert "structure.patients" in markdown
+
+
 def test_an_unreadable_table_is_recorded_and_the_run_continues(tmp_path: Path, capsys) -> None:
     """An OS failure on one table must not lose the analysis of the others."""
     dataset = tmp_path / "dataset"

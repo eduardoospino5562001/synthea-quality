@@ -53,6 +53,11 @@ from synthea_quality.schema.keys import (
     PrimaryKeyRule,
     parent_columns,
 )
+from synthea_quality.structure import (
+    StructureReport,
+    gate_reason,
+    validate_tables,
+)
 
 #: A broken relational contract affects joins and every downstream metric.
 SEVERITY = Severity.HIGH
@@ -228,6 +233,7 @@ def run_key_checks(
     data_dir: str | Path,
     *,
     discovery: DiscoveryResult | None = None,
+    structure: Mapping[str, StructureReport] | None = None,
     sample_limit: int = DEFAULT_SAMPLE_LIMIT,
 ) -> tuple[CheckResult, ...]:
     """Run every confirmed key rule against the dataset in ``data_dir``.
@@ -236,9 +242,19 @@ def run_key_checks(
     then each table is loaded once for the columns its rules need and released
     before the next one. Results are sorted by ``check_id`` so two runs over the
     same data produce the same report.
+
+    :param structure: structural report per table. A table whose rows do not line up
+        with its header cannot have its rows attributed to its columns, so neither its
+        own rules nor the references that point at it produce a verdict. Built from
+        the files when not given.
     """
     found = discovery if discovery is not None else discover_dataset(data_dir)
     paths = {table.name: table.path for table in found.tables}
+    structures = (
+        structure
+        if structure is not None
+        else validate_tables(paths, sample_limit=sample_limit)
+    )
 
     headers: dict[str, tuple[str, ...] | None] = {}
     problems: dict[str, str] = {}
@@ -249,7 +265,7 @@ def run_key_checks(
             headers[name] = None
             problems[name] = str(exc)
 
-    parent_keys, parent_reasons = _build_parent_keys(paths, headers, problems)
+    parent_keys, parent_reasons = _build_parent_keys(paths, headers, problems, structures)
 
     results: list[CheckResult] = []
 
@@ -264,6 +280,11 @@ def run_key_checks(
         if header is None:
             reason = problems.get(table, f"table '{table}' could not be read")
             results.extend(_unavailable(rule, reason) for rule in _rules_for(table))
+            continue
+
+        structural = gate_reason(structures, table)
+        if structural is not None:
+            results.extend(_skipped(rule, structural) for rule in _rules_for(table))
             continue
 
         # Availability is decided per rule, not per table: one missing column must
@@ -326,8 +347,14 @@ def _build_parent_keys(
     paths: Mapping[str, Path],
     headers: Mapping[str, tuple[str, ...] | None],
     problems: Mapping[str, str],
+    structure: Mapping[str, StructureReport] | None = None,
 ) -> tuple[dict[tuple[str, str], frozenset[str] | None], dict[tuple[str, str], str]]:
-    """Read one column per foreign key target and reduce it to a set of values."""
+    """Read one column per foreign key target and reduce it to a set of values.
+
+    A parent table whose rows do not line up with its header is not read at all: a key
+    set built from misaligned rows would resolve references that do not resolve, so its
+    dependants are skipped with that reason instead.
+    """
     keys: dict[tuple[str, str], frozenset[str] | None] = {}
     reasons: dict[tuple[str, str], str] = {}
 
@@ -341,6 +368,10 @@ def _build_parent_keys(
         header = headers.get(table)
         if header is None:
             reasons[target] = problems.get(table, f"table '{table}' could not be read")
+            continue
+        structural = gate_reason(structure, table)
+        if structural is not None:
+            reasons[target] = structural
             continue
         if column not in header:
             reasons[target] = f"table '{table}' has no column '{column}' in this dataset"

@@ -11,7 +11,7 @@ Two deliberate choices:
   the directory is inspected once;
 * a report never invents a verdict for something that could not be read: tables
   whose header cannot be read are recorded in ``load_errors``, and the checks
-  themselves report the tables they had to skip.
+  themselves report the tables they had to skip;
 
 Table row counts in the report come from the quality checks, which load every
 present table anyway; nothing is loaded a second time just to fill a number.
@@ -37,6 +37,7 @@ from synthea_quality.models import (
 from synthea_quality.schema.contract import assess_contract
 from synthea_quality.schema.keys import UNRESOLVED_FOREIGN_KEYS
 from synthea_quality.schema.temporal import UNRESOLVED_TEMPORAL_RELATIONS
+from synthea_quality.structure import validate_tables
 
 
 def build_report(
@@ -67,12 +68,39 @@ def build_report(
     assessment = assess_contract(headers)
     schema_match = {match.table: match.is_exact for match in assessment.matches}
 
+    # Row shapes are validated once, before any check reads a table: a table whose rows
+    # do not line up with its header cannot have its values attributed to its columns.
+    structures = validate_tables(
+        {table.name: table.path for table in found.tables}, sample_limit=sample_limit
+    )
+
     checks = tuple(
         sorted(
             (
-                *run_key_checks(data_path, discovery=found, sample_limit=sample_limit),
-                *run_quality_checks(data_path, discovery=found, sample_limit=sample_limit),
-                *run_temporal_checks(data_path, discovery=found, sample_limit=sample_limit),
+                *run_key_checks(
+                    data_path,
+                    discovery=found,
+                    structure=structures,
+                    sample_limit=sample_limit,
+                ),
+                *run_quality_checks(
+                    data_path,
+                    discovery=found,
+                    structure=structures,
+                    sample_limit=sample_limit,
+                ),
+                *run_temporal_checks(
+                    data_path,
+                    discovery=found,
+                    structure=structures,
+                    sample_limit=sample_limit,
+                ),
+                # One finding per malformed table, not one per check that had to give up.
+                *(
+                    structure.to_check_result()
+                    for structure in structures.values()
+                    if not structure.ok
+                ),
             ),
             key=lambda check: check.check_id,
         )

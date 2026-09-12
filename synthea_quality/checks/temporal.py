@@ -53,6 +53,7 @@ from synthea_quality.schema.temporal import (
     interval_rules_for,
     life_span_rules_for,
 )
+from synthea_quality.structure import StructureReport, gate_reason, validate_tables
 
 #: A wrong order is a row-level inconsistency, not a broken join.
 ORDER_SEVERITY = Severity.MEDIUM
@@ -325,11 +326,23 @@ def run_temporal_checks(
     data_dir: str | Path,
     *,
     discovery: DiscoveryResult | None = None,
+    structure: Mapping[str, StructureReport] | None = None,
     sample_limit: int = DEFAULT_SAMPLE_LIMIT,
 ) -> tuple[CheckResult, ...]:
-    """Run every confirmed temporal rule against the dataset in ``data_dir``."""
+    """Run every confirmed temporal rule against the dataset in ``data_dir``.
+
+    :param structure: structural report per table. Dates read from rows that do not line
+        up with the header are dates of unknown columns, so a broken table is skipped
+        rather than compared — including ``patients``, whose birth dates feed the event
+        checks of every other table.
+    """
     found = discovery if discovery is not None else discover_dataset(data_dir)
     paths = {table.name: table.path for table in found.tables}
+    structures = (
+        structure
+        if structure is not None
+        else validate_tables(paths, sample_limit=sample_limit)
+    )
 
     headers: dict[str, tuple[str, ...]] = {}
     problems: dict[str, str] = {}
@@ -339,7 +352,7 @@ def run_temporal_checks(
         except TableLoadError as exc:
             problems[name] = str(exc)
 
-    birth_dates, birth_problem = _patient_birth_dates(paths, headers, problems)
+    birth_dates, birth_problem = _patient_birth_dates(paths, headers, problems, structures)
     results: list[CheckResult] = []
 
     for table in sorted(set(paths) & _tables_with_rules()):
@@ -351,6 +364,11 @@ def run_temporal_checks(
                 _skipped(rule.check_id, table, f"table '{table}' could not be read: {reason}")
                 for rule in rules
             )
+            continue
+
+        structural = gate_reason(structures, table)
+        if structural is not None:
+            results.extend(_skipped(rule.check_id, table, structural) for rule in rules)
             continue
 
         columns = _columns_needed(rules, header)
@@ -411,6 +429,7 @@ def _patient_birth_dates(
     paths: Mapping[str, Path],
     headers: Mapping[str, tuple[str, ...]],
     problems: Mapping[str, str],
+    structure: Mapping[str, StructureReport] | None = None,
 ) -> tuple[dict[str, str] | None, str | None]:
     """Map patient identifier to a usable birth date, or explain why it is missing."""
     header = headers.get("patients")
@@ -418,6 +437,9 @@ def _patient_birth_dates(
         return None, "table 'patients' is not present in this dataset"
     if header is None:
         return None, f"table 'patients' could not be read: {problems.get('patients', 'unknown')}"
+    structural = gate_reason(structure, "patients")
+    if structural is not None:
+        return None, structural
     missing = [column for column in ("Id", "BIRTHDATE") if column not in header]
     if missing:
         return None, f"table 'patients' has no column(s) {missing} in this dataset"

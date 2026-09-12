@@ -40,7 +40,7 @@ table is measured: see the Scalability section of the README.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import cast
+from typing import Mapping, cast
 
 import pandas as pd
 
@@ -51,6 +51,7 @@ from synthea_quality.models import DEFAULT_SAMPLE_LIMIT, CheckResult, Severity, 
 from synthea_quality.schema.keys import primary_key_for
 from synthea_quality.schema.quality import DateColumn, date_columns_for
 from synthea_quality.schema.tables import SYNTHEA_TABLES
+from synthea_quality.structure import StructureReport, gate_reason, validate_tables
 
 #: A date that cannot be interpreted is a row-level defect: it makes that row's
 #: value unusable, but it breaks no join and no whole table, so it is not ``HIGH``.
@@ -63,7 +64,6 @@ NULL_SEVERITY = Severity.LOW
 #: An empty column is informative: whether it matters depends on its purpose, which
 #: the data alone cannot settle.
 EMPTY_COLUMN_SEVERITY = Severity.LOW
-
 
 def check_duplicate_rows(
     table: str,
@@ -329,18 +329,38 @@ def run_quality_checks(
     data_dir: str | Path,
     *,
     discovery: DiscoveryResult | None = None,
+    structure: Mapping[str, StructureReport] | None = None,
     sample_limit: int = DEFAULT_SAMPLE_LIMIT,
 ) -> tuple[CheckResult, ...]:
     """Run the data quality checks over the dataset in ``data_dir``.
 
     One table is loaded at a time and released before the next is read. Results are
     sorted by ``check_id`` so two runs over the same data produce the same report.
+
+    :param structure: structural report per table. A table whose rows do not line up
+        with its header is not measured at all — a null count over misaligned rows would
+        be a number about nothing — so its checks are ``SKIPPED`` with that reason.
     """
     found = discovery if discovery is not None else discover_dataset(data_dir)
     paths = {table.name: table.path for table in found.tables}
+    structures = (
+        structure
+        if structure is not None
+        else validate_tables(paths, sample_limit=sample_limit)
+    )
     results: list[CheckResult] = []
 
     for table in sorted(paths):
+        structural = gate_reason(structures, table)
+        if structural is not None:
+            results.extend(
+                _skipped(check_id, table, structural) for check_id in _table_check_ids(table)
+            )
+            results.extend(
+                _skipped(rule.check_id, table, structural) for rule in date_columns_for(table)
+            )
+            continue
+
         try:
             frame = load_table(paths[table]).frame
         except TableLoadError as exc:

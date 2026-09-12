@@ -128,6 +128,7 @@ _CATEGORY_PREFIXES: tuple[tuple[str, str], ...] = (
     ("duplicates.", "data_quality"),
     ("empty_columns.", "data_quality"),
     ("nulls.", "data_quality"),
+    ("structure.", "schema"),
     ("temporal.", "temporal"),
 )
 
