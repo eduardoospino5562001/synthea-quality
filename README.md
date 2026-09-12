@@ -71,12 +71,14 @@ synthea_quality/
     models.py         structured results (CheckResult, DatasetReport)
     discovery.py      which tables a dataset directory contains
     schema/
-        tables.py     the 19 Synthea CSV tables (provenance recorded)
+        tables.py     the 19 Synthea CSV tables and their expected columns
+        contract.py   versioned contracts + header matching
 tests/
     test_package.py
     test_models.py
     test_discovery.py
     test_schema_tables.py
+    test_contract.py
 ```
 
 The layout grows one vertical slice at a time; new modules appear only when a
@@ -89,7 +91,7 @@ check needs them.
 | 1. Project skeleton, packaging, test runner | done |
 | 2. Structured result models (`CheckResult`, report) | done |
 | 3. Dataset discovery | done |
-| 4. Versioned schema contracts | pending |
+| 4. Versioned schema contracts | done |
 | 5. Safe loading | pending |
 | 6. Primary key / referential integrity checks | pending |
 | 7. Data quality checks | pending |

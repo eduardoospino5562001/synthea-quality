@@ -9,7 +9,7 @@ import pytest
 
 from synthea_quality.discovery import DiscoveryResult, discover_dataset
 from synthea_quality.errors import DiscoveryError
-from synthea_quality.schema.tables import CURRENT_CONTRACT_ID, SYNTHEA_TABLES, TableSpec
+from synthea_quality.schema.tables import CONTRACT_ID, SYNTHEA_TABLES, TableSpec
 
 ALL_FILE_NAMES = [spec.file_name for spec in SYNTHEA_TABLES]
 SAMPLE_FILE_NAMES = [spec.file_name for spec in SYNTHEA_TABLES if spec.included_by_default]
@@ -182,7 +182,7 @@ def test_string_paths_are_accepted(tmp_path: Path) -> None:
 
 def test_custom_catalogue_limits_what_is_known(tmp_path: Path) -> None:
     write_files(tmp_path, ["patients.csv", "conditions.csv"])
-    catalogue = (TableSpec("patients", "patients.csv"),)
+    catalogue = (TableSpec("patients", "patients.csv", columns=("Id", "BIRTHDATE")),)
 
     result = discover_dataset(tmp_path, known_tables=catalogue)
 
@@ -195,14 +195,14 @@ def test_custom_catalogue_limits_what_is_known(tmp_path: Path) -> None:
 def test_default_contract_id_is_recorded(tmp_path: Path) -> None:
     write_files(tmp_path, ["patients.csv"])
 
-    assert discover_dataset(tmp_path).contract_id == CURRENT_CONTRACT_ID
+    assert discover_dataset(tmp_path).contract_id == CONTRACT_ID
 
 
 def test_duplicate_file_names_in_a_catalogue_are_a_tool_bug(tmp_path: Path) -> None:
     write_files(tmp_path, ["patients.csv"])
     catalogue = (
-        TableSpec("patients", "patients.csv"),
-        TableSpec("patients_v2", "patients.csv"),
+        TableSpec("patients", "patients.csv", columns=("Id",)),
+        TableSpec("patients_v2", "patients.csv", columns=("Id",)),
     )
 
     with pytest.raises(ValueError, match="declared twice"):

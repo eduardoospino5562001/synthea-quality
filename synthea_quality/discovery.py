@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 from synthea_quality.errors import DiscoveryError
-from synthea_quality.schema.tables import CURRENT_CONTRACT_ID, SYNTHEA_TABLES, TableSpec
+from synthea_quality.schema.tables import CONTRACT_ID, SYNTHEA_TABLES, TableSpec
 
 CSV_SUFFIX = ".csv"
 
@@ -118,7 +118,7 @@ def discover_dataset(
     found_names = set(seen_file_names)
     return DiscoveryResult(
         data_dir=root,
-        contract_id=CURRENT_CONTRACT_ID if known_tables is None else None,
+        contract_id=CONTRACT_ID if known_tables is None else None,
         tables=tuple(sorted(tables, key=lambda table: table.name)),
         missing_tables=tuple(spec for spec in specs if spec.name not in found_names),
         unknown_csv_files=tuple(unknown_csv_files),
