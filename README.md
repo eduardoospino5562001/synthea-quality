@@ -47,6 +47,7 @@ Synthea CSV directory
     │
     ├─ discovery       which known tables are present, which files are unknown
     ├─ schema contract header compared with the versioned contract → COMPATIBLE / INCOMPATIBLE / UNKNOWN
+    ├─ structure       every row must have as many fields as its header, checked before any check runs
     ├─ loader          safe reading: text identifiers, no silent data loss, one table at a time
     │
     ├─ checks/keys       primary keys (nulls, duplicates) and foreign keys (orphans)
@@ -123,7 +124,7 @@ inside it.
 | --- | --- |
 | `PASS` | the dataset satisfies the check |
 | `WARNING` | worth a human look, but legitimate Synthea data: a repeated row, a column the exporter never fills, an event dated before birth |
-| `FAIL` | a deterministic violation of a confirmed rule: a null or duplicate primary key, an orphan foreign key, an interval that ends before it starts, a death before a birth, a value that matches no documented date format |
+| `FAIL` | a deterministic violation of a confirmed rule: a null or duplicate primary key, an orphan foreign key, an interval that ends before it starts, a death before a birth, a value that matches no documented date format, a row whose field count does not match the header |
 | `NOT_APPLICABLE` | there was nothing to check: no value at all in the column, or no row with both dates to compare |
 | `SKIPPED` | the check could not be run: the table is absent, the column does not exist in this dataset's schema, or the file could not be read. The message always says why |
 | `ERROR` | the tool itself could not complete the check — never a defect of the data |
@@ -164,11 +165,15 @@ A missing table never makes a dataset incompatible: Synthea legitimately omits f
 
 | Family | Count | What it checks |
 | --- | --- | --- |
+| Structure | per table, reported only when broken | every data row's field count against the header, with the CSV reader, before any check loads the table. A table that fails is reported as one `FAIL` and none of its other checks may report `PASS` |
 | Schema | per table | the header against the contract, reported in its own section rather than as individual checks |
 | Primary keys | 8 | the columns the data dictionary marks as unique; nulls and duplicates are reported as distinct defects |
 | Foreign keys | 42 | documented references resolve to the parent table, over non-null values only |
 | Data quality | 86 | exact duplicate rows (19), columns empty for every row (19), null counts per table (19), date formats of 29 confirmed date columns |
 | Temporal | 19 | `START <= STOP` (7 tables), `BIRTHDATE <= DEATHDATE` (1), events dated before birth (11) |
+
+A well-formed dataset gets no structure check at all: the validation only speaks when a
+row does not line up with the header, so a clean run keeps exactly the numbers above.
 
 Rules are confirmed before they are coded: the data dictionary, the generator source
 (`CSVExporter.java`) and a measurement on the reference sample have to agree. Two
@@ -277,19 +282,21 @@ report: it is the structured truth the Markdown is rendered from.
 | --- | --- |
 | `0` | the run completed and no check failed |
 | `1` | the run completed but at least one check failed: a data defect |
-| `2` | the tool could not complete the run: unusable input, a write failure, or a check that errored |
+| `2` | the tool could not complete the run: the directory holds no table the tool knows, a table could not be read at all, a report could not be written, or a check errored |
 
-Warnings alone never change the exit code. This is **not** a statistical gate: every check
-is deterministic, no rate is compared against an expectation, and no tolerance is
-invented. Usage errors print one readable line without a traceback; an unexpected failure
-is reported with its traceback on stderr and still returns `2`, so a real bug is never
-swallowed.
+Warnings alone never change the exit code. An unreadable table does, because the analysis
+is then incomplete: the terminal summary names it, the report records it under
+`load_errors`, and every check of that table is `SKIPPED` rather than passed. This is
+**not** a statistical gate: every check is deterministic, no rate is compared against an
+expectation, and no tolerance is invented. Usage errors print one readable line without a
+traceback; an unexpected failure is reported with its traceback on stderr and still
+returns `2`, so a real bug is never swallowed.
 
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 300 unit and component tests, about 4 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 332 unit and component tests, about 5 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 9 end-to-end tests that run the command line as a user would, about 45 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
@@ -322,12 +329,16 @@ work.
 
 | Measurement | Result |
 | --- | --- |
-| Whole tool on the official sample (18 tables, 201,657 rows), through the CLI | 5.3–5.5 s, ~145 MB |
+| Whole tool on the official sample (18 tables, 201,657 rows), through the CLI | 6.4–6.6 s, ~146 MB |
 | Key checks on the official sample | 1.1 s, ~103 MB |
 | Quality checks on the official sample | 3.0 s, ~144 MB |
 | Temporal checks on the official sample | 0.6 s, ~95 MB |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
+
+The structural validation reads every file once more (with the CSV reader, before any
+check runs), which is why the whole run moved from 5.5 s to 6.5 s on the sample: about one
+extra pass over 63 MB.
 
 **The MVP does not implement chunking.** Work is done table by table: the key checks keep
 only compact parent key sets in memory and release each child before reading the next, and

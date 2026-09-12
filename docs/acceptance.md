@@ -122,13 +122,15 @@ as its child and reports `ru_maxrss`):
 
 | Measurement | Value |
 | --- | --- |
-| Wall time, whole run | 5.5 s |
+| Wall time, whole run | 6.5 s |
 | Peak RSS, child process | ~146 MB |
 | Acceptance test file itself | 9 tests, 45 s (it runs the command line eleven times) |
 
 For comparison, the per-family measurements in the README were taken in-process on the
 same dataset: 1.1 s for the key checks, 3.0 s for the quality checks, 0.6 s for the
-temporal checks.
+temporal checks. The wall time grew from 5.5 s when the structural validation was added:
+every file is read once more, with the CSV reader, before any check runs. That pass is
+what keeps a malformed row from being reported as a passing table.
 
 ## Re-baselining
 
