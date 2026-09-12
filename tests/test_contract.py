@@ -45,7 +45,7 @@ def test_a_second_contract_can_be_defined_without_touching_the_first() -> None:
 
     assessment = legacy.assess({"conditions": ("START", "STOP", "PATIENT")})
 
-    assert assessment.status is ContractStatus.CONFIRMED
+    assert assessment.status is ContractStatus.COMPATIBLE
     assert assessment.contract_id == "synthea-csv-example"
     # the current contract still describes the real schema
     assert CURRENT_CONTRACT.table("conditions").columns == CONDITIONS
@@ -143,18 +143,21 @@ def test_empty_header_is_columns_different() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_assessment_of_a_matching_dataset_is_confirmed() -> None:
+def test_assessment_of_a_matching_dataset_is_compatible_without_over_claiming() -> None:
     headers = {name: tables_by_name()[name].columns for name in ("patients", "conditions", "encounters")}
 
     assessment = assess_contract(headers)
 
-    assert assessment.status is ContractStatus.CONFIRMED
+    assert assessment.status is ContractStatus.COMPATIBLE
     assert assessment.tables_assessed == ("conditions", "encounters", "patients")
     assert assessment.non_matching == ()
     assert assessment.reasons == ()
+    # The wording states what was checked, not that the dataset version was proven.
+    assert "3 of the 19 contract tables were observed" in assessment.summary
+    assert "every observed table matches" in assessment.summary
 
 
-def test_one_non_matching_table_makes_the_whole_assessment_not_confirmed() -> None:
+def test_one_non_matching_table_makes_the_assessment_incompatible() -> None:
     headers = {
         "patients": tables_by_name()["patients"].columns,
         "conditions": ("START", "STOP", "PATIENT", "ENCOUNTER", "CODE", "DESCRIPTION"),  # 2021 shape
@@ -162,26 +165,42 @@ def test_one_non_matching_table_makes_the_whole_assessment_not_confirmed() -> No
 
     assessment = assess_contract(headers)
 
-    assert assessment.status is ContractStatus.NOT_CONFIRMED
+    assert assessment.status is ContractStatus.INCOMPATIBLE
     assert [match.table for match in assessment.non_matching] == ["conditions"]
     assert assessment.reasons and "conditions" in assessment.reasons[0]
+    assert "1 do not match" in assessment.summary
 
 
-def test_absent_tables_do_not_affect_confirmation() -> None:
-    """Synthea can legitimately omit tables, so absence is not evidence against a contract."""
+def test_absent_tables_do_not_make_a_dataset_incompatible() -> None:
+    """Synthea can legitimately omit tables, so absence is not evidence against a contract.
+
+    It is not evidence *for* it either: the assessment stays a statement about the
+    tables that were observed.
+    """
     headers = {"patients": tables_by_name()["patients"].columns}
 
     assessment = assess_contract(headers)
 
-    assert assessment.status is ContractStatus.CONFIRMED
+    assert assessment.status is ContractStatus.COMPATIBLE
+    assert "1 of the 19 contract tables were observed" in assessment.summary
 
 
-def test_assessment_without_any_header_is_not_confirmed() -> None:
+def test_assessment_without_any_header_is_unknown() -> None:
     assessment = assess_contract({})
 
-    assert assessment.status is ContractStatus.NOT_CONFIRMED
+    assert assessment.status is ContractStatus.UNKNOWN
     assert assessment.tables_assessed == ()
+    assert "cannot be assessed" in assessment.summary
     assert "no known tables were found" in assessment.reasons[0]
+
+
+def test_full_observation_of_the_contract_is_reported_as_such() -> None:
+    headers = {spec.name: spec.columns for spec in SYNTHEA_TABLES}
+
+    assessment = assess_contract(headers)
+
+    assert assessment.status is ContractStatus.COMPATIBLE
+    assert "all 19 known tables" in assessment.summary
 
 
 def test_assessment_rejects_headers_for_unknown_tables() -> None:

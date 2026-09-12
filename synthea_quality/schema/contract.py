@@ -3,8 +3,12 @@
 A :class:`SchemaContract` bundles the table catalogue of one Synthea version with
 its provenance, so a second version can be added later without touching the check
 modules. :data:`CURRENT_CONTRACT` is the only version implemented today; older
-datasets are expected to fail the comparison and be reported as
-``NOT_CONFIRMED`` instead of being coerced into the current contract.
+datasets are expected to fail the comparison and be reported as ``INCOMPATIBLE``
+instead of being coerced into the current contract.
+
+Agreement is reported as ``COMPATIBLE``, never as "this dataset is version X":
+matching the tables that happened to be observed is only evidence of consistency,
+while a deviation is positive evidence of a different version.
 
 The matching logic is pure: it takes the header a caller read from a CSV file and
 compares it with the contract. Reading files is the loader's job, which keeps this
@@ -39,10 +43,23 @@ class MatchKind(str, Enum):
 
 
 class ContractStatus(str, Enum):
-    """Whether a dataset can be safely attributed to a contract."""
+    """How well a dataset agrees with a contract, given the tables observed.
 
-    CONFIRMED = "CONFIRMED"
-    NOT_CONFIRMED = "NOT_CONFIRMED"
+    The evidence is deliberately asymmetric:
+
+    ``INCOMPATIBLE``  at least one observed table deviates from the contract. That
+                      is positive evidence: a file written by that exact version
+                      cannot deviate, so the dataset is not from this version.
+    ``COMPATIBLE``    every observed table matches, i.e. nothing contradicts the
+                      contract. This is *evidence of consistency only*, not proof
+                      of the dataset's version: tables that were not observed
+                      (Synthea can legitimately omit files) were never checked.
+    ``UNKNOWN``       no table was observed, so there is no evidence either way.
+    """
+
+    COMPATIBLE = "COMPATIBLE"
+    INCOMPATIBLE = "INCOMPATIBLE"
+    UNKNOWN = "UNKNOWN"
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,19 +102,22 @@ class ContractAssessment:
 
     contract_id: str
     matches: tuple[HeaderMatch, ...]
+    #: Size of the contract, kept so that reports can state how much was observed.
+    contract_table_count: int
 
     @property
     def status(self) -> ContractStatus:
-        """``CONFIRMED`` only when every assessed table matches the contract exactly.
+        """Verdict for the tables that were actually observed.
 
-        An empty assessment is ``NOT_CONFIRMED``: with no table to compare there is
-        no evidence that the dataset belongs to this contract.
+        A deviation is conclusive (``INCOMPATIBLE``); agreement is not
+        (``COMPATIBLE`` only, never "this dataset is version X"); observing
+        nothing yields ``UNKNOWN``.
         """
         if not self.matches:
-            return ContractStatus.NOT_CONFIRMED
+            return ContractStatus.UNKNOWN
         if all(match.is_exact for match in self.matches):
-            return ContractStatus.CONFIRMED
-        return ContractStatus.NOT_CONFIRMED
+            return ContractStatus.COMPATIBLE
+        return ContractStatus.INCOMPATIBLE
 
     @property
     def tables_assessed(self) -> tuple[str, ...]:
@@ -108,14 +128,36 @@ class ContractAssessment:
         return tuple(match for match in self.matches if not match.is_exact)
 
     @property
-    def reasons(self) -> tuple[str, ...]:
-        """Human-readable explanations for a ``NOT_CONFIRMED`` status."""
-        if self.status is ContractStatus.CONFIRMED:
-            return ()
-        if not self.matches:
+    def summary(self) -> str:
+        """One-line statement of what was checked, without over-claiming."""
+        observed = len(self.matches)
+        if observed == 0:
             return (
-                "no known tables were found in the dataset, so it cannot be "
-                f"attributed to contract '{self.contract_id}'",
+                f"no known tables were observed, so contract '{self.contract_id}' "
+                "cannot be assessed"
+            )
+        scope = (
+            f"all {observed} known tables of the dataset were observed (the contract "
+            f"has {self.contract_table_count})"
+            if observed == self.contract_table_count
+            else f"{observed} of the {self.contract_table_count} contract tables were observed"
+        )
+        if self.status is ContractStatus.COMPATIBLE:
+            return f"{scope}; every observed table matches contract '{self.contract_id}'"
+        return (
+            f"{scope}; {len(self.non_matching)} do not match contract "
+            f"'{self.contract_id}'"
+        )
+
+    @property
+    def reasons(self) -> tuple[str, ...]:
+        """Human-readable explanations when the dataset is not ``COMPATIBLE``."""
+        if self.status is ContractStatus.COMPATIBLE:
+            return ()
+        if self.status is ContractStatus.UNKNOWN:
+            return (
+                "no known tables were found in the dataset, so no contract can be "
+                "assessed for it",
             )
         return tuple(match.describe() for match in self.non_matching)
 
@@ -193,7 +235,11 @@ class SchemaContract:
                 f"'{self.contract_id}': {unknown}"
             )
         matches = tuple(self.match_header(name, headers_by_table[name]) for name in sorted(headers_by_table))
-        return ContractAssessment(contract_id=self.contract_id, matches=matches)
+        return ContractAssessment(
+            contract_id=self.contract_id,
+            matches=matches,
+            contract_table_count=len(self.tables),
+        )
 
 
 def _multiset_difference(left: Sequence[str], right: Sequence[str]) -> tuple[str, ...]:
