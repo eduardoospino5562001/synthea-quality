@@ -76,7 +76,7 @@ missing: that is a fact to report, never a defect of the data.
 Requirements: **Python 3.11 or newer**; the only runtime dependency is **pandas**.
 
 ```bash
-git clone <url> && cd synthea-quality
+git clone https://github.com/eduardoospino5562001/synthea-quality.git && cd synthea-quality
 uv venv --python 3.11
 uv pip install -e ".[dev]"
 ```
