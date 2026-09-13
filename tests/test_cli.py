@@ -493,3 +493,33 @@ def test_a_header_only_table_reports_zero_rows_in_the_json(tmp_path: Path) -> No
     report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
     summary = next(table for table in report["tables"] if table["name"] == "patients")
     assert summary["rows"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# A blank line is not a malformed row: the gate must agree with the loader
+# --------------------------------------------------------------------------- #
+
+
+def test_a_blank_line_does_not_produce_a_structural_failure(tmp_path: Path) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text(
+        "Id,BIRTHDATE,GENDER\np1,1980-01-01,M\n\np2,1990-01-01,F\n   \n",
+        encoding="utf-8",
+        newline="",
+    )
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    assert code == EXIT_OK
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    assert not [check for check in report["checks"] if check["check_id"].startswith("structure.")]
+    patients = next(table for table in report["tables"] if table["name"] == "patients")
+    assert patients["rows"] == 2  # blank lines are not data rows
+
+
+# --------------------------------------------------------------------------- #
+# A table name that is a directory is reported, and is not a dataset defect
+# --------------------------------------------------------------------------- #
+

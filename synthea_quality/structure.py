@@ -22,6 +22,12 @@ The standard library's :mod:`csv` reader does the parsing, so quoting, embedded
 delimiters and embedded newlines are handled by the format's own rules rather than by
 splitting lines. A row is a defect when its field count differs from the header's.
 
+A line that holds nothing but whitespace is not a row: the loader reads with
+``skip_blank_lines=True``, so the validator skips exactly the same physical lines — a
+record that consumed one whitespace-only line — and counts every other record. That keeps
+the gate and the loader agreeing on what a data row is. ``,,`` is a row of empty fields,
+not a blank line, and a quoted ``"   "`` is a value; both are compared like any other row.
+
 What it produces
 ----------------
 A :class:`StructureReport` per table. The caller decides what to do with it; this module
@@ -44,7 +50,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Iterable, Mapping, Sequence
 
 from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import open_readable
@@ -55,6 +61,35 @@ STRUCTURE_CHECK_PREFIX = "structure."
 
 #: Corrupted rows cannot be attributed to columns, so nothing about the table holds.
 STRUCTURE_SEVERITY = Severity.HIGH
+
+
+class _SourceLines:
+    """Lines of a file, counted, so a record's physical span can be inspected.
+
+    ``csv.reader`` answers ``[]`` for a blank line and ``['   ']`` for a whitespace-only
+    one, while a quoted value may contain both. Counting the physical lines a record
+    consumed is what tells those apart without re-implementing quoting: a record that
+    spans one whitespace-only line is a line the loader skips, and a record that spans
+    several lines is data, wherever its line breaks are.
+    """
+
+    def __init__(self, handle: Iterable[str]) -> None:
+        self._lines = iter(handle)
+        self._span: list[str] = []
+
+    def __iter__(self) -> "_SourceLines":
+        return self
+
+    def __next__(self) -> str:
+        line = next(self._lines)
+        #: Lines handed to the parser since the last :meth:`take_span`.
+        self._span.append(line)
+        return line
+
+    def take_span(self) -> list[str]:
+        """Lines consumed since the previous call, in order."""
+        span, self._span = self._span, []
+        return span
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,11 +190,15 @@ def validate_structure(
     table_name = table or file_path.stem
 
     with open_readable(file_path) as handle:
-        reader = csv.reader(handle)
+        source = _SourceLines(handle)
+        reader = csv.reader(source)
         try:
             header = next(reader, None)
         except csv.Error as exc:
             raise TableLoadError(f"{file_path} has an unreadable header: {exc}") from exc
+        # The header is read verbatim, whatever it is: which line it sits on is the
+        # loader's business, not this validator's.
+        source.take_span()
         if header is None:
             raise TableLoadError(f"{file_path} is empty (no header line)")
 
@@ -169,6 +208,11 @@ def validate_structure(
         defects: list[RowDefect] = []
         try:
             for row in reader:
+                span = source.take_span()
+                if _is_blank_line(span):
+                    # pandas reads with skip_blank_lines=True, so a line that holds
+                    # nothing is not a data row and must not become a field-count defect.
+                    continue
                 rows_checked += 1
                 if len(row) != expected:
                     defects_total += 1
@@ -210,6 +254,17 @@ def validate_tables(
         except TableLoadError:
             continue
     return reports
+
+
+def _is_blank_line(span: Sequence[str]) -> bool:
+    """True when a record is a blank or whitespace-only physical line.
+
+    ``skip_blank_lines=True`` in the loader drops exactly these, so the validator drops
+    them too. Everything else is data and its field count is compared, including ``,,``
+    (a row of empty fields) and a quoted ``"   "`` (a whitespace value) — neither of
+    which is a blank line.
+    """
+    return len(span) == 1 and not span[0].strip()
 
 
 def gate_reason(

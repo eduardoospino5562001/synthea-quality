@@ -25,6 +25,7 @@ from synthea_quality.checks.keys import run_key_checks
 from synthea_quality.checks.quality import run_quality_checks
 from synthea_quality.checks.temporal import run_temporal_checks
 from synthea_quality.cli import EXIT_FINDINGS, EXIT_OK, exit_code_for
+from synthea_quality.loader import load_table
 from synthea_quality.models import Severity, Status
 from synthea_quality.reporting.build import build_report
 from synthea_quality.structure import validate_structure
@@ -229,3 +230,113 @@ def test_a_broken_table_is_not_reported_as_an_unreadable_file(tmp_path: Path) ->
 
     assert report.load_errors == ()
     assert report.findings, "the structural defect must appear among the findings"
+
+
+# --------------------------------------------------------------------------- #
+# Blank lines: the gate must agree with the loader, which skips them
+# --------------------------------------------------------------------------- #
+
+
+def test_a_blank_line_is_not_a_structural_defect(tmp_path: Path) -> None:
+    """pandas reads with ``skip_blank_lines=True``, so the validator has to agree.
+
+    Measured before the fix: a blank line between records was reported as a structural
+    FAIL — with the table's other checks skipped — because ``csv.reader`` answers ``[]``
+    for a blank line and its field count then differs from the header's. A false positive
+    about a file the loader reads without complaint.
+    """
+    path = write(tmp_path / "patients.csv", HEADER + "p1,1980-01-01,M\n\np2,1990-01-01,F\n")
+
+    report = validate_structure(path)
+
+    assert report.ok
+    assert report.defects == ()
+    assert report.rows_checked == 2
+
+
+def test_a_whitespace_only_line_is_not_a_structural_defect(tmp_path: Path) -> None:
+    for filler in ("   ", "\t", " \t ", "\r"):
+        path = write(
+            tmp_path / "patients.csv",
+            HEADER + f"p1,1980-01-01,M\n{filler}\np2,1990-01-01,F\n",
+        )
+
+        report = validate_structure(path)
+
+        assert report.ok, repr(filler)
+        assert report.rows_checked == 2, repr(filler)
+
+
+def test_blank_lines_between_records_and_at_the_end_are_ignored(tmp_path: Path) -> None:
+    path = write(
+        tmp_path / "patients.csv",
+        HEADER + "p1,1980-01-01,M\n\n\n\np2,1990-01-01,F\n   \n",
+    )
+
+    report = validate_structure(path)
+
+    assert report.ok
+    assert report.rows_checked == 2
+
+
+def test_a_row_of_empty_fields_is_a_row_and_not_a_blank_line(tmp_path: Path) -> None:
+    """`,,` is a row of three empty fields; commas are not a blank line."""
+    matching = write(tmp_path / "patients.csv", HEADER + "p1,1980-01-01,M\n,,\n")
+    too_many = write(tmp_path / "other.csv", HEADER + "p1,1980-01-01,M\n,,,\n")
+
+    counted = validate_structure(matching)
+    defect = validate_structure(too_many)
+
+    assert counted.ok
+    assert counted.rows_checked == 2, "the empty-fields row is a real data row"
+    assert defect.defects_total == 1
+    assert defect.defects[0].row == 2
+    assert defect.defects[0].fields == 4
+
+
+def test_a_quoted_whitespace_value_is_a_row_and_not_a_blank_line(tmp_path: Path) -> None:
+    """Quoted content is data: pandas keeps ``"   "`` as a value, so the validator must."""
+    path = write(tmp_path / "patients.csv", HEADER + 'p1,1980-01-01,M\n"   ",1990-01-01,F\n')
+
+    report = validate_structure(path)
+
+    assert report.ok
+    assert report.rows_checked == 2
+
+
+def test_a_blank_line_inside_a_quoted_field_keeps_the_record_whole(tmp_path: Path) -> None:
+    """A quoted value may contain a blank line; pandas keeps it, and so does the counter."""
+    path = write(
+        tmp_path / "patients.csv",
+        'Id,DESCRIPTION\np1,"a value\n\nstill the same value"\n',
+    )
+
+    report = validate_structure(path)
+
+    assert report.ok
+    assert report.rows_checked == 1
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        CLEAN_ROWS,
+        "p1,1980-01-01,M\n\np2,1990-01-01,F\n",
+        "p1,1980-01-01,M\n   \np2,1990-01-01,F\n",
+        "p1,1980-01-01,M\n\n\np2,1990-01-01,F\n\n",
+        "p1,1980-01-01,M\n,,\n",
+        'p1,1980-01-01,M\n"   ",1990-01-01,F\n',
+    ],
+    ids=["clean", "blank-line", "whitespace-line", "many-blank-lines", "empty-fields", "quoted-spaces"],
+)
+def test_the_validator_counts_the_same_rows_the_loader_reads(
+    tmp_path: Path, rows: str
+) -> None:
+    """The gate protects the checks, so it must not disagree with the loader about rows."""
+    path = write(tmp_path / "patients.csv", HEADER + rows)
+
+    report = validate_structure(path)
+    loaded = load_table(path)
+
+    assert report.ok
+    assert report.rows_checked == len(loaded.frame) == 2
