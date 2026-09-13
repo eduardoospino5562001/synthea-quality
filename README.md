@@ -45,7 +45,8 @@ the Synthea or MITRE teams.
 ```
 Synthea CSV directory
     │
-    ├─ discovery       which known tables are present, which files are unknown
+    ├─ discovery       which known tables are present, which files are unknown, and any name that
+    │                  could be a table but is not a readable file
     ├─ schema contract header compared with the versioned contract → COMPATIBLE / INCOMPATIBLE / UNKNOWN
     ├─ structure       every row must have as many fields as its header, checked before any check runs
     ├─ loader          safe reading: text identifiers, no silent data loss, one table at a time
@@ -65,7 +66,10 @@ Synthea CSV directory
 The layers stay apart on purpose. Check modules only ever see data that was already
 loaded, and renderers only ever see a report: rendering reads no CSV and runs no check, so
 a JSON report reproduces its Markdown exactly, and the same input always produces the same
-output apart from the timestamp.
+output apart from the timestamp. A name that could be a table but is not a readable file —
+a directory called `encounters.csv`, a symbolic link that resolves to nothing — is recorded
+in the report as an ignored entry with its reason, and the table it names still counts as
+missing: that is a fact to report, never a defect of the data.
 
 ## Installation
 
@@ -286,11 +290,20 @@ report: it is the structured truth the Markdown is rendered from.
 
 Warnings alone never change the exit code. An unreadable table does, because the analysis
 is then incomplete: the terminal summary names it, the report records it under
-`load_errors`, and every check of that table is `SKIPPED` rather than passed. This is
-**not** a statistical gate: every check is deterministic, no rate is compared against an
-expectation, and no tolerance is invented. Usage errors print one readable line without a
-traceback; an unexpected failure is reported with its traceback on stderr and still
-returns `2`, so a real bug is never swallowed.
+`load_errors`, and every check of that table is `SKIPPED` rather than passed.
+
+**`0` does not mean `contract_status == COMPATIBLE`.** It means that no check which ran
+produced a `FAIL` or an `ERROR`. A dataset written by a Synthea version this tool does not
+support is reported as `INCOMPATIBLE` — a legitimate version that cannot be checked here,
+not a defect of the data — and its run can still exit `0`. An automation that needs
+exactly the supported contract must therefore test `contract_status` as well as the exit
+code. This is deliberate: no `--strict-schema` exists and the contract result is never
+promoted to a defect.
+
+This is **not** a statistical gate: every check is deterministic, no rate is compared
+against an expectation, and no tolerance is invented. Usage errors print one readable line
+without a traceback; an unexpected failure is reported with its traceback on stderr and
+still returns `2`, so a real bug is never swallowed.
 
 ## Testing
 

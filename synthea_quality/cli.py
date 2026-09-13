@@ -12,7 +12,13 @@ Exit codes (stable, so a script can rely on them)
 
 ``0``
     The run completed and no check failed. Warnings do not change this: a warning
-    flags legitimate Synthea data that deserves a look, not a data defect.
+    flags legitimate Synthea data that deserves a look, not a data defect. ``0`` says
+    nothing about the schema contract — it means no check that ran produced ``FAIL`` or
+    ``ERROR``, not that ``contract_status`` is ``COMPATIBLE``. A dataset written by a
+    Synthea version this tool does not support is reported as ``INCOMPATIBLE``, which is
+    a legitimate version the tool cannot check rather than a defect, and such a run can
+    still exit ``0``. An automation that needs exactly the supported contract must read
+    ``contract_status`` as well.
 ``1``
     The run completed but at least one check **failed**: a deterministic violation
     of a confirmed rule, in the data.
@@ -63,7 +69,8 @@ MAX_LISTED_TABLES = 6
 
 _EPILOG = """\
 exit codes:
-  0  the run completed and no check failed
+  0  the run completed and no check failed (this does not mean the schema contract is
+     COMPATIBLE: read contract_status in the report if you need that)
   1  the run completed but at least one check failed (a data defect)
   2  the tool could not complete the run (no known table in the input directory, an
      unreadable table, a write failure, or a check errored)
