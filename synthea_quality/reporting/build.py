@@ -136,6 +136,7 @@ def build_report(
         contract_summary=assessment.summary,
         contract_findings=assessment.reasons,
         load_errors=tuple(load_errors),
+        anomalous_entries=found.anomalous_entries,
         unresolved_relations=unresolved_relations(),
     )
     if generated_at is not None:
@@ -219,5 +220,6 @@ def _with_timestamp(report: DatasetReport, generated_at: str) -> DatasetReport:
         contract_summary=report.contract_summary,
         contract_findings=report.contract_findings,
         load_errors=report.load_errors,
+        anomalous_entries=report.anomalous_entries,
         unresolved_relations=report.unresolved_relations,
     )

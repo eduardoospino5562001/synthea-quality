@@ -207,6 +207,8 @@ def print_summary(report: DatasetReport, markdown_path: Path, json_path: Path) -
             else ""
         )
         print(f"Unreadable: {lost}{more} (the analysis of those tables is incomplete)")
+    for entry in report.anomalous_entries[:MAX_LISTED_TABLES]:
+        print(f"Ignored:  {entry.reason}")
 
     failing = [
         check for check in report.findings if check.status in (Status.FAIL, Status.ERROR)

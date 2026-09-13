@@ -207,3 +207,67 @@ def test_duplicate_file_names_in_a_catalogue_are_a_tool_bug(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="declared twice"):
         discover_dataset(tmp_path, known_tables=catalogue)
+
+
+# --------------------------------------------------------------------------- #
+# A name that matches a table but is not a file
+# --------------------------------------------------------------------------- #
+
+
+def test_a_directory_named_like_a_table_is_recorded_as_anomalous(tmp_path: Path) -> None:
+    """`encounters.csv` being a directory used to be skipped without a word.
+
+    The table still counts as missing — a missing table is never an error — but the
+    dataset now says why that name produced nothing, so a reader is not left guessing
+    whether the file was never written or is simply unusable.
+    """
+    write_files(tmp_path, ["patients.csv"])
+    (tmp_path / "encounters.csv").mkdir()
+
+    found = discover_dataset(tmp_path)
+
+    assert found.table_names == ("patients",)
+    assert "encounters" in {spec.name for spec in found.missing_tables}
+    assert [entry.file_name for entry in found.anomalous_entries] == ["encounters.csv"]
+    assert "directory" in found.anomalous_entries[0].reason.lower()
+    assert "encounters.csv" not in found.unknown_csv_files
+
+
+def test_an_absent_table_is_not_an_anomaly(tmp_path: Path) -> None:
+    """A table that simply is not there keeps its normal, quiet treatment."""
+    write_files(tmp_path, ["patients.csv"])
+
+    found = discover_dataset(tmp_path)
+
+    assert found.anomalous_entries == ()
+    assert "encounters" in {spec.name for spec in found.missing_tables}
+
+
+def test_a_directory_without_a_csv_name_is_still_ignored_quietly(tmp_path: Path) -> None:
+    """Only a name that could be a table is worth reporting; a folder of notes is not."""
+    write_files(tmp_path, ["patients.csv"])
+    (tmp_path / "notes").mkdir()
+
+    found = discover_dataset(tmp_path)
+
+    assert found.anomalous_entries == ()
+    assert found.missing_tables
+
+
+def test_a_csv_name_that_is_not_a_known_table_is_also_recorded(tmp_path: Path) -> None:
+    write_files(tmp_path, ["patients.csv"])
+    (tmp_path / "something.csv").mkdir()
+
+    found = discover_dataset(tmp_path)
+
+    assert [entry.file_name for entry in found.anomalous_entries] == ["something.csv"]
+
+
+def test_a_broken_symlink_named_like_a_table_is_recorded(tmp_path: Path) -> None:
+    write_files(tmp_path, ["patients.csv"])
+    (tmp_path / "encounters.csv").symlink_to(tmp_path / "nowhere.csv")
+
+    found = discover_dataset(tmp_path)
+
+    assert [entry.file_name for entry in found.anomalous_entries] == ["encounters.csv"]
+    assert "encounters" in {spec.name for spec in found.missing_tables}

@@ -284,6 +284,37 @@ class LoadError:
 
 
 @dataclass(frozen=True, slots=True)
+class AnomalousEntry:
+    """A path whose name could be a table but which cannot be read as one.
+
+    Recorded rather than dropped: without it, a table name that resolves to a directory,
+    a broken symbolic link or anything else that is not a regular file is
+    indistinguishable from a file the generator never wrote, and a reader is left to
+    guess. It is **not** a dataset defect — the table still counts as missing, and no
+    check fails because of it — so it stays out of ``load_errors``, which drives the exit
+    code.
+    """
+
+    #: Name found on disk, exactly as written (may differ in case from the catalogue).
+    file_name: str
+    #: Readable explanation of why the name produced no table.
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.file_name, str) or not self.file_name.strip():
+            raise ValueError("file_name must be a non-empty string")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ValueError("reason must be a non-empty string")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"file_name": self.file_name, "reason": self.reason}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "AnomalousEntry":
+        return cls(file_name=data["file_name"], reason=data["reason"])
+
+
+@dataclass(frozen=True, slots=True)
 class UnresolvedRelation:
     """A relationship the documentation describes but the tool does not enforce.
 
@@ -376,6 +407,8 @@ class DatasetReport:
     #: Per-table deviations from the contract, as written by the contract check.
     contract_findings: tuple[str, ...] = ()
     load_errors: tuple[LoadError, ...] = ()
+    #: Names that could be a table but are not readable files: reported, never a defect.
+    anomalous_entries: tuple[AnomalousEntry, ...] = ()
     #: Documented relations that are not enforced (see the schema catalogue).
     unresolved_relations: tuple[UnresolvedRelation, ...] = ()
 
@@ -456,6 +489,9 @@ class DatasetReport:
                 "missing_known_tables": list(self.missing_known_tables),
                 "tables_observed": len(self.tables),
                 "load_errors": [error.to_dict() for error in self.load_errors],
+                "anomalous_entries": [
+                    entry.to_dict() for entry in self.anomalous_entries
+                ],
                 "unresolved_relations": [
                     relation.to_dict() for relation in self.unresolved_relations
                 ],
@@ -507,6 +543,10 @@ class DatasetReport:
             contract_findings=tuple(dataset.get("contract_findings") or ()),
             load_errors=tuple(
                 LoadError.from_dict(item) for item in (dataset.get("load_errors") or ())
+            ),
+            anomalous_entries=tuple(
+                AnomalousEntry.from_dict(item)
+                for item in (dataset.get("anomalous_entries") or ())
             ),
             unresolved_relations=tuple(
                 UnresolvedRelation.from_dict(item)

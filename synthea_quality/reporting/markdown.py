@@ -139,6 +139,11 @@ def _scope_section(report: DatasetReport) -> str:
         "- Unknown CSV files: "
         + (", ".join(f"`{_cell(name)}`" for name in unknown) if unknown else "none")
     )
+    if report.anomalous_entries:
+        lines.append("- Names that could not be read as a table:")
+        lines.extend(
+            f"  - {_cell(entry.reason, limit=400)}" for entry in report.anomalous_entries
+        )
     if report.contract_findings:
         lines.append("- Deviations from the contract:")
         lines.extend(

@@ -7,6 +7,12 @@ and validating the data is the loader's job.
 Nothing is required to be present. Synthea decides which CSV files to write from
 ``exporter.csv.included_files`` / ``exporter.csv.excluded_files``, so a missing
 table is a fact to report, never an error.
+
+A name that *looks* like a table but is not a regular file — a directory called
+``encounters.csv``, a symbolic link that does not resolve — is recorded in
+``anomalous_entries`` with a readable reason instead of being skipped in silence. The
+table still counts as missing, because a name that yields no file is still a table that
+was not observed; what changes is that the dataset now says why.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from pathlib import Path
 from typing import Sequence
 
 from synthea_quality.errors import DiscoveryError
+from synthea_quality.models import AnomalousEntry
 from synthea_quality.schema.tables import CONTRACT_ID, SYNTHEA_TABLES, TableSpec
 
 CSV_SUFFIX = ".csv"
@@ -50,6 +57,8 @@ class DiscoveryResult:
     missing_tables: tuple[TableSpec, ...]
     unknown_csv_files: tuple[str, ...]
     ignored_files: tuple[str, ...]
+    #: Names that could be a table but are not readable files, with the reason.
+    anomalous_entries: tuple[AnomalousEntry, ...] = ()
 
     @property
     def table_names(self) -> tuple[str, ...]:
@@ -91,10 +100,17 @@ def discover_dataset(
     tables: list[DiscoveredTable] = []
     unknown_csv_files: list[str] = []
     ignored_files: list[str] = []
+    anomalous_entries: list[AnomalousEntry] = []
     seen_file_names: dict[str, str] = {}
 
     for entry in sorted(root.iterdir(), key=lambda path: path.name):
         if not entry.is_file():
+            # A sub-directory is a normal thing to find here and is passed over quietly.
+            # A name that could be a table but is not a file is worth saying out loud:
+            # otherwise it is indistinguishable from a table the generator never wrote.
+            anomaly = _anomalous_entry(entry)
+            if anomaly is not None:
+                anomalous_entries.append(anomaly)
             continue
         if entry.suffix.lower() != CSV_SUFFIX:
             ignored_files.append(entry.name)
@@ -123,6 +139,42 @@ def discover_dataset(
         missing_tables=tuple(spec for spec in specs if spec.name not in found_names),
         unknown_csv_files=tuple(unknown_csv_files),
         ignored_files=tuple(ignored_files),
+        anomalous_entries=tuple(
+            sorted(anomalous_entries, key=lambda entry: entry.file_name)
+        ),
+    )
+
+
+def _anomalous_entry(entry: Path) -> AnomalousEntry | None:
+    """Explain a path that could be a table name but is not a readable file.
+
+    ``None`` for anything that is not even a CSV name, so ordinary sub-directories stay
+    as quiet as they were.
+    """
+    if entry.suffix.lower() != CSV_SUFFIX:
+        return None
+    if entry.is_dir():
+        return AnomalousEntry(
+            file_name=entry.name,
+            reason=(
+                f"'{entry.name}' is a directory, not a file, so no table can be read "
+                f"from it; the table it names counts as missing"
+            ),
+        )
+    if entry.is_symlink():
+        return AnomalousEntry(
+            file_name=entry.name,
+            reason=(
+                f"'{entry.name}' is a symbolic link that does not resolve to a file, so "
+                f"no table can be read from it; the table it names counts as missing"
+            ),
+        )
+    return AnomalousEntry(
+        file_name=entry.name,
+        reason=(
+            f"'{entry.name}' is not a regular file, so no table can be read from it; the "
+            f"table it names counts as missing"
+        ),
     )
 
 

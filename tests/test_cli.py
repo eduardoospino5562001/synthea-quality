@@ -523,3 +523,26 @@ def test_a_blank_line_does_not_produce_a_structural_failure(tmp_path: Path) -> N
 # A table name that is a directory is reported, and is not a dataset defect
 # --------------------------------------------------------------------------- #
 
+
+def test_a_directory_named_like_a_table_is_reported_without_failing_the_dataset(
+    tmp_path: Path, capsys
+) -> None:
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text(
+        "Id,BIRTHDATE\np1,1980-01-01\n", encoding="utf-8", newline=""
+    )
+    (dataset / "encounters.csv").mkdir()
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    assert code == EXIT_OK  # an unusable name is not a defect of the data
+    assert "encounters.csv" in capsys.readouterr().out
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    assert [
+        entry["file_name"] for entry in report["dataset"]["anomalous_entries"]
+    ] == ["encounters.csv"]
+    assert "encounters" in report["dataset"]["missing_known_tables"]
+    assert report["dataset"]["load_errors"] == []
+    assert not [check for check in report["checks"] if check["status"] == "FAIL"]
