@@ -36,8 +36,8 @@ in one place: a schema contract, deterministic integrity checks, and a report an
 reproduce from the same dataset. It started after a conversation with a Synthea maintainer
 about validating prevalence and incidence statistics, and the first phase deliberately
 stays on the deterministic ground both sides agreed on: no expected ranges, no invented
-tolerances, no statistical gates. Nothing here implies adoption, endorsement or review by
-the Synthea or MITRE teams.
+tolerances, no statistical gates. This remains an independent open-source contribution and
+is not currently an official Synthea or MITRE project.
 
 ## Architecture
 
