@@ -8,13 +8,12 @@ export and reports **structural** problems a person can act on: schema mismatche
 primary or foreign keys, exact duplicate rows, columns that are never filled, dates that
 do not match the documented format, and impossible temporal order.
 
-This is an independent project. It is **not** an official MITRE or Synthea tool, it is
-neither endorsed by nor affiliated with those projects, and it never modifies the
-generator or the dataset it inspects.
+This is an independent open-source contribution developed in response to feedback from the
+Synthea community. It is not currently an official MITRE or Synthea tool, and it never
+modifies the generator or the dataset it inspects.
 
 > **Status: MVP, Phase 1 — deterministic checks only.** Read *Current limitations* and
-> *Roadmap* before relying on it for anything beyond that. An independent audit has not
-> been done yet.
+> *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
 
@@ -460,6 +459,6 @@ Apache License 2.0 — see `LICENSE`. `NOTICE` records the origin of the schema 
 (`CSVConstants.java`, Synthea commit `d9d07a6e`) and of the verification datasets
 (`synthea-sample-data`, Apache-2.0), both copyright The MITRE Corporation.
 
-This project is independent: it is not part of the official Synthea distribution, it is not
-endorsed by or affiliated with MITRE or the Synthea project, and it does not modify the
-generator. No Synthea source code was copied into it.
+This is an independent open-source contribution developed in response to feedback from the
+Synthea community. It is not currently part of the official Synthea distribution or an
+official MITRE project, and it does not modify the Synthea generator.
