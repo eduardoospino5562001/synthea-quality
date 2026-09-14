@@ -8,8 +8,8 @@ export and reports **structural** problems a person can act on: schema mismatche
 primary or foreign keys, exact duplicate rows, columns that are never filled, dates that
 do not match the documented format, and impossible temporal order.
 
-This is an independent open-source contribution developed in response to feedback from the
-Synthea community. It is not currently an official MITRE or Synthea tool, and it never
+This is an independent open-source contribution developed in response to feedback from a
+Synthea maintainer. It is not currently an official MITRE or Synthea tool, and it never
 modifies the generator or the dataset it inspects.
 
 > **Status: MVP, Phase 1 — deterministic checks only.** Read *Current limitations* and
@@ -35,9 +35,9 @@ This project takes the opposite route and keeps the reusable, verifiable part of
 in one place: a schema contract, deterministic integrity checks, and a report anyone can
 reproduce from the same dataset. It started after a conversation with a Synthea maintainer
 about validating prevalence and incidence statistics, and the first phase deliberately
-stays on the deterministic ground both sides agreed on: no expected ranges, no invented
-tolerances, no statistical gates. This remains an independent open-source contribution and
-is not currently an official Synthea or MITRE project.
+stays on deterministic checks: no expected ranges, no invented tolerances, no statistical
+gates. This remains an independent open-source contribution and is not currently an
+official Synthea or MITRE project.
 
 ## Architecture
 
@@ -193,12 +193,12 @@ The report has its own section for relationships Synthea's documentation describ
 this tool does **not** apply as constraints. They are **not** dataset defects and **not**
 findings about the dataset being reported. Each entry carries what the documentation says,
 what the generator code does, evidence measured on the *reference* dataset, why it is not
-enforced, and the question pending a maintainer's answer.
+enforced, and what remains uncertain about its semantics.
 
 | Relation | Why it is not enforced |
 | --- | --- |
 | `claims_transactions.PATIENTINSURANCEID` → `payer_transitions.MEMBERID` | the exporter writes the claim's plan record member id; on the reference sample 170 of 79,453 references belong to patients with no `payer_transitions` row at all |
-| `claims_transactions.FROMDATE <= TODATE` | 6,555 of 85,047 rows of the reference sample carry `1970-01-01T00:00:00Z` in `TODATE`, the epoch the exporter writes for an unset stop time, so the inversion means "no end" rather than an error |
+| `claims_transactions.FROMDATE <= TODATE` | 6,555 of 85,047 rows of the reference sample carry `1970-01-01T00:00:00Z` in `TODATE`, a value that may correspond to a stop time that was never set, so the inversion may mean "no end" rather than an error; its semantics are still pending confirmation |
 | `payer_transitions.START_DATE <= END_DATE` | clean on the reference sample, but its end date goes through the same possibly-unset timestamp path, so an open-ended plan could invert it |
 
 Those quantities are always attributed to the dataset they came from — the official
@@ -369,7 +369,8 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **No clinical judgement.** Nothing judges whether a code, dose or diagnosis is medically
   plausible.
 - **No chunking**, as measured above.
-- **Three documented relations are not enforced**, pending a maintainer's answer.
+- **Three documented relations are not enforced** because their semantics are not yet fully
+  confirmed.
 - **No CI configuration yet.** Both suites run locally; no workflow runs them on every
   change.
 - **One dataset is the automated baseline.** The official sample is the reference; the tool
@@ -389,8 +390,8 @@ Candidates, in no promised order, none of them started:
 - chunked or streamed processing for datasets much larger than the sample;
 - CI that runs both suites on every change, which would also enforce the acceptance
   baseline continuously;
-- further schema or temporal rules once a maintainer confirms their semantics — for
-  instance the three unresolved relations above.
+- further schema or temporal rules, for instance the three unresolved relations above,
+  once their semantics are confirmed.
 
 ## Contributing and development
 
@@ -459,6 +460,6 @@ Apache License 2.0 — see `LICENSE`. `NOTICE` records the origin of the schema 
 (`CSVConstants.java`, Synthea commit `d9d07a6e`) and of the verification datasets
 (`synthea-sample-data`, Apache-2.0), both copyright The MITRE Corporation.
 
-This is an independent open-source contribution developed in response to feedback from the
-Synthea community. It is not currently part of the official Synthea distribution or an
+This is an independent open-source contribution developed in response to feedback from a
+Synthea maintainer. It is not currently part of the official Synthea distribution or an
 official MITRE project, and it does not modify the Synthea generator.
