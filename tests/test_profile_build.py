@@ -10,6 +10,7 @@ import pytest
 
 from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.profile.build import build_profile
+from synthea_quality.profile.codes import CLINICAL_TABLES
 from synthea_quality.profile.models import InputState, ReferenceSource, SectionStatus
 from synthea_quality.profile.reference import ReferenceDateError
 from synthea_quality.schema.tables import tables_by_name
@@ -57,10 +58,14 @@ def test_profile_of_a_small_dataset(tmp_path):
     assert (population["total"], population["alive"], population["deceased"]) == (3, 2, 1)
     age = profile.section("age").metrics
     assert (age["min"], age["max"], age["median"]) == (26, 75, 50.5)
-    assert [(i.table, i.state, i.rows) for i in profile.inputs] == [
+    assert [(i.table, i.state, i.rows) for i in profile.inputs][:2] == [
         ("patients", InputState.READ, 3),
         ("encounters", InputState.READ, 2),
     ]
+    # the clinical tables this small dataset does not have are recorded as absent
+    assert {i.table: i.state for i in profile.inputs[2:]} == {
+        table: InputState.ABSENT for table, _ in CLINICAL_TABLES
+    }
     assert not profile.incomplete
 
 
@@ -75,7 +80,7 @@ def test_explicit_reference_date_is_used_and_encounters_are_not_read(tmp_path):
     profile = build_profile(dataset(tmp_path), reference_date="2020-01-01")
     assert profile.reference_date.source is ReferenceSource.USER
     assert profile.section("age").metrics["max"] == 69
-    assert [i.table for i in profile.inputs] == ["patients"]
+    assert "encounters" not in [i.table for i in profile.inputs]
 
 
 def test_metadata_end_time_is_used_with_a_note_when_inconsistent(tmp_path):
@@ -109,7 +114,7 @@ def test_missing_patients_skips_every_section_with_the_reason(tmp_path):
     write_table(tmp_path, "encounters", [{"Id": "e1", "START": "2020-01-01T00:00:00Z"}])
     profile = build_profile(tmp_path)
     assert all(s.status is SectionStatus.SKIPPED for s in profile.sections)
-    assert {s.reason for s in profile.sections} == {"patients.csv is not in the dataset"}
+    assert all("patients.csv is not in the dataset" in s.reason for s in profile.sections)
     assert profile.inputs[0].state is InputState.ABSENT
     assert not profile.incomplete
 
@@ -163,3 +168,71 @@ def test_the_dataset_is_never_modified(tmp_path):
     before = {p.name: p.read_bytes() for p in directory.iterdir()}
     build_profile(directory)
     assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+
+
+# --------------------------------------------------------------------------- #
+# clinical tables
+# --------------------------------------------------------------------------- #
+
+
+def test_clinical_tables_are_profiled_among_the_alive_only(tmp_path):
+    directory = dataset(tmp_path)
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "p1", "CODE": "44054006", "SYSTEM": "http://snomed.info/sct",
+             "DESCRIPTION": "Diabetes"},
+            {"PATIENT": "p2", "CODE": "44054006", "SYSTEM": "http://snomed.info/sct",
+             "DESCRIPTION": "Diabetes"},
+            {"PATIENT": "p3", "CODE": "38341003", "SYSTEM": "http://snomed.info/sct",
+             "DESCRIPTION": "Hypertension"},  # p3 is deceased
+        ],
+    )
+    profile = build_profile(directory, generated_at=GENERATED_AT, top_codes=5)
+    conditions = profile.section("codes.conditions")
+    assert conditions.status is SectionStatus.COMPUTED
+    assert [(c.system, c.code, c.patients) for c in conditions.codes] == [
+        ("http://snomed.info/sct", "44054006", 2)
+    ]
+    assert conditions.metrics["rows_deceased"] == 1
+    assert conditions.metrics["top"] == 5
+    assert profile.section("codes.medications").reason == "medications.csv is not in the dataset"
+    conditions_input = next(i for i in profile.inputs if i.table == "conditions")
+    assert (conditions_input.state, conditions_input.rows) == (InputState.READ, 3)
+
+
+def test_a_clinical_table_without_code_is_skipped_with_the_reason(tmp_path):
+    directory = dataset(tmp_path)
+    write_table(directory, "careplans", [{"PATIENT": "p1"}], columns=("Id", "PATIENT"))
+    profile = build_profile(directory)
+    section = profile.section("codes.careplans")
+    assert section.status is SectionStatus.SKIPPED
+    assert "no PATIENT or no CODE column" in section.reason
+    assert not profile.incomplete
+
+
+def test_a_malformed_clinical_table_is_skipped_and_marks_the_profile_incomplete(tmp_path):
+    directory = dataset(tmp_path)
+    path = write_table(directory, "immunizations", [{"PATIENT": "p1", "CODE": "140"}])
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("2020-01-01,p2\n")
+    profile = build_profile(directory)
+    assert profile.section("codes.immunizations").status is SectionStatus.SKIPPED
+    assert "field count" in profile.section("codes.immunizations").reason
+    assert profile.incomplete
+
+
+def test_without_deathdate_every_code_section_is_skipped(tmp_path):
+    write_table(tmp_path, "patients", [{"Id": "p1"}], columns=("Id", "BIRTHDATE"))
+    write_table(tmp_path, "conditions", [{"PATIENT": "p1", "CODE": "1"}])
+    profile = build_profile(tmp_path, reference_date="2020-01-01")
+    for table, _ in CLINICAL_TABLES:
+        section = profile.section(f"codes.{table}")
+        assert section.status is SectionStatus.SKIPPED
+        assert "no DEATHDATE column" in section.reason
+
+
+def test_top_codes_must_be_positive(tmp_path):
+    with pytest.raises(ValueError, match="top_codes"):
+        build_profile(dataset(tmp_path), top_codes=0)
