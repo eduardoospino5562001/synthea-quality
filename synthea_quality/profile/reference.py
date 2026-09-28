@@ -192,12 +192,14 @@ def reference_from_encounters(latest: LatestEncounter) -> ReferenceDate | None:
         value=latest.timestamp.date().isoformat(),
         source=ReferenceSource.MAX_ENCOUNTER_DATE,
         detail=(
-            f"APPROXIMATION: the latest encounters.{'/'.join(latest.columns)} value "
-            f"({latest.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')}, over {latest.values} "
-            f"timestamps{ignored}). The Synthea CSV export does not record when the "
-            f"simulation ended ({SYNTHEA_END_TIME_PROVENANCE}); every exported encounter "
-            f"precedes that end, so this date is normally a lower bound of it. Pass "
-            f"--reference-date or --metadata to use an exact date"
+            f"APPROXIMATION: the latest encounters.{'/'.join(latest.columns)} value, "
+            f"{latest.timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')} (over {latest.values} "
+            f"timestamps{ignored}). The CSV export does not record when the simulation "
+            f"ended: Synthea simulates up to Generator.stop, which defaults to the time it "
+            f"ran ('-e YYYYMMDD' overrides it) and is written only to the run metadata "
+            f"file, as endTime. Every exported encounter precedes that end, so this date is "
+            f"normally a lower bound of it. Pass --reference-date or --metadata to use an "
+            f"exact date."
         ),
         approximate=True,
     )
