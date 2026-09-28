@@ -243,3 +243,17 @@ def test_an_empty_age_band_has_no_rate():
     result, _ = run(patients({"Id": "old", "BIRTHDATE": "1950-01-01"}), [], age_bands=(0, 18))
     child = next(s for s in result.strata if s.value == "0-17")
     assert (child.rate.person_days, child.rate.value, child.rate.interval) == (0, None, None)
+
+
+def test_a_same_day_record_is_the_same_episode_not_a_later_one():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [
+            {"PATIENT": "p1", "CODE": "100", "START": "2023-11-02"},
+            {"PATIENT": "p1", "CODE": "200", "START": "2023-11-02"},
+        ],
+        "MI=100,200;acute",
+    )
+    assert result.metrics["records_on_the_event_day"] == 1
+    assert result.metrics["later_records_not_counted"] == 0
+    assert not any("repeated episodes" in note for note in result.notes)

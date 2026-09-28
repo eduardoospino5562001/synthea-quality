@@ -18,8 +18,10 @@ For each condition, among those patients:
   entry and exit; the time at risk ends there;
 * **person-time** is the whole days between entry and exit (or the first event); it is
   converted to years (365.25 days) only when a rate is reported, so strata add up exactly;
-* later records of an at-risk patient are not events (first events only) and are
-  counted, since for an acute condition they may be new episodes.
+* other records of an at-risk patient are not events (first events only) and are
+  counted: those starting on the day of the first event (the same episode written with
+  another code, as Synthea does for myocardial infarction) apart from those starting on
+  a later day, which for an acute condition may be new episodes.
 
 Strata
 ------
@@ -221,7 +223,7 @@ def condition_incidence(
         starts_by_patient.setdefault(str(patient), []).append(start.date())
 
     followed: list[tuple[Person, date | None]] = []
-    prior_cases = later_records = records_after_exit = 0
+    prior_cases = same_day_records = later_records = records_after_exit = 0
     for patient_id, person in cohort.people.items():
         starts = sorted(starts_by_patient.get(patient_id, ()))
         if starts and starts[0] < person.entry:
@@ -230,7 +232,9 @@ def condition_incidence(
         in_window = [s for s in starts if s <= person.exit]
         records_after_exit += len(starts) - len(in_window)
         event = in_window[0] if in_window else None
-        later_records += max(0, len(in_window) - 1)
+        if event is not None:
+            same_day_records += sum(1 for s in in_window[1:] if s == event)
+            later_records += sum(1 for s in in_window if s > event)
         followed.append((person, event))
 
     total = _rate(followed)
@@ -241,6 +245,7 @@ def condition_incidence(
         "at_risk": len(followed),
         "events": total.events,
         "person_days": total.person_days,
+        "records_on_the_event_day": same_day_records,
         "later_records_not_counted": later_records,
         "records_after_exit": records_after_exit,
         "records_start_unusable": records.start_unusable,
@@ -251,9 +256,9 @@ def condition_incidence(
     ]
     if definition.acute and later_records:
         notes.append(
-            f"{later_records} later record(s) of at-risk patients within the window were not "
-            f"counted: only first events are, so repeated episodes of this acute condition are "
-            f"not included."
+            f"{later_records} record(s) starting after a patient's first event, within the window, "
+            f"were not counted: only first events are, so repeated episodes of this acute "
+            f"condition are not included."
         )
     by_measure = {"incidence": total}
     return ConditionIncidence(
