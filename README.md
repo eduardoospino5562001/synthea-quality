@@ -442,7 +442,7 @@ provenance, and anyone can rerun it on the same dataset.
 
 ```bash
 .venv/bin/synthea-prevalence /path/to/synthea/output/csv \
-    --condition "Myocardial infarction=22298006,401303003,401314000" \
+    --condition "Myocardial infarction=22298006,401303003,401314000;acute" \
     --expected "Myocardial infarction:lifetime=0.03" \
     --output-dir ./reports
 ```
@@ -470,17 +470,22 @@ when the report is written and `2` when it cannot be completed.
 - Rows of deceased or unknown patients, rows without a code, rows whose `START` cannot be
   placed in time and rows starting after `ref` are counted, then left out. A `STOP` that
   cannot be parsed keeps the row for lifetime prevalence only.
+- Every condition shows how many of its records have no `STOP`, out of the records used:
+  such a record counts as active at the reference date.
+- A condition can be **declared acute** (`;acute`, or `"acute": true` in a file); the tool
+  never infers it. When a declared acute condition has records without `STOP`, a note says
+  that point prevalence then counts every past event as still active and that lifetime
+  prevalence is the meaningful measure.
 - When point prevalence is far below lifetime prevalence (at most a tenth of it), a note
   says that point prevalence describes chronic or still-active conditions and that
-  lifetime prevalence is the relevant measure for acute events. Each condition also
-  reports how many of its records have no `STOP`, because such records count as active.
+  lifetime prevalence is the relevant measure for acute events.
 
 ### Conditions and reference values
 
 | Option | Example |
 | --- | --- |
-| `--condition NAME=CODES` (repeatable) | `--condition "Myocardial infarction=22298006,401303003,401314000"` |
-| `--conditions FILE.json` | `{"conditions": [{"name": "Myocardial infarction", "codes": ["22298006", "401303003", "401314000"], "expected": {"lifetime": 0.03, "source": "CDC 2019"}}]}` |
+| `--condition NAME=CODES[;acute]` (repeatable) | `--condition "Myocardial infarction=22298006,401303003,401314000;acute"` |
+| `--conditions FILE.json` | `{"conditions": [{"name": "Myocardial infarction", "codes": ["22298006", "401303003", "401314000"], "acute": true, "expected": {"lifetime": 0.03, "source": "CDC 2019"}}]}` |
 | `--expected NAME:MEASURE=VALUE` (repeatable) | `--expected "Myocardial infarction:lifetime=0.03"` |
 
 Codes are SNOMED CT unless written `SYSTEM|CODE`. A reference value is shown next to the
@@ -528,16 +533,19 @@ rather than forced away:
 
 Every myocardial infarction patient of the sample is alive, so the numerators agree and the
 rates differ only by the nine deceased patients in the notebook's denominator. On this
-sample the acute codes `401303003` and `401314000` never have a `STOP`, so the point
-prevalence of myocardial infarction equals its lifetime prevalence (6 / 99 with the three
-acute codes); the report shows it through the count of records without `STOP`.
+sample the acute codes `401303003` (STEMI) and `401314000` (NSTEMI) never have a `STOP`,
+so the point prevalence of myocardial infarction equals its lifetime prevalence (6 / 99
+with the three acute codes). The generator explains it: `heart/stemi_pathway.json` and
+`heart/nsteacs_pathway.json` start those conditions and no module ends them, while
+`22298006` is ended by `myocardial_infarction.json`. Declared acute, the condition gets the
+note "6 of 8 records have no STOP date…".
 
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 572 unit and component tests, about 8 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 19 end-to-end tests that run the commands as a user would, about 55 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 579 unit and component tests, about 8 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 20 end-to-end tests that run the commands as a user would, about 55 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
