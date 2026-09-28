@@ -3,8 +3,9 @@
 What this proves: that the profile command, run as a user runs it, accounts for every
 patient of the dataset Synthea recommends — the total matches the rows of
 ``patients.csv`` as the standard library's CSV reader counts them, and alive plus
-deceased equals the total — and that the approximate reference date is attributed as
-such. It deliberately pins no demographic number: those describe the sample, and the
+deceased equals the total — that the approximate reference date is attributed as
+such, and that the most common codes of ``conditions`` and ``observations`` (the largest
+table) match an independent count made with the standard library's CSV reader. It deliberately pins no demographic number: those describe the sample, and the
 acceptance baseline in ``docs/acceptance.md`` already pins the data itself.
 
 The dataset is fetched with ``python scripts/fetch_official_sample.py`` or pointed at
@@ -123,3 +124,49 @@ def test_same_dataset_same_profile_apart_from_the_timestamp(sample, profiled, tm
     first = dict(first, generated_at=None)
     second = dict(second, generated_at=None)
     assert first == second
+
+
+# --------------------------------------------------------------------------- #
+# most common codes, checked against an independent count with the csv module
+# --------------------------------------------------------------------------- #
+
+
+def independent_code_counts(sample: Path, table: str) -> dict:
+    """Distinct alive patients and records per code, counted without pandas."""
+    with (sample / "patients.csv").open(newline="", encoding="utf-8-sig") as handle:
+        alive = {row["Id"] for row in csv.DictReader(handle) if not row["DEATHDATE"]}
+    patients: dict[tuple, set] = {}
+    records: dict[tuple, int] = {}
+    with (sample / f"{table}.csv").open(newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row["PATIENT"] not in alive or not row["CODE"]:
+                continue
+            key = (row.get("SYSTEM") or None, row["CODE"])
+            patients.setdefault(key, set()).add(row["PATIENT"])
+            records[key] = records.get(key, 0) + 1
+    return {key: (len(patients[key]), records[key]) for key in patients}
+
+
+@pytest.mark.parametrize("table", ["conditions", "observations"])
+def test_top_codes_match_an_independent_count(sample, profiled, table):
+    _, data, _ = profiled
+    codes = section(data, f"codes.{table}")
+    assert codes["status"] == "COMPUTED"
+    expected = independent_code_counts(sample, table)
+    assert codes["metrics"]["distinct_codes_alive"] == len(expected)
+    for row in codes["codes"]:
+        assert (row["patients"], row["records"]) == expected[(row["system"], row["code"])]
+    ranked = sorted(
+        expected.items(), key=lambda item: (-item[1][0], -item[1][1], item[0][0] or "", item[0][1])
+    )
+    listed = [(row["system"], row["code"]) for row in codes["codes"]]
+    assert listed == [key for key, _ in ranked[: len(listed)]]
+
+
+def test_every_clinical_table_is_profiled(profiled):
+    _, data, _ = profiled
+    for table in (
+        "conditions", "medications", "procedures", "observations",
+        "immunizations", "allergies", "careplans",
+    ):
+        assert section(data, f"codes.{table}")["status"] == "COMPUTED"
