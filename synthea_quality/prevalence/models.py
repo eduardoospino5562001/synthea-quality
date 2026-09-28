@@ -39,6 +39,18 @@ RATE_DECIMALS = 6
 
 MEASURES = ("point", "lifetime")
 
+#: The SNOMED CT system as ``conditions.csv`` writes it.
+SNOMED_CT = "http://snomed.info/sct"
+#: Spellings of SNOMED CT: modules say ``SNOMED-CT``, the CSV export writes the URI.
+SNOMED_ALIASES = frozenset({SNOMED_CT, "SNOMED-CT", "SNOMED", "SNOMEDCT", "SCT"})
+
+
+def normalise_system(system: str | None) -> str | None:
+    """One spelling per code system, so a module's ``SNOMED-CT`` matches the CSV's URI."""
+    if system is None:
+        return None
+    return SNOMED_CT if system.strip() in SNOMED_ALIASES else system.strip()
+
 
 def wilson_interval(successes: int, total: int, z: float = Z_95) -> tuple[float, float] | None:
     """Wilson score interval for ``successes`` out of ``total``, or ``None`` when ``total`` is 0."""
