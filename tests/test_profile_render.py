@@ -8,6 +8,9 @@ import pytest
 
 from synthea_quality.profile.models import (
     CategoryCount,
+    CodeCount,
+    CodeDescriptions,
+    DescriptionCount,
     DatasetProfile,
     InputState,
     ProfileSection,
@@ -210,3 +213,79 @@ def test_markdown_has_no_verdict_vocabulary():
 def test_writers_create_the_directory(tmp_path, writer, suffix):
     path = writer(profile(), tmp_path / "nested" / f"out{suffix}")
     assert path.exists() and path.read_text(encoding="utf-8").endswith("\n")
+
+
+def code_section(**overrides) -> ProfileSection:
+    values = dict(
+        section_id="codes.allergies",
+        title="Allergies: most common codes",
+        status=SectionStatus.COMPUTED,
+        metrics={
+            "denominator": 4,
+            "patients_with_records": 3,
+            "rows": 6,
+            "rows_alive": 5,
+            "distinct_codes": 3,
+            "distinct_codes_alive": 2,
+            "shown": 2,
+            "codes_with_multiple_descriptions": 1,
+            "code_identity": "SYSTEM+CODE",
+        },
+        notes=("Historical count, not active.", "Ordered by patients."),
+        codes=(
+            CodeCount("SNOMED-CT", "123", "Peanut | nut", 3, 75.0, 4, description_variants=2),
+            CodeCount(None, "999", None, 1, 25.0, 1),
+        ),
+        multi_description_codes=(
+            CodeDescriptions(
+                "SNOMED-CT",
+                "123",
+                (DescriptionCount("Peanut | nut", 3), DescriptionCount("peanut", 1)),
+            ),
+        ),
+    )
+    values.update(overrides)
+    return ProfileSection(**values)
+
+
+def test_code_section_leads_with_the_historical_note_then_the_table():
+    text = render_markdown(profile(sections=(code_section(),)))
+    body = text.split("## Allergies: most common codes\n\n", 1)[1]
+    assert body.startswith("> Historical count, not active.")
+    assert "| # | SYSTEM | CODE | DESCRIPTION | Patients | % alive | Records |" in body
+    assert (
+        "| 1 | `SNOMED-CT` | `123` | Peanut \\| nut *(2 descriptions)* | 3 | 75.00 | 4 |"
+        in body
+    )
+    assert "| 2 | — | `999` | — | 1 | 25.00 | 1 |" in body
+    assert body.index("| # |") < body.index("- Ordered by patients.")
+    assert body.count("Historical count, not active.") == 1
+
+
+def test_code_section_lists_every_description_variant():
+    body = render_markdown(profile(sections=(code_section(),)))
+    assert "Codes written with more than one description: **1**." in body
+    assert "| `SNOMED-CT` `123` | Peanut \\| nut | 3 |" in body
+    assert "|  | peanut | 1 |" in body
+
+
+def test_code_section_without_system_has_no_system_column():
+    section = code_section(
+        section_id="codes.medications",
+        title="Medications: most common codes",
+        metrics={**code_section().metrics, "code_identity": "CODE"},
+        codes=(CodeCount(None, "313782", "Acetaminophen", 2, 50.0, 3),),
+        multi_description_codes=(),
+    )
+    body = render_markdown(profile(sections=(section,)))
+    assert "| # | CODE | DESCRIPTION | Patients | % alive | Records |" in body
+    assert "| 1 | `313782` | Acetaminophen | 2 | 50.00 | 3 |" in body
+    assert "more than one description" not in body
+
+
+def test_a_skipped_code_section_shows_its_reason():
+    section = ProfileSection.skipped(
+        "codes.careplans", "Care plans: most common codes", "careplans.csv is not in the dataset"
+    )
+    text = render_markdown(profile(sections=(section,)))
+    assert "## Care plans: most common codes\n\n`SKIPPED` — careplans.csv is not in the dataset" in text
