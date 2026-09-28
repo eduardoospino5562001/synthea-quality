@@ -198,7 +198,7 @@ def reference_from_encounters(latest: LatestEncounter) -> ReferenceDate | None:
             f"ended: Synthea simulates up to Generator.stop, which defaults to the time it "
             f"ran ('-e YYYYMMDD' overrides it) and is written only to the run metadata "
             f"file, as endTime. Every exported encounter precedes that end, so this date is "
-            f"normally a lower bound of it. Pass --reference-date or --metadata to use an "
+            f"normally a lower bound of it. Use --reference-date or --metadata for an "
             f"exact date."
         ),
         approximate=True,
