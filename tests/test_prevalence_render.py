@@ -118,6 +118,11 @@ def test_expected_values_are_described_by_position_never_as_a_verdict():
     assert not re.search(r"\b(pass|fail|ok|match)", text, re.IGNORECASE)
 
 
+def test_the_full_report_uses_no_verdict_words():
+    text = render_markdown(report()) + render_markdown(report(conditions=()))
+    assert not re.search(r"\b(pass(ed|es)?|fail(ed|s)?|ok|match(ed|es)?)\b", text, re.IGNORECASE)
+
+
 def test_general_table_lists_the_top_rows_and_marks_social_codes():
     text = render_markdown(report())
     assert "Codes with at least one alive patient: **3**, all in `http://snomed.info/sct`" in text
@@ -144,7 +149,7 @@ def test_skipped_parts_show_their_reason():
 
 def test_without_conditions_asked_the_report_says_how_to_ask():
     text = render_markdown(report(conditions=()))
-    assert "Pass `--condition NAME=CODE[,CODE...]`" in text
+    assert "Use `--condition NAME=CODE[,CODE...]`" in text
 
 
 def test_writers(tmp_path):

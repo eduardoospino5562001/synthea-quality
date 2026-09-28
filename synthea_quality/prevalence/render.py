@@ -113,7 +113,7 @@ def _definitions() -> str:
 def _conditions(report: PrevalenceReport) -> list[str]:
     if not report.conditions:
         return [
-            "## Conditions asked for\n\nNone. Pass `--condition NAME=CODE[,CODE...]` or "
+            "## Conditions asked for\n\nNone. Use `--condition NAME=CODE[,CODE...]` or "
             "`--conditions FILE.json` to measure specific conditions."
         ]
     return [_condition(condition) for condition in report.conditions]
