@@ -196,6 +196,12 @@ def validate_structure(
             header = next(reader, None)
         except csv.Error as exc:
             raise TableLoadError(f"{file_path} has an unreadable header: {exc}") from exc
+        except UnicodeDecodeError as exc:
+            # Reading the header decodes a whole buffer, so in a small file the invalid
+            # bytes of a later row surface here, not in the loop below.
+            raise TableLoadError(f"{file_path} is not valid UTF-8: {exc}") from exc
+        except OSError as exc:
+            raise TableLoadError(f"{file_path} could not be read: {exc}") from exc
         # The header is read verbatim, whatever it is: which line it sits on is the
         # loader's business, not this validator's.
         source.take_span()
