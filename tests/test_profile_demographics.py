@@ -21,6 +21,7 @@ from synthea_quality.profile.population import (
     age_band_of,
     ages_at,
     alive_mask,
+    alive_patient_ids,
     select_alive,
     validate_age_bands,
 )
@@ -61,6 +62,26 @@ def test_alive_means_an_empty_deathdate_even_when_the_deathdate_is_garbage():
     )
     assert alive_mask(frame).tolist() == [True, False, False]
     assert len(select_alive(frame)) == 1
+
+
+def test_alive_patient_ids_are_the_ids_of_the_alive_rows():
+    frame = patients(
+        [
+            {"Id": "p1", "DEATHDATE": ""},
+            {"Id": "p2", "DEATHDATE": "2020-01-01"},
+            {"Id": "p3", "DEATHDATE": ""},
+            {"Id": "", "DEATHDATE": ""},
+        ],
+        columns=("Id", "DEATHDATE"),
+    )
+    assert list(alive_patient_ids(frame)) == ["p1", "p3"]
+
+
+def test_alive_patient_ids_need_id_and_deathdate():
+    with pytest.raises(KeyError):
+        alive_patient_ids(patients([{"DEATHDATE": ""}], columns=("DEATHDATE",)))
+    with pytest.raises(KeyError):
+        alive_patient_ids(patients([{"Id": "p1"}], columns=("Id",)))
 
 
 def test_alive_mask_needs_a_deathdate_column():

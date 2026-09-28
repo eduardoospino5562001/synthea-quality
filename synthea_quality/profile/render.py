@@ -16,7 +16,9 @@ Markdown
 Written for someone who wants to know what the dataset contains in a minute: the
 scope and the reference date first — including, in plain words, whether that date is
 an approximation and where it came from — then the population, the age profile, the
-distributions, the date range, and the empty or unparseable values. A skipped section
+distributions, the date range, the empty or unparseable values, and the most common
+codes of each clinical table, each introduced by the reminder that its count is
+historical. A skipped section
 stays in its place with its reason, so a gap is never mistaken for a zero.
 """
 
@@ -131,6 +133,10 @@ def _section(section: ProfileSection) -> str:
     title = f"## {section.title}"
     if section.status is SectionStatus.SKIPPED:
         return f"{title}\n\n`SKIPPED` — {section.reason}"
+    if section.section_id.startswith("codes."):
+        # The code renderer places the notes itself: the first one (the count is
+        # historical) has to be read before the table, not after it.
+        return f"{title}\n\n{_codes(section)}"
     renderer = _RENDERERS.get(section.section_id)
     if renderer is None:
         if section.section_id.startswith("distribution."):
@@ -233,6 +239,58 @@ def _completeness(section: ProfileSection) -> str:
     return "\n".join(
         _table(("Column", "Rows", "Empty", "Unparseable"), rows, align=("", "r", "r", "r"))
     )
+
+
+def _codes(section: ProfileSection) -> str:
+    m = section.metrics
+    with_system = "SYSTEM" in m["code_identity"]
+    lead, *notes = section.notes
+    summary = (
+        f"Alive patients: **{m['denominator']}**, with at least one record: "
+        f"**{m['patients_with_records']}**. Rows: {m['rows']} ({m['rows_alive']} of alive "
+        f"patients). Distinct codes: {m['distinct_codes']} in the table, "
+        f"{m['distinct_codes_alive']} among the alive; the top {m['shown']} are listed."
+    )
+    header = ["#", *(["SYSTEM"] if with_system else []), "CODE", "DESCRIPTION"]
+    header += ["Patients", "% alive", "Records"]
+    align = ["r", *([""] if with_system else []), "", "", "r", "r", "r"]
+    rows = []
+    for rank, row in enumerate(section.codes, start=1):
+        description = "—" if row.description is None else _cell(row.description)
+        if row.description_variants > 1:
+            description += f" *({row.description_variants} descriptions)*"
+        rows.append(
+            (
+                rank,
+                *([f"`{row.system}`" if row.system else "—"] if with_system else []),
+                f"`{row.code}`",
+                description,
+                row.patients,
+                _pct(row.percent),
+                row.records,
+            )
+        )
+    blocks = [f"> {lead}", summary]
+    if rows:
+        blocks.append("\n".join(_table(header, rows, align=align)))
+    if section.multi_description_codes:
+        blocks.append(
+            f"Codes written with more than one description: "
+            f"**{m['codes_with_multiple_descriptions']}**. Every variant, most frequent "
+            f"first (the one shown above), with its records over the whole table:"
+        )
+        variant_rows = []
+        for item in section.multi_description_codes:
+            code = f"`{item.code}`" if item.system is None else f"`{item.system}` `{item.code}`"
+            for index, variant in enumerate(item.descriptions):
+                text = "—" if variant.description is None else _cell(variant.description)
+                variant_rows.append((code if index == 0 else "", text, variant.records))
+        blocks.append(
+            "\n".join(_table(("CODE", "DESCRIPTION", "Records"), variant_rows, align=("", "", "r")))
+        )
+    if notes:
+        blocks.append("\n".join(f"- {note}" for note in notes))
+    return "\n\n".join(blocks)
 
 
 def _generic(section: ProfileSection) -> str:  # pragma: no cover - fallback only

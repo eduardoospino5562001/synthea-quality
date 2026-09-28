@@ -59,6 +59,21 @@ def select_alive(patients: pd.DataFrame) -> pd.DataFrame:
     return patients[alive_mask(patients)]
 
 
+def alive_patient_ids(patients: pd.DataFrame) -> pd.Index:
+    """Identifiers (``patients.Id``) of the patients alive at the end of the simulation.
+
+    This is what a clinical table's ``PATIENT`` column is matched against: a record
+    belongs to the alive cohort exactly when its ``PATIENT`` is in this index. Empty
+    identifiers are left out, since no record can reference them.
+
+    :raises KeyError: ``patients`` has no ``Id`` or no ``DEATHDATE`` column.
+    """
+    if "Id" not in patients.columns:
+        raise KeyError("Id")
+    ids = patients.loc[alive_mask(patients), "Id"].dropna()
+    return pd.Index(ids.unique(), name="Id")
+
+
 def ages_at(birthdates: pd.Series, reference: date) -> pd.Series:
     """Completed years at ``reference`` for parsed ``birthdates``.
 

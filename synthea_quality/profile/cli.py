@@ -28,6 +28,7 @@ from typing import Sequence
 from synthea_quality import __version__
 from synthea_quality.errors import SyntheaQualityError
 from synthea_quality.profile.build import build_profile
+from synthea_quality.profile.codes import DEFAULT_TOP_CODES
 from synthea_quality.profile.models import DatasetProfile, InputState, SectionStatus
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
 from synthea_quality.profile.reference import parse_reference_date
@@ -106,8 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="synthea-profile",
         description=(
             "Describe a Synthea CSV dataset — population, age and demographics of the "
-            "patients alive at the end of the simulation — and write a Markdown and a "
-            "JSON profile."
+            "patients alive at the end of the simulation, and the most common codes of "
+            "each clinical table among them — and write a Markdown and a JSON profile."
         ),
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -159,6 +160,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="how many counties to list (default: 10)",
     )
     parser.add_argument(
+        "--top",
+        metavar="N",
+        type=_positive,
+        default=DEFAULT_TOP_CODES,
+        help=f"how many codes to list per clinical table (default: {DEFAULT_TOP_CODES})",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version=f"synthea-profile (synthea-quality {__version__})",
@@ -179,6 +187,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             metadata=args.metadata,
             age_bands=args.age_bands,
             top_counties=args.top_counties,
+            top_codes=args.top,
         )
         output_dir = Path(args.output_dir)
         markdown_path = write_markdown(profile, output_dir / MARKDOWN_NAME)
