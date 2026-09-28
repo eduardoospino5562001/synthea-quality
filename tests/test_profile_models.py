@@ -11,6 +11,7 @@ from synthea_quality.profile.models import (
     PROFILE_SCHEMA_VERSION,
     CategoryCount,
     DatasetProfile,
+    InputState,
     ProfileSection,
     ReferenceDate,
     ReferenceSource,
@@ -52,7 +53,7 @@ def sample_profile(**overrides) -> DatasetProfile:
             ),
             ProfileSection.skipped("distribution.STATE", "State", "no STATE column"),
         ),
-        inputs=(TableInput("patients", 3, "every section"),),
+        inputs=(TableInput("patients", "every section", InputState.READ, rows=3),),
         generated_at="2026-09-28T00:00:00+00:00",
     )
     values.update(overrides)
@@ -152,3 +153,21 @@ def test_section_lookup_by_identifier():
     assert profile.section("population").metrics["alive"] == 2
     with pytest.raises(KeyError):
         profile.section("nope")
+
+
+def test_table_input_rows_and_reason_follow_the_state():
+    absent = TableInput("encounters", "x", InputState.ABSENT, reason="not in the dataset")
+    assert absent.rows is None
+    with pytest.raises(ValueError):
+        TableInput("patients", "x", InputState.READ)
+    with pytest.raises(ValueError):
+        TableInput("patients", "x", InputState.UNREADABLE, rows=1, reason="r")
+    with pytest.raises(ValueError):
+        TableInput("patients", "x", InputState.ABSENT)
+
+
+def test_profile_is_incomplete_only_when_a_needed_table_is_unreadable():
+    absent = TableInput("encounters", "x", InputState.ABSENT, reason="not in the dataset")
+    broken = TableInput("patients", "x", InputState.UNREADABLE, reason="not UTF-8")
+    assert not sample_profile(inputs=(absent,)).incomplete
+    assert sample_profile(inputs=(absent, broken)).incomplete

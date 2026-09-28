@@ -29,7 +29,9 @@ sections that need it are ``SKIPPED``; nothing else is guessed.
 
 A metadata ``endTime`` earlier than the latest encounter is contradictory (the
 metadata may belong to another run). It is not an error — the user chose the source —
-but the resolution carries a note so the report shows the inconsistency.
+but the resolution carries a note so the report shows the inconsistency. A date the
+user types is taken as it is: it may legitimately be any date an analysis is anchored
+at, and nothing is read to second-guess it.
 
 This module depends on neither the renderers nor the command line, so later analyses
 (prevalence, incidence) can reuse it as it is.
@@ -41,6 +43,7 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import Mapping
 
 import pandas as pd
 
@@ -48,7 +51,12 @@ from synthea_quality.discovery import DiscoveryResult
 from synthea_quality.errors import SyntheaQualityError, TableLoadError
 from synthea_quality.loader import DatasetLoader
 from synthea_quality.profile.dates import parse_timestamps
-from synthea_quality.profile.models import ReferenceDate, ReferenceSource
+from synthea_quality.profile.models import (
+    InputState,
+    ReferenceDate,
+    ReferenceSource,
+    TableInput,
+)
 from synthea_quality.structure import StructureReport, gate_reason
 
 #: Key and format of the end of the simulation in a Synthea metadata file.
@@ -204,12 +212,15 @@ class ReferenceResolution:
     reason: str | None
     #: Observations to show in the report (e.g. a contradictory metadata endTime).
     notes: tuple[str, ...] = ()
-    #: The latest encounter, when ``encounters.csv`` could be scanned.
+    #: The latest encounter, when ``encounters.csv`` was scanned and could be read.
     latest: LatestEncounter | None = None
-    #: Rows of ``encounters.csv`` read, or ``None`` when it was not read.
-    encounter_rows: int | None = None
-    #: Why ``encounters.csv`` could not be scanned, when it could not.
-    encounters_unavailable: str | None = None
+    #: What happened to ``encounters.csv``; ``None`` when it was not needed.
+    encounters: TableInput | None = None
+
+
+#: What ``encounters.csv`` is read for, depending on the source of the date.
+USED_FOR_APPROXIMATION = "reference date approximation (latest START/STOP)"
+USED_FOR_METADATA_CHECK = "consistency of the metadata endTime (latest START/STOP)"
 
 
 def resolve_reference_date(
@@ -218,13 +229,13 @@ def resolve_reference_date(
     *,
     user_date: str | None = None,
     metadata_path: str | Path | None = None,
-    structure: dict[str, StructureReport] | None = None,
+    structure: Mapping[str, StructureReport] | None = None,
 ) -> ReferenceResolution:
     """Resolve the reference date for a dataset, following the order in the module docstring.
 
-    ``encounters.csv`` is read (only its ``START`` and ``STOP`` columns) in every case:
-    it is the fallback, and with an explicit source it is what an inconsistent
-    ``endTime`` is compared against.
+    ``encounters.csv`` (only its ``START`` and ``STOP`` columns) is read when it is the
+    fallback, and with a metadata file, to compare its ``endTime`` with the latest
+    encounter. A date the user gives is taken as it is, and nothing is read.
 
     :raises ValueError: both ``user_date`` and ``metadata_path`` were given.
     :raises ReferenceDateError: the explicit date or metadata file cannot be used.
@@ -232,25 +243,20 @@ def resolve_reference_date(
     if user_date is not None and metadata_path is not None:
         raise ValueError("give either a reference date or a metadata file, not both")
 
-    explicit: ReferenceDate | None = None
     if user_date is not None:
-        explicit = reference_from_user(user_date)
-    elif metadata_path is not None:
+        return ReferenceResolution(reference=reference_from_user(user_date), reason=None)
+
+    if metadata_path is not None:
         explicit = reference_from_metadata(metadata_path)
-
-    latest, rows, unavailable = _scan_encounters(discovery, loader, structure)
-
-    notes: list[str] = []
-    if explicit is not None:
-        if (
-            explicit.source is ReferenceSource.SYNTHEA_METADATA
-            and latest is not None
-            and latest.date is not None
-            and latest.date.isoformat() > explicit.value
-        ):
+        latest, encounters = scan_encounters(
+            discovery, loader, structure, used_for=USED_FOR_METADATA_CHECK
+        )
+        notes: list[str] = []
+        latest_date = latest.date if latest is not None else None
+        if latest_date is not None and latest_date.isoformat() > explicit.value:
             notes.append(
                 f"The metadata endTime ({explicit.value}) is earlier than the latest encounter "
-                f"({latest.date.isoformat()}). A simulation cannot export encounters after it "
+                f"({latest_date.isoformat()}). A simulation cannot export encounters after it "
                 f"ended, so the metadata file may belong to a different run. The metadata date "
                 f"is used as requested."
             )
@@ -259,20 +265,21 @@ def resolve_reference_date(
             reason=None,
             notes=tuple(notes),
             latest=latest,
-            encounter_rows=rows,
-            encounters_unavailable=unavailable,
+            encounters=encounters,
         )
 
-    if unavailable is not None:
+    latest, encounters = scan_encounters(
+        discovery, loader, structure, used_for=USED_FOR_APPROXIMATION
+    )
+    if latest is None:
         return ReferenceResolution(
             reference=None,
             reason=(
                 f"no reference date: none was given and the approximation from encounters "
-                f"is unavailable ({unavailable})"
+                f"is unavailable ({encounters.reason})"
             ),
-            encounters_unavailable=unavailable,
+            encounters=encounters,
         )
-    assert latest is not None
     approximation = reference_from_encounters(latest)
     if approximation is None:
         return ReferenceResolution(
@@ -282,31 +289,56 @@ def resolve_reference_date(
                 "START/STOP timestamp"
             ),
             latest=latest,
-            encounter_rows=rows,
+            encounters=encounters,
         )
     return ReferenceResolution(
-        reference=approximation, reason=None, latest=latest, encounter_rows=rows
+        reference=approximation, reason=None, latest=latest, encounters=encounters
     )
 
 
-def _scan_encounters(
+def scan_encounters(
     discovery: DiscoveryResult,
     loader: DatasetLoader,
-    structure: dict[str, StructureReport] | None,
-) -> tuple[LatestEncounter | None, int | None, str | None]:
-    """Latest encounter, rows read, and the reason it is unavailable (if it is)."""
+    structure: Mapping[str, StructureReport] | None,
+    *,
+    used_for: str,
+) -> tuple[LatestEncounter | None, TableInput]:
+    """Read ``encounters.csv``'s timestamps and find the latest one.
+
+    Returns the latest encounter (``None`` when the table could not be scanned) and what
+    happened to the table. A table whose rows do not line up with its header is not
+    read: the loader would pad a short row with nulls, and the maximum could come from
+    the wrong column.
+    """
     table = next((t for t in discovery.tables if t.name == "encounters"), None)
     if table is None:
-        return None, None, "encounters.csv is not in the dataset"
+        return None, TableInput(
+            "encounters",
+            used_for,
+            InputState.ABSENT,
+            reason="encounters.csv is not in the dataset",
+        )
     gated = gate_reason(structure, "encounters")
     if gated is not None:
-        return None, None, gated
+        return None, TableInput("encounters", used_for, InputState.UNREADABLE, reason=gated)
     try:
         header = loader.read_header(table.path)
         columns = [c for c in ENCOUNTER_DATE_COLUMNS if c in header]
         if not columns:
-            return None, None, "encounters.csv has neither a START nor a STOP column"
+            return None, TableInput(
+                "encounters",
+                used_for,
+                InputState.ABSENT,
+                reason="encounters.csv has neither a START nor a STOP column",
+            )
         loaded = loader.load(table.path, table="encounters", columns=columns)
     except TableLoadError as exc:
-        return None, None, f"encounters.csv could not be read: {exc}"
-    return latest_encounter(loaded.frame), loaded.rows, None
+        return None, TableInput(
+            "encounters",
+            used_for,
+            InputState.UNREADABLE,
+            reason=f"encounters.csv could not be read: {exc}",
+        )
+    return latest_encounter(loaded.frame), TableInput(
+        "encounters", used_for, InputState.READ, rows=loaded.rows
+    )
