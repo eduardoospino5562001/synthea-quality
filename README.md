@@ -324,7 +324,7 @@ simulation** — `DEATHDATE` empty; the deceased are counted but not profiled fu
 | --- | --- |
 | Population | total, alive and deceased patients |
 | Age | the alive patients' age at the reference date in bands (`0-4`, `5-17`, `18-44`, `45-64`, `65+` by default; `--age-bands 0,18,65` to change them), median, minimum and maximum |
-| Distributions | the alive patients by `GENDER`, `RACE`, `ETHNICITY` and `STATE`, and the top 10 `COUNTY` values (`--top-counties N`), with count and percentage; an empty value is its own row |
+| Distributions | the alive patients by `GENDER`, `RACE`, `ETHNICITY` and `STATE`, and the top 10 `COUNTY` values (`--top-counties N`), with count and percentage; an empty value is its own row, and a tie split by the top-N cut is noted (ties are broken alphabetically) |
 | Date range | earliest and latest `BIRTHDATE` and `DEATHDATE` |
 | Empty and unparseable values | per column used, counted rather than dropped |
 
@@ -400,7 +400,7 @@ the renderers nor the command line, so later analyses can reuse them.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 451 unit and component tests, about 7 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 453 unit and component tests, about 6 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 13 end-to-end tests that run both commands as a user would, about 50 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
