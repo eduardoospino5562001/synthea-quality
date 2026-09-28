@@ -51,10 +51,12 @@ EXIT_ERROR = 2
 
 _EPILOG = f"""\
 conditions:
-  --condition "Myocardial infarction=22298006,401303003,401314000"   (repeatable)
+  --condition "Myocardial infarction=22298006,401303003,401314000;acute"   (repeatable)
   --conditions module_conditions.json                               (see the README)
   --expected "Myocardial infarction:lifetime=0.03"                  (repeatable)
   Codes are SNOMED CT unless written SYSTEM|CODE. A patient counts once per condition.
+  ";acute" (or "acute": true in the file) declares the condition acute; it is never
+  inferred.
 
 general table:
   every condition code among the alive, by point prevalence. The social and
@@ -103,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="NAME=CODES",
         action="append",
         default=[],
-        help="a condition to measure: a name and its comma-separated codes (repeatable)",
+        help="a condition to measure: NAME=CODE[,CODE...][;acute] (repeatable)",
     )
     parser.add_argument(
         "--conditions",

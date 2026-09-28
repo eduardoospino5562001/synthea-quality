@@ -20,6 +20,12 @@ What is counted, then left out (every count is in the result):
 * rows whose ``STOP`` is present but unparseable are kept for lifetime prevalence, which
   does not need a stop, and left out of point prevalence, which does.
 
+Every condition reports how many of its records have no ``STOP`` out of the records
+used: such a record counts as active at the reference date. For a condition its
+definition declares acute, a note says that point prevalence then counts every past
+event as still active and that lifetime prevalence is the meaningful measure. Whether a
+condition is acute is never inferred here.
+
 Strata: the age band of each alive patient at the reference date (the profile's bands and
 ages, by calendar birthday) and ``GENDER``. A patient without a known age is left out of
 the age strata and counted; an empty ``GENDER`` is its own stratum. An empty stratum
@@ -284,10 +290,11 @@ def condition_prevalence(
         notes.append(
             f"No record of {', '.join(missing_codes)} in conditions.csv (any patient, any date)."
         )
-    if len(rows):
+    if definition.acute and records_without_stop:
         notes.append(
-            f"{records_without_stop} of {len(rows)} record(s) have no STOP, so they count as "
-            f"active at the reference date."
+            f"{records_without_stop} of {len(rows)} records have no STOP date, so point "
+            f"prevalence counts every past event as still active; for an acute condition, "
+            f"lifetime prevalence is the meaningful measure."
         )
     if lifetime.numerator and point.numerator <= ACUTE_NOTE_RATIO * lifetime.numerator:
         notes.append(
@@ -307,6 +314,7 @@ def condition_prevalence(
         name=definition.name,
         codes=definition.codes,
         status=SectionStatus.COMPUTED,
+        acute=definition.acute,
         point=point,
         lifetime=lifetime,
         strata=tuple(strata),

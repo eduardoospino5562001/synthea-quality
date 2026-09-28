@@ -6,9 +6,10 @@ name whichever of its codes they have.
 
 Three ways to give them, which can be combined:
 
-``--condition "Myocardial infarction=22298006,401303003,401314000"``
+``--condition "Myocardial infarction=22298006,401303003,401314000;acute"``
     Repeatable. Codes are SNOMED CT unless written ``SYSTEM|CODE``
-    (``http://snomed.info/sct|22298006``).
+    (``http://snomed.info/sct|22298006``). The optional ``;acute`` suffix declares the
+    condition acute.
 
 ``--conditions FILE.json``
     Meant to live next to a module, for example::
@@ -16,6 +17,7 @@ Three ways to give them, which can be combined:
         {"conditions": [
           {"name": "Myocardial infarction",
            "codes": ["22298006", "401303003", "401314000"],
+           "acute": true,
            "expected": {"lifetime": 0.03, "source": "CDC 2019"}}
         ]}
 
@@ -24,6 +26,13 @@ Three ways to give them, which can be combined:
 
 ``--expected "Myocardial infarction:lifetime=0.03"``
     Repeatable. Adds a reference value to a condition defined by one of the above.
+
+Acute or not
+------------
+Whether a condition is acute is declared by whoever defines it (``;acute`` or
+``"acute": true``); the tool never infers it. A declared acute condition gets a note
+when some of its records have no ``STOP``: such records keep every past event active,
+so point prevalence stops meaning "has it now".
 
 Anything ambiguous is an input error, never a guess: a repeated name, a name with no
 code, an expected value for a condition that was not defined or given twice, a value
@@ -58,14 +67,22 @@ class ConditionDefinition:
     name: str
     codes: tuple[CodeRef, ...]
     expected: tuple[Expected, ...] = ()
+    #: Declared acute by whoever defined the condition; never inferred.
+    acute: bool = False
 
 
 def parse_condition_option(text: str) -> ConditionDefinition:
-    """Parse ``NAME=CODE[,CODE...]`` (a code may be ``SYSTEM|CODE``)."""
-    name, separator, codes = text.partition("=")
+    """Parse ``NAME=CODE[,CODE...][;acute]`` (a code may be ``SYSTEM|CODE``)."""
+    name, separator, rest = text.partition("=")
     if not separator:
-        raise DefinitionError(f"--condition needs NAME=CODE[,CODE...], got {text!r}")
-    return _definition(name, [c for c in codes.split(",")], SNOMED_CT, (), origin="--condition")
+        raise DefinitionError(f"--condition needs NAME=CODE[,CODE...][;acute], got {text!r}")
+    codes, _, flags = rest.partition(";")
+    flag = flags.strip().lower()
+    if flag not in ("", "acute"):
+        raise DefinitionError(f"--condition accepts only the ';acute' suffix, got {flags!r}")
+    return _definition(
+        name, codes.split(","), SNOMED_CT, (), origin="--condition", acute=flag == "acute"
+    )
 
 
 def load_conditions_file(path: str | Path) -> list[ConditionDefinition]:
@@ -87,8 +104,14 @@ def load_conditions_file(path: str | Path) -> list[ConditionDefinition]:
             raise DefinitionError(f"{origin} is not an object")
         system = item.get("system", SNOMED_CT)
         expected = _expected_block(item.get("expected"), origin)
+        acute = item.get("acute", False)
+        if not isinstance(acute, bool):
+            raise DefinitionError(f"{origin}: 'acute' must be true or false")
         definitions.append(
-            _definition(item.get("name", ""), item.get("codes"), system, expected, origin=origin)
+            _definition(
+                item.get("name", ""), item.get("codes"), system, expected, origin=origin,
+                acute=acute,
+            )
         )
     return definitions
 
@@ -129,13 +152,19 @@ def assemble(
         if any(e.measure == expected.measure for e in current.expected):
             raise DefinitionError(f"{name!r} has more than one expected {expected.measure} value")
         by_name[name] = ConditionDefinition(
-            current.name, current.codes, (*current.expected, expected)
+            current.name, current.codes, (*current.expected, expected), current.acute
         )
     return tuple(by_name[name] for name in names)
 
 
 def _definition(
-    name: Any, codes: Any, system: Any, expected: tuple[Expected, ...], *, origin: str
+    name: Any,
+    codes: Any,
+    system: Any,
+    expected: tuple[Expected, ...],
+    *,
+    origin: str,
+    acute: bool = False,
 ) -> ConditionDefinition:
     if not isinstance(name, str) or not name.strip():
         raise DefinitionError(f"{origin}: a condition needs a name")
@@ -146,7 +175,7 @@ def _definition(
         ref = _code(raw, system, origin=f"{origin} ({name.strip()})")
         if ref not in refs:
             refs.append(ref)
-    return ConditionDefinition(name.strip(), tuple(refs), expected)
+    return ConditionDefinition(name.strip(), tuple(refs), expected, acute)
 
 
 def _code(raw: Any, default_system: Any, *, origin: str) -> CodeRef:

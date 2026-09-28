@@ -107,3 +107,28 @@ def test_assemble_rejects_ambiguity():
     with pytest.raises(DefinitionError, match="more than one expected point"):
         assemble(["A=1"], None, ["A:point=0.1", "A:point=0.2"])
     assert assemble() == ()
+
+
+def test_acute_is_declared_with_a_suffix_or_a_json_field(tmp_path):
+    assert parse_condition_option("MI=22298006,401303003;acute").acute is True
+    assert parse_condition_option("MI=22298006; ACUTE ").acute is True
+    plain = parse_condition_option("MI=22298006")
+    assert plain.acute is False and plain.codes == (CodeRef("22298006", SNOMED_CT),)
+    with pytest.raises(DefinitionError, match="only the ';acute' suffix"):
+        parse_condition_option("MI=22298006;chronic")
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"conditions": [
+        {"name": "MI", "codes": ["1"], "acute": True},
+        {"name": "HTN", "codes": ["2"]},
+    ]}), "utf-8")
+    mi, htn = load_conditions_file(path)
+    assert (mi.acute, htn.acute) == (True, False)
+    path.write_text(json.dumps({"conditions": [{"name": "MI", "codes": ["1"], "acute": "yes"}]}),
+                    "utf-8")
+    with pytest.raises(DefinitionError, match="'acute' must be true or false"):
+        load_conditions_file(path)
+
+
+def test_expected_values_keep_the_acute_declaration():
+    (mi,) = assemble(["MI=1;acute"], None, ["MI:lifetime=0.1"])
+    assert mi.acute and mi.expected == (Expected("lifetime", 0.1),)

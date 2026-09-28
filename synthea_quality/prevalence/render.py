@@ -124,7 +124,8 @@ def _condition(condition: ConditionResult) -> str:
         f"`{ref.code}`" if ref.system is None else f"`{ref.system}|{ref.code}`"
         for ref in condition.codes
     )
-    head = f"## Condition: {condition.name}\n\nCodes: {codes}"
+    title = f"{condition.name} (declared acute)" if condition.acute else condition.name
+    head = f"## Condition: {title}\n\nCodes: {codes}"
     if condition.status is SectionStatus.SKIPPED:
         return f"{head}\n\n`SKIPPED` — {condition.reason}"
     assert condition.point is not None and condition.lifetime is not None
@@ -175,8 +176,11 @@ def _condition(condition: ConditionResult) -> str:
         if strata:
             blocks.append(f"### {title}\n\n" + "\n".join(_strata_table(strata, label)))
     by_code = condition.metrics.get("records_by_code", {})
+    records = condition.metrics.get("records", 0)
+    without_stop = condition.metrics.get("records_without_stop", 0)
     blocks.append(
-        "Records used, by code: "
+        f"Records of alive patients used: **{records}**, of which **{without_stop}** have no "
+        f"`STOP` (they count as active at the reference date). By code: "
         + ", ".join(f"`{code}` {count}" for code, count in by_code.items())
         + "."
     )

@@ -128,7 +128,9 @@ def build_prevalence(
         return PrevalenceReport(
             alive=None,
             conditions=tuple(
-                ConditionResult(d.name, d.codes, SectionStatus.SKIPPED, reason=reason)
+                ConditionResult(
+                    d.name, d.codes, SectionStatus.SKIPPED, reason=reason, acute=d.acute
+                )
                 for d in definitions
             ),
             general=GeneralTable(

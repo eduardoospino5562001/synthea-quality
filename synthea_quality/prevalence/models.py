@@ -196,6 +196,8 @@ class ConditionResult:
     codes: tuple[CodeRef, ...]
     status: SectionStatus
     reason: str | None = None
+    #: Declared acute in the definition (never inferred by the tool).
+    acute: bool = False
     point: Rate | None = None
     lifetime: Rate | None = None
     strata: tuple[Stratum, ...] = ()
@@ -214,6 +216,7 @@ class ConditionResult:
         return {
             "name": self.name,
             "codes": [code.to_dict() for code in self.codes],
+            "acute": self.acute,
             "status": self.status.value,
             "reason": self.reason,
             "point": self.point.to_dict() if self.point else None,

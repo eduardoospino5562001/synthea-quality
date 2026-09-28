@@ -271,3 +271,33 @@ def test_general_table_order_is_point_then_lifetime_then_code():
         ("200", 0, 2),
     ]
     assert table.rows[1].description == "Prediabetes (finding)"
+
+
+ACUTE_NOTE = (
+    "records have no STOP date, so point prevalence counts every past event as still "
+    "active; for an acute condition, lifetime prevalence is the meaningful measure."
+)
+UNSTOPPED = [
+    {"PATIENT": "a1", "CODE": "100", "START": "2020-01-01"},
+    {"PATIENT": "a2", "CODE": "100", "START": "2021-01-01", "STOP": "2021-01-05"},
+    {"PATIENT": "a3", "CODE": "100", "START": "2022-01-01"},
+]
+
+
+def test_every_condition_reports_its_records_without_stop():
+    result, _ = run(UNSTOPPED)
+    assert (result.metrics["records_without_stop"], result.metrics["records"]) == (2, 3)
+    assert result.acute is False
+    assert not any(ACUTE_NOTE in note for note in result.notes)  # never inferred
+
+
+def test_a_declared_acute_condition_with_unstopped_records_gets_the_note():
+    result, _ = run(UNSTOPPED, "C=100;acute")
+    assert result.acute is True
+    assert f"2 of 3 {ACUTE_NOTE}" in result.notes
+
+
+def test_a_declared_acute_condition_whose_records_all_stop_gets_no_note():
+    rows = [{"PATIENT": "a1", "CODE": "100", "START": "2020-01-01", "STOP": "2020-01-03"}]
+    result, _ = run(rows, "C=100;acute")
+    assert not any(ACUTE_NOTE in note for note in result.notes)

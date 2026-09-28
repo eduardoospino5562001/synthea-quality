@@ -44,7 +44,11 @@ def condition(**overrides) -> ConditionResult:
             ExpectedComparison(Expected("lifetime", 0.05, "CDC"), Rate(7, 99)),
             ExpectedComparison(Expected("point", 0.5), Rate(0, 99)),
         ),
-        metrics={"records_by_code": {f"{SNOMED}|22298006": 3, f"{SNOMED}|401314000": 4}},
+        metrics={
+            "records": 7,
+            "records_without_stop": 4,
+            "records_by_code": {f"{SNOMED}|22298006": 3, f"{SNOMED}|401314000": 4},
+        },
         notes=("Point prevalence is far below lifetime prevalence: …",),
     )
     values.update(overrides)
@@ -107,7 +111,10 @@ def test_condition_totals_and_strata():
     assert "| 65+ | 10 | 0 (0.00%) | 0.00–27.75% | 5 (50.00%) | 23.66–76.34% |" in text
     assert "| 100+ | 0 | 0 (—) | — | 0 (—) | — |" in text
     assert "| *(empty)* | 1 |" in text
-    assert "Records used, by code:" in text
+    assert (
+        "Records of alive patients used: **7**, of which **4** have no `STOP` (they count as "
+        "active at the reference date). By code:"
+    ) in text
     assert "- Point prevalence is far below lifetime prevalence" in text
 
 
@@ -155,3 +162,10 @@ def test_without_conditions_asked_the_report_says_how_to_ask():
 def test_writers(tmp_path):
     assert write_json(report(), tmp_path / "a" / "p.json").read_text("utf-8").endswith("\n")
     assert write_markdown(report(), tmp_path / "a" / "p.md").read_text("utf-8").startswith("#")
+
+
+def test_a_declared_acute_condition_is_labelled_in_its_title():
+    text = render_markdown(report(conditions=(condition(acute=True),)))
+    assert "## Condition: Myocardial infarction (declared acute)" in text
+    assert "## Condition: Myocardial infarction\n" in render_markdown(report())
+    assert json.loads(dumps(report(conditions=(condition(acute=True),))))["conditions"][0]["acute"]
