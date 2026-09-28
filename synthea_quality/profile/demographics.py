@@ -50,6 +50,7 @@ from synthea_quality.profile.population import (
     ages_at,
     alive_mask,
 )
+from synthea_quality.profile.ranking import tie_at_cut
 
 #: Every ``patients`` column the profile reads.
 PATIENT_COLUMNS = ("BIRTHDATE", "DEATHDATE", "GENDER", "RACE", "ETHNICITY", "STATE", "COUNTY")
@@ -274,7 +275,7 @@ def _distribution(
             f"Only the {limit} most frequent values are listed; the rest are summed in "
             f"other_count."
         )
-    tie = _tie_at_cut(shown, rest)
+    tie = tie_at_cut([int(c) for _, c in shown], [int(c) for _, c in rest])
     if tie is not None:
         metrics["tie_at_cut"] = tie
         notes.append(
@@ -290,22 +291,6 @@ def _distribution(
         distributions={column: tuple(rows)},
         notes=tuple(notes),
     )
-
-
-def _tie_at_cut(
-    shown: Sequence[tuple[Any, Any]], rest: Sequence[tuple[Any, Any]]
-) -> dict[str, int] | None:
-    """The tie that straddles the top-N cut, if the cut falls in the middle of one.
-
-    Which of the tied values makes the list is decided only by the alphabetical
-    tie-break, so a reader has to be told the cut is arbitrary there.
-    """
-    if not shown or not rest or int(shown[-1][1]) != int(rest[0][1]):
-        return None
-    count = int(shown[-1][1])
-    listed = sum(1 for _, c in shown if int(c) == count)
-    unlisted = sum(1 for _, c in rest if int(c) == count)
-    return {"count": count, "values": listed + unlisted, "listed": listed}
 
 
 def _date_range(parsed: dict[str, ParsedDates]) -> ProfileSection:
