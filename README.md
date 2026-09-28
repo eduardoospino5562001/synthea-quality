@@ -13,8 +13,9 @@ Synthea maintainer. It is not currently an official MITRE or Synthea tool, and i
 modifies the generator or the dataset it inspects.
 
 > **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
-> (`synthea-profile`) and condition prevalence (`synthea-prevalence`).** Read *Current
-> limitations* and *Roadmap* before relying on it for anything beyond that.
+> (`synthea-profile`), condition prevalence (`synthea-prevalence`) and incidence
+> (`synthea-incidence`).** Read *Current limitations* and *Roadmap* before relying on it for
+> anything beyond that.
 
 ## What it is
 
@@ -540,12 +541,88 @@ with the three acute codes). The generator explains it: `heart/stemi_pathway.jso
 `22298006` is ended by `myocardial_infarction.json`. Declared acute, the condition gets the
 note "6 of 8 records have no STOP date…".
 
+## Incidence
+
+`synthea-incidence` measures how fast new cases of a condition appear: **first events per
+1,000 person-years**, in total and by age band and sex, with an exact 95% Poisson
+interval. It reads the same condition definitions as `synthea-prevalence`.
+
+```bash
+.venv/bin/synthea-incidence /path/to/synthea/output/csv \
+    --condition "Myocardial infarction=22298006,401303003,401314000;acute" \
+    --condition "Hypertension=59621000" \
+    --expected "Hypertension:incidence=7.5" \
+    --output-dir ./reports
+```
+
+It writes `synthea_incidence.md` and `synthea_incidence.json`, needs at least one condition,
+describes without judging, and exits `0` when the report is written and `2` when it cannot
+be completed.
+
+### Definitions
+
+| | |
+| --- | --- |
+| Window | the last `--window-years` years before the reference date (**5** by default): `[ref − N years, ref]` |
+| Population | **every patient, deceased included, until their death**; `--alive-only` restricts it to the patients alive at the end |
+| Enters | at the later of the window start and birth |
+| Leaves | at the earliest of the reference date, death and the first event |
+| Prior case | a record of the condition before entering: not at risk, counted |
+| Event | the earliest `START` of any of the condition's codes; **first events only** |
+| Rate | events / person-years × 1,000; person-time is counted in whole days (a year is 365.25 days) |
+| Interval | exact (Garwood) 95% Poisson interval, computed with the standard library |
+
+- **Why the deceased are included.** The profile and the prevalence describe the patients
+  alive at the end of the simulation, as the Synthea maintainers advise for a snapshot.
+  Incidence measures a period instead: dropping everyone who died during the window would
+  drop their time and their events, biasing the rate down for conditions that shorten life
+  (survivor bias). The report says so in one line, and `--alive-only` measures the other
+  cohort for comparison.
+- **Age bands** split each patient's person-years between the bands they go through, at
+  the birthdays that start each band; an event counts in the band of the age on its day.
+  With a five-year window, the age at the window start would misplace years of time.
+- **Left out and counted**: patients with an unusable birth date, born after the reference
+  date, dead before the window started, or with an unparseable death date; records whose
+  `START` cannot be parsed.
+- **First events only.** Other records of an at-risk patient are counted apart: those on
+  the day of the first event (the same episode written with another code, as Synthea does
+  for myocardial infarction) and those on a later day, which for a condition declared
+  `acute` the report describes as repeated episodes that are not counted. Counting episodes
+  would need a rule for when two records are the same episode, and is left for later.
+
+### The exported history
+
+Synthea's CSV export keeps only the last `exporter.years_of_history` years (10 by default,
+0 for everything): a condition that ended before that horizon is not in the files, so a
+prior case can look new and a window reaching past the horizon misses events. The setting
+is recorded in Synthea's run metadata file. With `--metadata` the report uses it and says
+how many exported years precede the window; without it the report says it is unknown and
+gives the earliest condition record it saw. The official sample appears to have been
+exported with its whole history (it holds conditions that ended in the 1960s), but without
+its metadata this cannot be confirmed.
+
+### Validation
+
+No notebook of
+[module-validation](https://github.com/synthetichealth/module-validation) computes incidence
+over person-time: `MI Module Validation.ipynb` calls a lifetime proportion an "incidence
+rate", and the COVID-19 notebook counts cases per day without a denominator. The
+integration suite therefore re-implements the definitions with the `csv` module and
+`datetime` only, and checks that events, prior cases and person-days of myocardial
+infarction and hypertension match exactly, in total, by sex and by age band, for both
+populations.
+
+On the official sample (101 patients followed over 2021-08-17 – 2026-08-17; 7 died before
+the window), myocardial infarction has **one** first event in 463.4 person-years: 2.16 per
+1,000 person-years, 95% CI 0.05–12.02. The interval shows how little a population of this
+size says about a condition this rare.
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 579 unit and component tests, about 8 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 20 end-to-end tests that run the commands as a user would, about 55 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 637 unit and component tests, about 10 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 24 end-to-end tests that run the commands as a user would, about 60 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -583,6 +660,7 @@ work.
 | Temporal checks on the official sample | 0.6 s, ~95 MB |
 | `synthea-profile` on the official sample, through the CLI (population and the seven clinical tables) | 1.6 s, ~97 MB |
 | `synthea-prevalence` on the official sample, through the CLI (one condition and the general table) | 0.8 s, ~78 MB |
+| `synthea-incidence` on the official sample, through the CLI (two conditions) | 0.7 s, ~77 MB |
 | Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
@@ -603,11 +681,12 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **Only the current confirmed contract.** Rules target the 2026-08 schema. Older datasets
   are reported as `INCOMPATIBLE` rather than coerced, and no legacy support exists.
 - **CSV only.** No FHIR, CCDA or RDF validation.
-- **Prevalence, not incidence.** Point and lifetime prevalence of conditions are computed;
-  incidence is not yet. There is no statistical gate: reference values are shown, never
-  judged.
-- **Prevalence of conditions only**, from `conditions.csv`; medications, procedures and
-  observations are not measured as prevalences.
+- **Prevalence and incidence of conditions only**, from `conditions.csv`; medications,
+  procedures and observations are not measured as rates. There is no statistical gate:
+  reference values are shown, never judged.
+- **Incidence counts first events only**; repeated episodes are counted apart, not as
+  events. It depends on the exported history (`exporter.years_of_history`), which is known
+  only with `--metadata`.
 - **No clinical judgement.** Nothing judges whether a code, dose or diagnosis is medically
   plausible.
 - **No chunking**, as measured above.
@@ -633,9 +712,10 @@ order, none of them started:
 - descriptive profiling — **started**: `synthea-profile` describes the population and
   demographics from `patients.csv` (step 1) and the most common codes of each clinical
   table among the alive patients (step 2). Still to come: value ranges of observations;
-- prevalence — **started**: `synthea-prevalence` computes point and lifetime prevalence of
-  conditions among the alive (step 3). Still to come: incidence per 1,000 person-years
-  (step 4), and grouping observations by `CATEGORY`;
+- prevalence and incidence — **started**: `synthea-prevalence` computes point and lifetime
+  prevalence of conditions among the alive (step 3) and `synthea-incidence` first events per
+  1,000 person-years (step 4). Still to come: episodes of recurrent conditions, and grouping
+  observations by `CATEGORY`;
 - chunked or streamed processing for datasets much larger than the sample;
 - CI that runs both suites on every change, which would also enforce the acceptance
   baseline continuously;
@@ -691,6 +771,13 @@ synthea_quality/
         build.py      one dataset directory into a report
         render.py     JSON and Markdown renderings
         cli.py        synthea-prevalence entry point
+    incidence/
+        poisson.py    exact (Garwood) Poisson interval, standard library only
+        models.py     rates per 1,000 person-years, results (IncidenceReport)
+        compute.py    window, time at risk, first events, age-band split
+        build.py      one dataset directory into a report, exported history
+        render.py     JSON and Markdown renderings
+        cli.py        synthea-incidence entry point
         demographics.py  population, age, distributions, date range, completeness
         build.py      profile one dataset directory
         render.py     JSON and Markdown renderings
@@ -716,10 +803,13 @@ tests/
     test_prevalence_models.py  test_prevalence_social.py  test_prevalence_definitions.py
     test_prevalence_compute.py  test_prevalence_build.py  test_prevalence_render.py
     test_prevalence_cli.py
+    test_incidence_models.py  test_incidence_compute.py  test_incidence_build.py
+    test_incidence_render.py  test_incidence_cli.py
     integration/
         test_acceptance_official_sample.py   end-to-end acceptance run
         test_profile_official_sample.py      synthea-profile on the official sample
         test_prevalence_official_sample.py   synthea-prevalence: recount and MI notebook
+        test_incidence_official_sample.py    synthea-incidence: independent recount
 scripts/
     fetch_official_sample.py   download the sample, never into the repository
     extract_social_codes.py    regenerate the social code list from a Synthea checkout
