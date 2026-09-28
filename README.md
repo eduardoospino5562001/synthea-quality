@@ -12,8 +12,9 @@ This is an independent open-source contribution developed in response to feedbac
 Synthea maintainer. It is not currently an official MITRE or Synthea tool, and it never
 modifies the generator or the dataset it inspects.
 
-> **Status: MVP, Phase 1 — deterministic checks only.** Read *Current limitations* and
-> *Roadmap* before relying on it for anything beyond that.
+> **Status: MVP, Phase 1 — deterministic checks, plus a first descriptive profile of the
+> population (`synthea-profile`).** Read *Current limitations* and *Roadmap* before relying
+> on it for anything beyond that.
 
 ## What it is
 
@@ -102,7 +103,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.1.0
+synthea-quality 0.2.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -254,7 +255,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.1.0",
+    "tool_version": "0.2.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -304,12 +305,103 @@ against an expectation, and no tolerance is invented. Usage errors print one rea
 without a traceback; an unexpected failure is reported with its traceback on stderr and
 still returns `2`, so a real bug is never swallowed.
 
+## Dataset profile
+
+The checks above say whether a dataset is broken. `synthea-profile` says what it
+**contains**: a descriptive profile of the population, computed from `patients.csv`. It
+states no verdict — no `PASS`/`FAIL`, no severity, no expected range — and it is a
+separate command, so `synthea-quality` keeps its output and exit codes unchanged.
+
+```bash
+.venv/bin/synthea-profile /path/to/synthea/output/csv --output-dir ./reports
+```
+
+It writes `synthea_profile.md` and `synthea_profile.json` (fixed names) and describes,
+following the Synthea maintainer's guidance, the patients **alive at the end of the
+simulation** — `DEATHDATE` empty; the deceased are counted but not profiled further:
+
+| Section | Content |
+| --- | --- |
+| Population | total, alive and deceased patients |
+| Age | the alive patients' age at the reference date in bands (`0-4`, `5-17`, `18-44`, `45-64`, `65+` by default; `--age-bands 0,18,65` to change them), median, minimum and maximum |
+| Distributions | the alive patients by `GENDER`, `RACE`, `ETHNICITY` and `STATE`, and the top 10 `COUNTY` values (`--top-counties N`), with count and percentage; an empty value is its own row, and a tie split by the top-N cut is noted (ties are broken alphabetically) |
+| Date range | earliest and latest `BIRTHDATE` and `DEATHDATE` |
+| Empty and unparseable values | per column used, counted rather than dropped |
+
+A missing table or column skips only the sections that need it, as `SKIPPED` with the
+reason.
+
+### The reference date
+
+Ages depend on when the simulation ended, and **the CSV export does not record it**.
+Synthea simulates up to `Generator.stop`, which defaults to the moment Synthea ran (`-e
+YYYYMMDD` overrides it), and writes that date only to its run metadata file
+(`output/metadata/*.json`, key `endTime`), which the official sample does not ship. The
+profile resolves it in this order and records the source in both reports:
+
+| Source | How | Recorded as |
+| --- | --- | --- |
+| `--reference-date YYYY-MM-DD` | a date you choose | `user`, exact |
+| `--metadata FILE` | `endTime` of a Synthea metadata file | `synthea_metadata`, exact |
+| neither | the latest `START`/`STOP` in `encounters.csv` | `max_encounter_date`, **approximation** |
+
+The two options are mutually exclusive. The approximation is normally a lower bound of
+the real end: every exported encounter precedes it. A metadata `endTime` earlier than the
+latest encounter is contradictory — the file may belong to another run — so the profile
+uses it as asked and adds a note.
+
+### Example (official sample)
+
+```
+synthea-profile (synthea-quality 0.2.0)
+
+Dataset:    /…/csv-latest
+Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
+Patients:   108 total - 99 alive, 9 deceased
+Sections:   9 computed, 0 skipped
+```
+
+An excerpt of `synthea_profile.md`:
+
+```markdown
+## Reference date
+
+**2026-08-17** — an **approximation**, source `max_encounter_date`.
+
+## Age at the reference date
+
+Alive patients: **99**, with a known age: **99**. Median **36**, minimum **0**, maximum **95** years.
+
+| Age band | Patients | % |
+| --- | ---: | ---: |
+| 0-4 | 4 | 4.04 |
+| 5-17 | 17 | 17.17 |
+| 18-44 | 40 | 40.40 |
+| 45-64 | 28 | 28.28 |
+| 65+ | 10 | 10.10 |
+```
+
+The JSON carries `schema_version` (its own, independent of the quality report's),
+`tool_version`, `generated_at`, `data_dir`, the reference date with `source`,
+`approximate` and `detail`, the tables read with their row counts, and every section.
+Two runs over the same data differ only in `generated_at`.
+
+Exit codes: `0` when the profile was written, whatever was skipped; `2` when it could not
+be completed — a usage error, no known table, an unusable reference date or metadata
+file, a write failure, or a table the profile needs that is present but unreadable (the
+profile is then still written and marked incomplete). There is no `1`: a profile has no
+findings.
+
+`synthea_quality.profile.reference` (the reference date and its provenance) and
+`synthea_quality.profile.population` (alive patients, ages, age bands) depend on neither
+the renderers nor the command line, so later analyses can reuse them.
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 332 unit and component tests, about 5 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 9 end-to-end tests that run the command line as a user would, about 45 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 453 unit and component tests, about 6 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 13 end-to-end tests that run both commands as a user would, about 50 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -345,6 +437,7 @@ work.
 | Key checks on the official sample | 1.1 s, ~103 MB |
 | Quality checks on the official sample | 3.0 s, ~144 MB |
 | Temporal checks on the official sample | 0.6 s, ~95 MB |
+| `synthea-profile` on the official sample, through the CLI | 0.7 s, ~74 MB |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
 
@@ -369,6 +462,8 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **No clinical judgement.** Nothing judges whether a code, dose or diagnosis is medically
   plausible.
 - **No chunking**, as measured above.
+- **The profile covers `patients.csv` only**, and without a metadata file or an explicit
+  date its reference date is an approximation from `encounters.csv`, reported as such.
 - **Three documented relations are not enforced** because their semantics are not yet fully
   confirmed.
 - **No CI configuration yet.** Both suites run locally; no workflow runs them on every
@@ -381,10 +476,12 @@ will need chunked or streamed processing. The dependency is measured, not theore
 
 ## Roadmap
 
-Candidates, in no promised order, none of them started:
+Descriptive profiling **has started**; the rest are candidates, in no promised order,
+none of them started:
 
-- descriptive profiling — row counts, distributions, most frequent codes — built on the
-  same structured report;
+- descriptive profiling — **started**: `synthea-profile` describes the population and
+  demographics from `patients.csv` (step 1). Still to come: row counts per table and the
+  most frequent codes (conditions, medications, observations);
 - prevalence and incidence metrics, following the maintainer's guidance (patients alive at
   the end of the simulation), keeping the report as the deliverable rather than a gate;
 - chunked or streamed processing for datasets much larger than the sample;
@@ -427,6 +524,15 @@ synthea_quality/
         keys.py       primary key and foreign key integrity
         quality.py    duplicate rows, empty columns, nulls, date shapes
         temporal.py   start <= stop, birth <= death, event >= birth
+    profile/
+        models.py     structured profile (DatasetProfile, ProfileSection, ReferenceDate)
+        dates.py      strict parsing of Synthea's date shapes, with losses counted
+        reference.py  the reference date ("end of the simulation") and its provenance
+        population.py alive patients, ages at a date, age bands (reusable)
+        demographics.py  population, age, distributions, date range, completeness
+        build.py      profile one dataset directory
+        render.py     JSON and Markdown renderings
+        cli.py        synthea-profile entry point
     reporting/
         build.py      aggregate one dataset into a DatasetReport
         json_report.py  deterministic JSON serialisation
@@ -443,8 +549,11 @@ tests/
     test_quality_rules.py  test_checks_quality.py
     test_temporal_rules.py  test_checks_temporal.py
     test_report_model.py  test_reporting.py  test_cli.py
+    test_profile_models.py  test_profile_reference.py  test_profile_demographics.py
+    test_profile_build.py  test_profile_render.py  test_profile_cli.py
     integration/
         test_acceptance_official_sample.py   end-to-end acceptance run
+        test_profile_official_sample.py      synthea-profile on the official sample
 scripts/
     fetch_official_sample.py   download the sample, never into the repository
 docs/
