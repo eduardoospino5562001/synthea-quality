@@ -66,7 +66,7 @@ def report(sample, tmp_path_factory) -> dict:
         [
             *command(),
             str(sample),
-            "--condition", f"Myocardial infarction={','.join(MI_CODES)}",
+            "--condition", f"Myocardial infarction={','.join(MI_CODES)};acute",
             "--condition", f"MI as in the notebook={','.join(NOTEBOOK_MI_CODES)}",
             "--output-dir", str(out),
         ],
@@ -149,3 +149,24 @@ def test_the_notebook_logic_and_its_documented_difference(sample, report):
     assert tool["denominator"] == len(alive)
     assert tot_patients - len(alive) == 9  # the deceased the notebook keeps in its denominator
     assert round(notebook_rate, 6) == round(7 / 108, 6) != tool["rate"]
+
+
+def test_mi_declared_acute_gets_the_unstopped_records_note(sample, report):
+    # On this sample the STEMI and NSTEMI codes never have a STOP: no Synthea module ends
+    # them (heart/stemi_pathway.json and heart/nsteacs_pathway.json have no ConditionEnd).
+    mi = condition(report, "Myocardial infarction")
+    assert mi["acute"] is True
+    unstopped = [
+        r for r in read(sample, "conditions")
+        if r["CODE"] in MI_CODES and not r["STOP"]
+        and r["PATIENT"] in {p["Id"] for p in read(sample, "patients") if not p["DEATHDATE"]}
+    ]
+    assert mi["metrics"]["records_without_stop"] == len(unstopped) == 6
+    assert mi["metrics"]["records"] == 8
+    assert (
+        "6 of 8 records have no STOP date, so point prevalence counts every past event as "
+        "still active; for an acute condition, lifetime prevalence is the meaningful measure."
+    ) in mi["notes"]
+    notebook = condition(report, "MI as in the notebook")
+    assert notebook["acute"] is False
+    assert not any("for an acute condition" in note for note in notebook["notes"])
