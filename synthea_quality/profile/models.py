@@ -19,7 +19,10 @@ Design notes
   that computes them, and nested metric mappings are written with sorted keys. The
   only value that differs between two runs over the same input is ``generated_at``.
 * The JSON layout is versioned through ``PROFILE_SCHEMA_VERSION``, independently of the
-  quality report's ``schema_version``: they are two different public contracts.
+  quality report's ``schema_version``: they are two different public contracts. As for
+  the quality report, adding optional keys keeps the version (``codes`` and
+  ``multi_description_codes`` were added that way, and a profile written without them
+  still loads); changing or removing keys requires a new one.
 
 Only the standard library is imported here: importing the models must stay cheap.
 """
@@ -147,6 +150,98 @@ def percent(count: int, total: int) -> float:
 
 
 @dataclass(frozen=True, slots=True)
+class CodeCount:
+    """One code of a clinical table and how many alive patients have it."""
+
+    #: ``SYSTEM`` of the code when the table has that column, ``None`` otherwise. A code
+    #: is identified by ``(system, code)``: the same number in SNOMED and RxNorm is two
+    #: different codes.
+    system: str | None
+    code: str
+    #: The most frequent description of the code over the whole table.
+    description: str | None
+    #: Distinct alive patients with at least one record of the code.
+    patients: int
+    #: ``patients`` as a percentage of the alive patients.
+    percent: float
+    #: Records of the code belonging to alive patients.
+    records: int
+    #: How many distinct descriptions the code has in the whole table.
+    description_variants: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "system": self.system,
+            "code": self.code,
+            "description": self.description,
+            "patients": self.patients,
+            "percent": self.percent,
+            "records": self.records,
+            "description_variants": self.description_variants,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CodeCount":
+        return cls(
+            system=data.get("system"),
+            code=data["code"],
+            description=data.get("description"),
+            patients=int(data["patients"]),
+            percent=float(data["percent"]),
+            records=int(data["records"]),
+            description_variants=int(data.get("description_variants", 1)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DescriptionCount:
+    """One description a code is written with, and on how many records."""
+
+    description: str | None
+    records: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"description": self.description, "records": self.records}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "DescriptionCount":
+        return cls(description=data.get("description"), records=int(data["records"]))
+
+
+@dataclass(frozen=True, slots=True)
+class CodeDescriptions:
+    """A code written with more than one description, with every variant.
+
+    ``descriptions`` are ordered by records, most frequent first (then alphabetically),
+    so the first one is the description the profile shows for the code.
+    """
+
+    system: str | None
+    code: str
+    descriptions: tuple[DescriptionCount, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "descriptions", tuple(self.descriptions))
+        if len(self.descriptions) < 2:
+            raise ValueError(f"code {self.code!r} needs at least two descriptions to be listed")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "system": self.system,
+            "code": self.code,
+            "descriptions": [item.to_dict() for item in self.descriptions],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CodeDescriptions":
+        return cls(
+            system=data.get("system"),
+            code=data["code"],
+            descriptions=tuple(DescriptionCount.from_dict(d) for d in data["descriptions"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileSection:
     """One part of a profile: a set of metrics and, optionally, distributions."""
 
@@ -162,6 +257,10 @@ class ProfileSection:
     distributions: Mapping[str, tuple[CategoryCount, ...]] = field(default_factory=dict)
     #: Observations a reader needs to interpret the numbers correctly.
     notes: tuple[str, ...] = ()
+    #: Most common codes of a clinical table, in order.
+    codes: tuple[CodeCount, ...] = ()
+    #: Codes of that table written with more than one description.
+    multi_description_codes: tuple[CodeDescriptions, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, SectionStatus):
@@ -171,7 +270,7 @@ class ProfileSection:
         if self.status is SectionStatus.SKIPPED:
             if not self.reason:
                 raise ValueError(f"skipped section {self.section_id!r} must state a reason")
-            if self.metrics or self.distributions:
+            if self.metrics or self.distributions or self.codes or self.multi_description_codes:
                 raise ValueError(f"skipped section {self.section_id!r} must carry no numbers")
         elif self.reason is not None:
             raise ValueError(f"computed section {self.section_id!r} must not carry a reason")
@@ -184,6 +283,8 @@ class ProfileSection:
             {name: tuple(rows) for name, rows in self.distributions.items()},
         )
         object.__setattr__(self, "notes", tuple(self.notes))
+        object.__setattr__(self, "codes", tuple(self.codes))
+        object.__setattr__(self, "multi_description_codes", tuple(self.multi_description_codes))
 
     @classmethod
     def skipped(cls, section_id: str, title: str, reason: str) -> "ProfileSection":
@@ -200,6 +301,8 @@ class ProfileSection:
                 name: [row.to_dict() for row in rows] for name, rows in self.distributions.items()
             },
             "notes": list(self.notes),
+            "codes": [row.to_dict() for row in self.codes],
+            "multi_description_codes": [item.to_dict() for item in self.multi_description_codes],
         }
 
     @classmethod
@@ -215,6 +318,11 @@ class ProfileSection:
                 for name, rows in data.get("distributions", {}).items()
             },
             notes=tuple(data.get("notes", ())),
+            codes=tuple(CodeCount.from_dict(row) for row in data.get("codes", ())),
+            multi_description_codes=tuple(
+                CodeDescriptions.from_dict(item)
+                for item in data.get("multi_description_codes", ())
+            ),
         )
 
 
