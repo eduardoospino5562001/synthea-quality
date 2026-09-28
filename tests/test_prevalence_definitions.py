@@ -132,3 +132,20 @@ def test_acute_is_declared_with_a_suffix_or_a_json_field(tmp_path):
 def test_expected_values_keep_the_acute_declaration():
     (mi,) = assemble(["MI=1;acute"], None, ["MI:lifetime=0.1"])
     assert mi.acute and mi.expected == (Expected("lifetime", 0.1),)
+
+
+def test_each_report_accepts_only_its_own_measures(tmp_path):
+    with pytest.raises(DefinitionError, match="measure must be one of"):
+        assemble(["MI=1"], None, ["MI:incidence=2.5"])
+    (mi,) = assemble(["MI=1;acute"], None, ["MI:incidence=2.5"], measures=("incidence",))
+    assert mi.expected == (Expected("incidence", 2.5),) and mi.acute
+    with pytest.raises(DefinitionError, match="measure must be one of"):
+        assemble(["MI=1"], None, ["MI:point=0.1"], measures=("incidence",))
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"conditions": [
+        {"name": "MI", "codes": ["1"], "expected": {"incidence": 40, "source": "CDC"}}
+    ]}), "utf-8")
+    (from_file,) = load_conditions_file(path, measures=("incidence",))
+    assert from_file.expected == (Expected("incidence", 40.0, "CDC"),)
+    with pytest.raises(DefinitionError, match="unknown key"):
+        load_conditions_file(path)

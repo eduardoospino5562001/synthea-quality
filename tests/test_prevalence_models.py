@@ -60,9 +60,17 @@ def test_rate_values_are_rounded_for_determinism():
 
 def test_expected_must_be_a_proportion_of_a_known_measure():
     with pytest.raises(ValueError):
-        Expected("incidence", 0.1)
+        Expected("mortality", 0.1)
     with pytest.raises(ValueError):
         Expected("point", 1.5)
+    with pytest.raises(ValueError):
+        Expected("point", float("nan"))
+
+
+def test_expected_incidence_is_a_non_negative_rate_per_1000_person_years():
+    assert Expected("incidence", 12.5).value == 12.5
+    with pytest.raises(ValueError):
+        Expected("incidence", -1)
 
 
 def test_expected_comparison_is_inside_or_outside_the_ci_never_a_verdict():

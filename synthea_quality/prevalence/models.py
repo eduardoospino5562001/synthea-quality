@@ -37,7 +37,11 @@ Z_95 = 1.959963984540054
 #: Decimal places kept for rates and interval bounds in the structured result.
 RATE_DECIMALS = 6
 
+#: Measures of a prevalence report (proportions).
 MEASURES = ("point", "lifetime")
+#: Measure of an incidence report (events per 1,000 person-years).
+INCIDENCE = "incidence"
+ALL_MEASURES = (*MEASURES, INCIDENCE)
 
 #: The SNOMED CT system as ``conditions.csv`` writes it.
 SNOMED_CT = "http://snomed.info/sct"
@@ -128,9 +132,14 @@ class Expected:
     source: str | None = None
 
     def __post_init__(self) -> None:
-        if self.measure not in MEASURES:
-            raise ValueError(f"measure must be one of {MEASURES}, not {self.measure!r}")
-        if not (isinstance(self.value, (int, float)) and 0.0 <= float(self.value) <= 1.0):
+        if self.measure not in ALL_MEASURES:
+            raise ValueError(f"measure must be one of {ALL_MEASURES}, not {self.measure!r}")
+        if not isinstance(self.value, (int, float)) or not math.isfinite(self.value):
+            raise ValueError(f"an expected {self.measure} value must be a finite number")
+        if self.measure == INCIDENCE:
+            if self.value < 0:
+                raise ValueError("an expected incidence (per 1,000 person-years) must be >= 0")
+        elif not 0.0 <= float(self.value) <= 1.0:
             raise ValueError(f"an expected {self.measure} prevalence must be in [0, 1]")
 
     def to_dict(self) -> dict[str, Any]:
