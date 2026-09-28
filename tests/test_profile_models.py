@@ -10,6 +10,9 @@ from synthea_quality import __version__
 from synthea_quality.profile.models import (
     PROFILE_SCHEMA_VERSION,
     CategoryCount,
+    CodeCount,
+    CodeDescriptions,
+    DescriptionCount,
     DatasetProfile,
     InputState,
     ProfileSection,
@@ -171,3 +174,62 @@ def test_profile_is_incomplete_only_when_a_needed_table_is_unreadable():
     broken = TableInput("patients", "x", InputState.UNREADABLE, reason="not UTF-8")
     assert not sample_profile(inputs=(absent,)).incomplete
     assert sample_profile(inputs=(absent, broken)).incomplete
+
+
+def code_section() -> ProfileSection:
+    return ProfileSection(
+        section_id="codes.medications",
+        title="Medications",
+        status=SectionStatus.COMPUTED,
+        metrics={"denominator": 2},
+        codes=(CodeCount(None, "123", "Aspirin", 2, 100.0, 5, description_variants=2),),
+        multi_description_codes=(
+            CodeDescriptions(
+                None,
+                "123",
+                (DescriptionCount("Aspirin", 4), DescriptionCount("aspirin 81 MG", 1)),
+            ),
+        ),
+    )
+
+
+def test_code_rows_round_trip_through_json():
+    profile = sample_profile(sections=(code_section(),))
+    data = json.loads(profile.to_json())
+    section = data["sections"][0]
+    assert section["codes"] == [
+        {
+            "system": None,
+            "code": "123",
+            "description": "Aspirin",
+            "patients": 2,
+            "percent": 100.0,
+            "records": 5,
+            "description_variants": 2,
+        }
+    ]
+    assert section["multi_description_codes"][0]["descriptions"][1] == {
+        "description": "aspirin 81 MG",
+        "records": 1,
+    }
+    assert DatasetProfile.from_json(profile.to_json()) == profile
+
+
+def test_a_profile_written_before_codes_existed_still_loads():
+    data = json.loads(sample_profile().to_json())
+    for section in data["sections"]:
+        del section["codes"], section["multi_description_codes"]
+    assert DatasetProfile.from_dict(data) == sample_profile()
+
+
+def test_a_skipped_section_carries_no_codes():
+    with pytest.raises(ValueError, match="no numbers"):
+        ProfileSection(
+            "codes.x", "X", SectionStatus.SKIPPED, reason="r",
+            codes=(CodeCount(None, "1", "d", 1, 1.0, 1),),
+        )
+
+
+def test_a_code_is_listed_as_ambiguous_only_with_two_descriptions():
+    with pytest.raises(ValueError, match="at least two"):
+        CodeDescriptions(None, "1", (DescriptionCount("only", 3),))
