@@ -218,21 +218,57 @@ class ProfileSection:
         )
 
 
+class InputState(str, Enum):
+    """What happened to a table the profile needed."""
+
+    #: Read; its numbers are in the profile.
+    READ = "read"
+    #: Not in the dataset. Legitimate (Synthea can omit files): the sections that need
+    #: it are skipped, and the profile is still complete about what the dataset holds.
+    ABSENT = "absent"
+    #: Present but could not be read, or its rows do not line up with its header. The
+    #: profile is incomplete: the sections that need it are skipped.
+    UNREADABLE = "unreadable"
+
+
 @dataclass(frozen=True, slots=True)
 class TableInput:
-    """A table the profile read, and what for."""
+    """A table the profile needed, what for, and whether it could be read."""
 
     table: str
-    #: Data rows in the table; ``None`` when it could not be read.
-    rows: int | None
     used_for: str
+    state: InputState
+    #: Data rows read; ``None`` unless the table was read.
+    rows: int | None = None
+    #: Why it was not read, when it was not.
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.state, InputState):
+            object.__setattr__(self, "state", InputState(self.state))
+        if (self.state is InputState.READ) != (self.rows is not None):
+            raise ValueError("rows must be given exactly when the table was read")
+        if (self.state is InputState.READ) != (self.reason is None):
+            raise ValueError("a table that was not read needs a reason, and only then")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"table": self.table, "rows": self.rows, "used_for": self.used_for}
+        return {
+            "table": self.table,
+            "used_for": self.used_for,
+            "state": self.state.value,
+            "rows": self.rows,
+            "reason": self.reason,
+        }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "TableInput":
-        return cls(table=data["table"], rows=data.get("rows"), used_for=data["used_for"])
+        return cls(
+            table=data["table"],
+            used_for=data["used_for"],
+            state=InputState(data["state"]),
+            rows=data.get("rows"),
+            reason=data.get("reason"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +300,11 @@ class DatasetProfile:
         object.__setattr__(self, "inputs", tuple(self.inputs))
         object.__setattr__(self, "age_bands", tuple(self.age_bands))
         object.__setattr__(self, "notes", tuple(self.notes))
+
+    @property
+    def incomplete(self) -> bool:
+        """True when a table the profile needed is present but could not be read."""
+        return any(item.state is InputState.UNREADABLE for item in self.inputs)
 
     def section(self, section_id: str) -> ProfileSection:
         """Return the section named ``section_id``."""

@@ -163,7 +163,8 @@ def test_resolution_falls_back_to_the_latest_encounter(tmp_path):
     assert resolution.reference.source is ReferenceSource.MAX_ENCOUNTER_DATE
     assert resolution.reference.approximate is True
     assert resolution.reference.detail.startswith("APPROXIMATION")
-    assert resolution.encounter_rows == 3
+    assert resolution.encounters.rows == 3
+    assert resolution.encounters.state.value == "read"
     assert resolution.notes == ()
 
 
@@ -172,6 +173,7 @@ def test_resolution_without_encounters_has_a_reason_and_no_date(tmp_path):
     resolution = resolve(tmp_path)
     assert resolution.reference is None
     assert "encounters.csv is not in the dataset" in resolution.reason
+    assert resolution.encounters.state.value == "absent"
 
 
 def test_resolution_with_no_parseable_encounter_timestamp(tmp_path):
@@ -188,6 +190,7 @@ def test_resolution_does_not_trust_a_structurally_broken_encounters_file(tmp_pat
     resolution = resolve(tmp_path)
     assert resolution.reference is None
     assert "field count" in resolution.reason
+    assert resolution.encounters.state.value == "unreadable"
 
 
 def test_an_explicit_date_wins_over_the_approximation(tmp_path):
@@ -196,6 +199,7 @@ def test_an_explicit_date_wins_over_the_approximation(tmp_path):
     assert resolution.reference.value == "2019-01-01"
     assert resolution.reference.source is ReferenceSource.USER
     assert resolution.notes == ()
+    assert resolution.encounters is None  # nothing is read to second-guess the user
 
 
 def test_metadata_earlier_than_the_latest_encounter_adds_a_note(tmp_path):
@@ -206,6 +210,7 @@ def test_metadata_earlier_than_the_latest_encounter_adds_a_note(tmp_path):
     assert resolution.reference.source is ReferenceSource.SYNTHEA_METADATA
     assert len(resolution.notes) == 1
     assert "earlier than the latest encounter (2020-03-02)" in resolution.notes[0]
+    assert resolution.encounters.used_for.startswith("consistency")
 
 
 def test_metadata_on_or_after_the_latest_encounter_adds_no_note(tmp_path):
@@ -218,3 +223,12 @@ def test_explicit_sources_are_mutually_exclusive(tmp_path):
     write_table(tmp_path, "encounters", [])
     with pytest.raises(ValueError, match="not both"):
         resolve(tmp_path, user_date="2020-01-01", metadata_path=tmp_path / "m.json")
+
+
+def test_metadata_without_encounters_is_used_and_records_the_absent_table(tmp_path):
+    write_table(tmp_path, "patients", [{"Id": "p1"}])
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.reference.value == "2020-03-01"
+    assert resolution.notes == ()
+    assert resolution.encounters.state.value == "absent"
