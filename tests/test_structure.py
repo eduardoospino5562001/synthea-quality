@@ -28,7 +28,8 @@ from synthea_quality.cli import EXIT_FINDINGS, EXIT_OK, exit_code_for
 from synthea_quality.loader import load_table
 from synthea_quality.models import Severity, Status
 from synthea_quality.reporting.build import build_report
-from synthea_quality.structure import validate_structure
+from synthea_quality.errors import TableLoadError
+from synthea_quality.structure import validate_structure, validate_tables
 
 HEADER = "Id,BIRTHDATE,GENDER\n"
 CLEAN_ROWS = "p1,1980-01-01,M\np2,1990-01-01,F\n"
@@ -340,3 +341,37 @@ def test_the_validator_counts_the_same_rows_the_loader_reads(
 
     assert report.ok
     assert report.rows_checked == len(loaded.frame) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Regression: a decoding error while reading the header
+# --------------------------------------------------------------------------- #
+#
+# The first ``next(reader)`` decodes a whole buffer of the file, not only the header
+# line. In a small file the invalid bytes of a later row are in that buffer, so the
+# ``UnicodeDecodeError`` was raised while reading the header — outside the ``except``
+# that translates it for the data rows — and escaped as a bare exception.
+# ``validate_tables`` only catches ``TableLoadError``, so a caller that validated a
+# table before reading its header crashed instead of recording the table as unreadable.
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"Id,BIRTHDATE\n\xff\xfe,2000-01-01\n",  # invalid bytes in a row, same buffer
+        b"Id,BIRTH\xffDATE\np1,2000-01-01\n",  # invalid bytes in the header itself
+    ],
+)
+def test_invalid_utf8_near_the_header_is_a_load_error(tmp_path: Path, content: bytes) -> None:
+    path = tmp_path / "patients.csv"
+    path.write_bytes(content)
+    with pytest.raises(TableLoadError, match="not valid UTF-8"):
+        validate_structure(path)
+
+
+def test_validate_tables_skips_a_table_that_is_not_utf8(tmp_path: Path) -> None:
+    broken = tmp_path / "patients.csv"
+    broken.write_bytes(b"Id,BIRTHDATE\n\xff\xfe,2000-01-01\n")
+    clean = write(tmp_path / "encounters.csv", ENCOUNTERS)
+    reports = validate_tables({"patients": broken, "encounters": clean})
+    assert list(reports) == ["encounters"]
