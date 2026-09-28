@@ -10,12 +10,16 @@ import pytest
 from synthea_quality.incidence.compute import (
     CONDITION_COLUMNS,
     PATIENT_COLUMNS,
+    Person,
+    age_on,
+    anniversary,
+    band_days,
     build_cohort,
     condition_incidence,
     prepare_records,
     window_start,
 )
-from synthea_quality.prevalence.definitions import parse_condition_option
+from synthea_quality.prevalence.definitions import assemble, parse_condition_option
 
 REF = date(2026, 1, 1)
 SNOMED = "http://snomed.info/sct"
@@ -189,11 +193,53 @@ def test_sex_strata_sum_to_the_total():
 
 
 def test_expected_incidence_is_placed_inside_or_outside_the_interval():
-    from synthea_quality.prevalence.definitions import assemble
-
     cohort = build_cohort(patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), REF)
     records = prepare_records(conditions({"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}),
                               cohort)
     (definition,) = assemble(["C=100"], None, ["C:incidence=100"], measures=("incidence",))
     result = condition_incidence(definition, records, cohort)
     assert result.expected[0].position == "inside"  # 1 event in 1 year: 1000 per 1,000 PY
+
+
+# --------------------------------------------------------------------------- #
+# age bands: person-time split at birthdays
+# --------------------------------------------------------------------------- #
+
+
+def test_anniversary_and_age_agree_on_29_february():
+    birth = date(2004, 2, 29)
+    assert anniversary(birth, 1) == date(2005, 3, 1)
+    assert anniversary(birth, 4) == date(2008, 2, 29)
+    assert age_on(birth, date(2005, 2, 28)) == 0
+    assert age_on(birth, date(2005, 3, 1)) == 1
+
+
+def test_person_time_is_split_at_the_birthday_that_starts_a_band():
+    person = Person(date(2019, 7, 1), date(2021, 1, 1), date(2026, 1, 1), None)
+    split = band_days(person, person.exit, (0, 5, 18))
+    assert split == [days("2021-01-01", "2024-07-01"), days("2024-07-01", "2026-01-01"), 0]
+    assert sum(split) == days("2021-01-01", "2026-01-01")
+
+
+def test_age_strata_add_up_and_events_go_to_the_age_on_the_event_day():
+    result, _ = run(
+        patients(
+            {"Id": "kid", "BIRTHDATE": "2019-07-01"},  # turns 5 on 2024-07-01
+            {"Id": "old", "BIRTHDATE": "1950-01-01"},
+        ),
+        [{"PATIENT": "kid", "CODE": "100", "START": "2024-07-01"}],  # on the 5th birthday
+        age_bands=(0, 5, 18),
+    )
+    ages = {s.value: s.rate for s in result.strata if s.dimension == "age_band"}
+    assert list(ages) == ["0-4", "5-17", "18+"]
+    assert (ages["0-4"].events, ages["5-17"].events) == (0, 1)
+    assert ages["0-4"].person_days == days("2021-01-01", "2024-07-01")
+    assert ages["5-17"].person_days == 0  # the event ends the time on the day it starts
+    assert ages["18+"].person_days == days("2021-01-01", "2026-01-01")
+    assert sum(r.person_days for r in ages.values()) == result.rate.person_days
+
+
+def test_an_empty_age_band_has_no_rate():
+    result, _ = run(patients({"Id": "old", "BIRTHDATE": "1950-01-01"}), [], age_bands=(0, 18))
+    child = next(s for s in result.strata if s.value == "0-17")
+    assert (child.rate.person_days, child.rate.value, child.rate.interval) == (0, None, None)

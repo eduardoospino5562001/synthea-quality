@@ -21,6 +21,16 @@ For each condition, among those patients:
 * later records of an at-risk patient are not events (first events only) and are
   counted, since for an acute condition they may be new episodes.
 
+Strata
+------
+By ``GENDER`` (an empty value is its own stratum) and by age band. Ages change during a
+five-year window, so a patient's person-time is **split between the bands they pass
+through**: the interval is cut at the birthdays that start each band (a 29 February
+birthday falls on 1 March in a common year, as for the profile's ages), and each piece
+counts in its band. An event counts in the band of the patient's age on the day it
+happens. The simpler alternative, the age at the start of the window, would put five
+years of a three-year-old in the ``0-4`` band.
+
 A record whose ``START`` cannot be parsed cannot be placed in time: it is counted and
 ignored. This module computes; it reads no file and renders nothing.
 """
@@ -43,6 +53,11 @@ from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import ExpectedComparison, normalise_system
 from synthea_quality.profile.dates import parse_date_only
 from synthea_quality.profile.models import SectionStatus
+from synthea_quality.profile.population import (
+    DEFAULT_AGE_BANDS,
+    age_band_labels,
+    validate_age_bands,
+)
 
 PATIENT_COLUMNS = ("Id", "BIRTHDATE", "DEATHDATE", "GENDER")
 CONDITION_COLUMNS = ("PATIENT", "CODE", "START", "SYSTEM")
@@ -89,6 +104,7 @@ class Cohort:
     population: str
     people: dict[str, Person]
     excluded: dict[str, int] = field(default_factory=dict)
+    age_bands: tuple[int, ...] = DEFAULT_AGE_BANDS
 
     @property
     def size(self) -> int:
@@ -101,6 +117,7 @@ def build_cohort(
     *,
     window_years: int = DEFAULT_WINDOW_YEARS,
     population: str = POPULATION_ALL,
+    age_bands: tuple[int, ...] = DEFAULT_AGE_BANDS,
 ) -> Cohort:
     """The followed population (text columns of :data:`PATIENT_COLUMNS`)."""
     if population not in (POPULATION_ALL, POPULATION_ALIVE):
@@ -148,7 +165,13 @@ def build_cohort(
             exit=min(reference, death) if death is not None else reference,
             gender=None if pd.isna(gender) else str(gender),
         )
-    return Cohort(window=window, population=population, people=people, excluded=excluded)
+    return Cohort(
+        window=window,
+        population=population,
+        people=people,
+        excluded=excluded,
+        age_bands=validate_age_bands(age_bands),
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -211,7 +234,7 @@ def condition_incidence(
         followed.append((person, event))
 
     total = _rate(followed)
-    strata = _sex_strata(followed)
+    strata = [*_age_strata(followed, cohort.age_bands), *_sex_strata(followed)]
     metrics: dict[str, Any] = {
         "followed": cohort.size,
         "prior_cases": prior_cases,
@@ -267,4 +290,50 @@ def _sex_strata(followed: list[tuple[Person, date | None]]) -> list[IncidenceStr
     return [
         IncidenceStratum("GENDER", value, _rate([f for f in followed if f[0].gender == value]))
         for value in values
+    ]
+
+
+def anniversary(birth: date, years: int) -> date:
+    """The day a person born on ``birth`` turns ``years`` (29 February → 1 March)."""
+    try:
+        return birth.replace(year=birth.year + years)
+    except ValueError:
+        return date(birth.year + years, 3, 1)
+
+
+def age_on(birth: date, day: date) -> int:
+    """Completed years on ``day``, by calendar birthday (consistent with :func:`anniversary`)."""
+    return day.year - birth.year - ((day.month, day.day) < (birth.month, birth.day))
+
+
+def band_days(person: Person, end: date, bounds: tuple[int, ...]) -> list[int]:
+    """Days of ``[person.entry, end)`` spent in each age band."""
+    starts = [anniversary(person.birth, b) for b in bounds]
+    split = []
+    for index, low in enumerate(starts):
+        high = starts[index + 1] if index + 1 < len(starts) else None
+        piece_start = max(person.entry, low)
+        piece_end = end if high is None else min(end, high)
+        split.append(max(0, (piece_end - piece_start).days))
+    return split
+
+
+def band_of(age: int, bounds: tuple[int, ...]) -> int:
+    """Index of the band an age belongs to."""
+    return max(i for i, low in enumerate(bounds) if age >= low)
+
+
+def _age_strata(
+    followed: list[tuple[Person, date | None]], bounds: tuple[int, ...]
+) -> list[IncidenceStratum]:
+    days = [0] * len(bounds)
+    events = [0] * len(bounds)
+    for person, event in followed:
+        for index, piece in enumerate(band_days(person, event or person.exit, bounds)):
+            days[index] += piece
+        if event is not None:
+            events[band_of(age_on(person.birth, event), bounds)] += 1
+    return [
+        IncidenceStratum("age_band", label, IncidenceRate(events[i], days[i]))
+        for i, label in enumerate(age_band_labels(bounds))
     ]
