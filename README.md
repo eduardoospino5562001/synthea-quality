@@ -400,7 +400,7 @@ the renderers nor the command line, so later analyses can reuse them.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 453 unit and component tests, about 6 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 456 unit and component tests, about 6 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 13 end-to-end tests that run both commands as a user would, about 50 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
