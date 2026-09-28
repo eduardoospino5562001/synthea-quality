@@ -92,6 +92,8 @@ def test_reference_date_and_metadata_are_mutually_exclusive(tmp_path, capsys):
         ["--age-bands", "5,18"],
         ["--age-bands", "0,x"],
         ["--top-counties", "0"],
+        ["--top", "0"],
+        ["--top", "many"],
     ],
 )
 def test_invalid_options_are_usage_errors(tmp_path, arguments):
@@ -189,3 +191,20 @@ def test_the_console_script_runs_as_installed(tmp_path):
     )
     assert completed.returncode == EXIT_OK, completed.stderr
     assert (out / JSON_NAME).is_file()
+
+
+def test_top_reaches_the_code_sections(tmp_path):
+    directory = dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "medications",
+        [{"PATIENT": "p1", "CODE": str(code), "DESCRIPTION": f"drug {code}"} for code in range(5)],
+    )
+    out = tmp_path / "out"
+    assert main([str(directory), "--top", "2", "--output-dir", str(out)]) == EXIT_OK
+    data = json.loads((out / JSON_NAME).read_text(encoding="utf-8"))
+    medications = next(s for s in data["sections"] if s["section_id"] == "codes.medications")
+    assert [row["code"] for row in medications["codes"]] == ["0", "1"]
+    assert medications["metrics"]["top"] == 2
+    default = main([str(directory), "--output-dir", str(tmp_path / "default")])
+    assert default == EXIT_OK

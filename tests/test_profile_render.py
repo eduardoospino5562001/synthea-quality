@@ -288,4 +288,7 @@ def test_a_skipped_code_section_shows_its_reason():
         "codes.careplans", "Care plans: most common codes", "careplans.csv is not in the dataset"
     )
     text = render_markdown(profile(sections=(section,)))
-    assert "## Care plans: most common codes\n\n`SKIPPED` — careplans.csv is not in the dataset" in text
+    assert (
+        "## Care plans: most common codes\n\n`SKIPPED` — careplans.csv is not in the dataset"
+        in text
+    )
