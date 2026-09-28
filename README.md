@@ -308,7 +308,8 @@ still returns `2`, so a real bug is never swallowed.
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
-**contains**: a descriptive profile of the population, computed from `patients.csv`. It
+**contains**: a descriptive profile of the population, computed from `patients.csv`, and
+the most common codes of each clinical table among the patients alive. It
 states no verdict — no `PASS`/`FAIL`, no severity, no expected range — and it is a
 separate command, so `synthea-quality` keeps its output and exit codes unchanged.
 
@@ -327,9 +328,33 @@ simulation** — `DEATHDATE` empty; the deceased are counted but not profiled fu
 | Distributions | the alive patients by `GENDER`, `RACE`, `ETHNICITY` and `STATE`, and the top 10 `COUNTY` values (`--top-counties N`), with count and percentage; an empty value is its own row, and a tie split by the top-N cut is noted (ties are broken alphabetically) |
 | Date range | earliest and latest `BIRTHDATE` and `DEATHDATE` |
 | Empty and unparseable values | per column used, counted rather than dropped |
+| Most common codes | one section per clinical table (`conditions`, `medications`, `procedures`, `observations`, `immunizations`, `allergies`, `careplans`): the top 20 codes (`--top N`) by distinct alive patients, with description, percentage of the alive patients and records |
 
 A missing table or column skips only the sections that need it, as `SKIPPED` with the
 reason.
+
+### Most common codes
+
+Each clinical table gets a section listing its codes by the number of **distinct alive
+patients with at least one record of the code, ever**. That count is historical: it is
+not the number of patients in whom a condition is active at the reference date, which is
+prevalence and a later step. Every section opens with that reminder.
+
+- **Distinct patients, not rows**: a patient with hundreds of blood-pressure
+  observations counts once; `records` is shown next to it for scale.
+- **A code is `SYSTEM` + `CODE`** in the tables that have a `SYSTEM` column (conditions,
+  procedures, allergies). `allergies` mixes SNOMED-CT and RxNorm, so equal numbers from
+  two systems are never merged. Elsewhere a code is `CODE`.
+- **One description per code, without hiding the others**: the most frequent description
+  over the whole table is shown. Codes written with more than one description are counted,
+  and up to 10 per table are listed with every variant and its records. The official
+  sample has five: two in medications, one in observations and two in immunizations.
+- **Deterministic order**: distinct patients, then records, then system and code. A
+  top-N cut that falls inside a group with the same number of patients is noted.
+- **Nothing is dropped silently**: rows of deceased patients, rows whose `PATIENT` is not
+  in `patients.csv` and alive rows without a `CODE` are counted, then left out.
+- Each table is read once, only `PATIENT`, `CODE` and (when present) `SYSTEM` and
+  `DESCRIPTION`, and released before the next one, so memory follows the largest table.
 
 ### The reference date
 
@@ -358,7 +383,7 @@ synthea-profile (synthea-quality 0.2.0)
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
 Patients:   108 total - 99 alive, 9 deceased
-Sections:   9 computed, 0 skipped
+Sections:   16 computed, 0 skipped
 ```
 
 An excerpt of `synthea_profile.md`:
@@ -379,6 +404,18 @@ Alive patients: **99**, with a known age: **99**. Median **36**, minimum **0**, 
 | 18-44 | 40 | 40.40 |
 | 45-64 | 28 | 28.28 |
 | 65+ | 10 | 10.10 |
+
+## Conditions: most common codes
+
+> Patients are alive patients with at least one record of the code ever (historical), not patients in whom it is active at the reference date; that distinction belongs to prevalence.
+
+Alive patients: **99**, with at least one record: **99**. Rows: 3517 (3199 of alive patients). Distinct codes: 186 in the table, 174 among the alive; the top 20 are listed.
+
+| # | SYSTEM | CODE | DESCRIPTION | Patients | % alive | Records |
+| ---: | --- | --- | --- | ---: | ---: | ---: |
+| 1 | `http://snomed.info/sct` | `314529007` | Medication review due (situation) | 99 | 100.00 | 640 |
+| 2 | `http://snomed.info/sct` | `66383009` | Gingivitis (disorder) | 78 | 78.79 | 224 |
+| 3 | `http://snomed.info/sct` | `160903007` | Full-time employment (finding) | 77 | 77.78 | 223 |
 ```
 
 The JSON carries `schema_version` (its own, independent of the quality report's),
@@ -400,8 +437,8 @@ the renderers nor the command line, so later analyses can reuse them.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 456 unit and component tests, about 6 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 13 end-to-end tests that run both commands as a user would, about 50 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 490 unit and component tests, about 6 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 16 end-to-end tests that run both commands as a user would, about 55 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -437,7 +474,8 @@ work.
 | Key checks on the official sample | 1.1 s, ~103 MB |
 | Quality checks on the official sample | 3.0 s, ~144 MB |
 | Temporal checks on the official sample | 0.6 s, ~95 MB |
-| `synthea-profile` on the official sample, through the CLI | 0.7 s, ~74 MB |
+| `synthea-profile` on the official sample, through the CLI (population and the seven clinical tables) | 1.6 s, ~97 MB |
+| Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
 
@@ -462,8 +500,10 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **No clinical judgement.** Nothing judges whether a code, dose or diagnosis is medically
   plausible.
 - **No chunking**, as measured above.
-- **The profile covers `patients.csv` only**, and without a metadata file or an explicit
-  date its reference date is an approximation from `encounters.csv`, reported as such.
+- **The profile describes, it does not estimate.** Code counts are historical (at least one
+  record ever), not prevalence; observation values are not summarised yet. Without a
+  metadata file or an explicit date, the reference date is an approximation from
+  `encounters.csv`, reported as such.
 - **Three documented relations are not enforced** because their semantics are not yet fully
   confirmed.
 - **No CI configuration yet.** Both suites run locally; no workflow runs them on every
@@ -480,8 +520,8 @@ Descriptive profiling **has started**; the rest are candidates, in no promised o
 none of them started:
 
 - descriptive profiling — **started**: `synthea-profile` describes the population and
-  demographics from `patients.csv` (step 1). Still to come: row counts per table and the
-  most frequent codes (conditions, medications, observations);
+  demographics from `patients.csv` (step 1) and the most common codes of each clinical
+  table among the alive patients (step 2). Still to come: value ranges of observations;
 - prevalence and incidence metrics, following the maintainer's guidance (patients alive at
   the end of the simulation), keeping the report as the deliverable rather than a gate;
 - chunked or streamed processing for datasets much larger than the sample;
@@ -528,7 +568,9 @@ synthea_quality/
         models.py     structured profile (DatasetProfile, ProfileSection, ReferenceDate)
         dates.py      strict parsing of Synthea's date shapes, with losses counted
         reference.py  the reference date ("end of the simulation") and its provenance
-        population.py alive patients, ages at a date, age bands (reusable)
+        population.py alive patients, their identifiers, ages, age bands (reusable)
+        codes.py      most common codes of each clinical table among the alive
+        ranking.py    ties at a top-N cut
         demographics.py  population, age, distributions, date range, completeness
         build.py      profile one dataset directory
         render.py     JSON and Markdown renderings
@@ -550,7 +592,7 @@ tests/
     test_temporal_rules.py  test_checks_temporal.py
     test_report_model.py  test_reporting.py  test_cli.py
     test_profile_models.py  test_profile_reference.py  test_profile_demographics.py
-    test_profile_build.py  test_profile_render.py  test_profile_cli.py
+    test_profile_codes.py  test_profile_build.py  test_profile_render.py  test_profile_cli.py
     integration/
         test_acceptance_official_sample.py   end-to-end acceptance run
         test_profile_official_sample.py      synthea-profile on the official sample
