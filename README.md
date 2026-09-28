@@ -12,9 +12,9 @@ This is an independent open-source contribution developed in response to feedbac
 Synthea maintainer. It is not currently an official MITRE or Synthea tool, and it never
 modifies the generator or the dataset it inspects.
 
-> **Status: MVP, Phase 1 — deterministic checks, plus a first descriptive profile of the
-> population (`synthea-profile`).** Read *Current limitations* and *Roadmap* before relying
-> on it for anything beyond that.
+> **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
+> (`synthea-profile`) and condition prevalence (`synthea-prevalence`).** Read *Current
+> limitations* and *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
 
@@ -433,12 +433,111 @@ findings.
 `synthea_quality.profile.population` (alive patients, ages, age bands) depend on neither
 the renderers nor the command line, so later analyses can reuse them.
 
+## Prevalence
+
+`synthea-prevalence` measures how many of the patients **alive at the end of the
+simulation** have a condition. It is meant to replace the one-off notebook that validating a
+new module usually involves: the definitions are written down, the result carries its
+provenance, and anyone can rerun it on the same dataset.
+
+```bash
+.venv/bin/synthea-prevalence /path/to/synthea/output/csv \
+    --condition "Myocardial infarction=22298006,401303003,401314000" \
+    --expected "Myocardial infarction:lifetime=0.03" \
+    --output-dir ./reports
+```
+
+It writes `synthea_prevalence.md` and `synthea_prevalence.json`. Like the profile, it
+describes and never judges, skips with the reason what it cannot compute, and exits `0`
+when the report is written and `2` when it cannot be completed.
+
+### Definitions
+
+| Measure | Numerator | Denominator |
+| --- | --- | --- |
+| Point prevalence | alive patients with a record of the condition whose `START <= ref` and whose `STOP` is empty or `> ref` | alive patients |
+| Lifetime prevalence | alive patients with a record whose `START <= ref` | alive patients |
+
+- `ref` is the reference date of the profile (explicit, from Synthea's metadata, or the
+  latest encounter as a labelled approximation). `START == ref` is active on that day;
+  `STOP == ref` is not.
+- A patient counts once per condition, whichever of its codes they have.
+- Both measures come in total and, for the conditions asked for, by age band at `ref` and
+  by `GENDER`; a stratum's denominator is its own alive patients, and an empty stratum
+  keeps its row without a rate.
+- Every rate has a **95% Wilson score interval**, which stays inside `[0, 1]` and is
+  never empty for small counts.
+- Rows of deceased or unknown patients, rows without a code, rows whose `START` cannot be
+  placed in time and rows starting after `ref` are counted, then left out. A `STOP` that
+  cannot be parsed keeps the row for lifetime prevalence only.
+- When point prevalence is far below lifetime prevalence (at most a tenth of it), a note
+  says that point prevalence describes chronic or still-active conditions and that
+  lifetime prevalence is the relevant measure for acute events. Each condition also
+  reports how many of its records have no `STOP`, because such records count as active.
+
+### Conditions and reference values
+
+| Option | Example |
+| --- | --- |
+| `--condition NAME=CODES` (repeatable) | `--condition "Myocardial infarction=22298006,401303003,401314000"` |
+| `--conditions FILE.json` | `{"conditions": [{"name": "Myocardial infarction", "codes": ["22298006", "401303003", "401314000"], "expected": {"lifetime": 0.03, "source": "CDC 2019"}}]}` |
+| `--expected NAME:MEASURE=VALUE` (repeatable) | `--expected "Myocardial infarction:lifetime=0.03"` |
+
+Codes are SNOMED CT unless written `SYSTEM|CODE`. A reference value is shown next to the
+observed rate with the difference and whether it lies **inside or outside the observed 95%
+CI** — a description, not a verdict.
+
+### The general table and the social codes
+
+Without `--condition` the report still lists **every condition code** among the alive, by
+point prevalence (the Markdown shows the top 30, `--top N`; the JSON has all of them).
+
+Synthea writes the answers of its social determinants of health screening (employment,
+education, stress, social isolation, violence, housing, transport…) and an administrative
+marker (`Medication review due`) as conditions, and on the sample they dominate the list.
+They are excluded from the general table **by default** and put back with
+`--include-social`; the report says how many codes and records were left out. Conditions
+asked for by code are never filtered.
+
+The list is not the SNOMED `(finding)` tag, which would also drop clinical findings such as
+prediabetes and obesity and keep `Medication review due (situation)` and `Refugee
+(person)`. It is every condition code written by two Synthea modules,
+`encounter/sdoh_hrsn.json` (20 codes) and `med_rec.json` (1 code), extracted by
+`scripts/extract_social_codes.py` from Synthea commit `d9d07a6e`, versioned as
+`synthea-d9d07a6e-social-1`, and recorded in every report with the modules that write each
+code. Substance use and anxiety screening findings are clinical and stay in the table.
+
+### Validation against module-validation
+
+The Synthea project's
+[module-validation](https://github.com/synthetichealth/module-validation) notebooks are the
+reference point. `MI Module Validation.ipynb` is the one that computes a rate of a
+condition over the population, and the integration suite reproduces its logic on the
+official sample. The two do not measure the same thing, and the differences are documented
+rather than forced away:
+
+| | Notebook | `synthea-prevalence` |
+| --- | --- | --- |
+| Label | "Synthea MI Incidence Rate" | lifetime (and point) prevalence |
+| Codes | every condition whose description contains "myocardial infarction" (on the sample: 3 acute codes and `History of myocardial infarction (situation)`) | the codes given; the notebook's four can be given explicitly |
+| Numerator | distinct patients with a matching record, at any date | distinct **alive** patients with a record whose `START <= ref` |
+| Denominator | every patient in `patients.csv`, deceased included | alive patients |
+| Time | none | the reference date |
+| Interval | none | 95% Wilson |
+| Official sample | 7 / 108 = **6.48%** | same four codes: 7 / 99 = **7.07%** (95% CI 3.47–13.88%) |
+
+Every myocardial infarction patient of the sample is alive, so the numerators agree and the
+rates differ only by the nine deceased patients in the notebook's denominator. On this
+sample the acute codes `401303003` and `401314000` never have a `STOP`, so the point
+prevalence of myocardial infarction equals its lifetime prevalence (6 / 99 with the three
+acute codes); the report shows it through the count of records without `STOP`.
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 490 unit and component tests, about 6 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 16 end-to-end tests that run both commands as a user would, about 55 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 572 unit and component tests, about 8 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 19 end-to-end tests that run the commands as a user would, about 55 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -475,6 +574,7 @@ work.
 | Quality checks on the official sample | 3.0 s, ~144 MB |
 | Temporal checks on the official sample | 0.6 s, ~95 MB |
 | `synthea-profile` on the official sample, through the CLI (population and the seven clinical tables) | 1.6 s, ~97 MB |
+| `synthea-prevalence` on the official sample, through the CLI (one condition and the general table) | 0.8 s, ~78 MB |
 | Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
@@ -495,8 +595,11 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **Only the current confirmed contract.** Rules target the 2026-08 schema. Older datasets
   are reported as `INCOMPATIBLE` rather than coerced, and no legacy support exists.
 - **CSV only.** No FHIR, CCDA or RDF validation.
-- **No prevalence or incidence**, no expected ranges, no confidence intervals, no
-  statistical CI gate. Deferred deliberately, not overlooked.
+- **Prevalence, not incidence.** Point and lifetime prevalence of conditions are computed;
+  incidence is not yet. There is no statistical gate: reference values are shown, never
+  judged.
+- **Prevalence of conditions only**, from `conditions.csv`; medications, procedures and
+  observations are not measured as prevalences.
 - **No clinical judgement.** Nothing judges whether a code, dose or diagnosis is medically
   plausible.
 - **No chunking**, as measured above.
@@ -516,14 +619,15 @@ will need chunked or streamed processing. The dependency is measured, not theore
 
 ## Roadmap
 
-Descriptive profiling **has started**; the rest are candidates, in no promised order,
-none of them started:
+Descriptive profiling and prevalence **have started**; the rest are candidates, in no promised
+order, none of them started:
 
 - descriptive profiling — **started**: `synthea-profile` describes the population and
   demographics from `patients.csv` (step 1) and the most common codes of each clinical
   table among the alive patients (step 2). Still to come: value ranges of observations;
-- prevalence and incidence metrics, following the maintainer's guidance (patients alive at
-  the end of the simulation), keeping the report as the deliverable rather than a gate;
+- prevalence — **started**: `synthea-prevalence` computes point and lifetime prevalence of
+  conditions among the alive (step 3). Still to come: incidence per 1,000 person-years
+  (step 4), and grouping observations by `CATEGORY`;
 - chunked or streamed processing for datasets much larger than the sample;
 - CI that runs both suites on every change, which would also enforce the acceptance
   baseline continuously;
@@ -571,6 +675,14 @@ synthea_quality/
         population.py alive patients, their identifiers, ages, age bands (reusable)
         codes.py      most common codes of each clinical table among the alive
         ranking.py    ties at a top-N cut
+    prevalence/
+        models.py     rates with Wilson intervals, results (PrevalenceReport)
+        social.py     versioned list of social and administrative codes, with provenance
+        definitions.py  --condition, --conditions and --expected
+        compute.py    point and lifetime prevalence, strata, general table
+        build.py      one dataset directory into a report
+        render.py     JSON and Markdown renderings
+        cli.py        synthea-prevalence entry point
         demographics.py  population, age, distributions, date range, completeness
         build.py      profile one dataset directory
         render.py     JSON and Markdown renderings
@@ -593,11 +705,16 @@ tests/
     test_report_model.py  test_reporting.py  test_cli.py
     test_profile_models.py  test_profile_reference.py  test_profile_demographics.py
     test_profile_codes.py  test_profile_build.py  test_profile_render.py  test_profile_cli.py
+    test_prevalence_models.py  test_prevalence_social.py  test_prevalence_definitions.py
+    test_prevalence_compute.py  test_prevalence_build.py  test_prevalence_render.py
+    test_prevalence_cli.py
     integration/
         test_acceptance_official_sample.py   end-to-end acceptance run
         test_profile_official_sample.py      synthea-profile on the official sample
+        test_prevalence_official_sample.py   synthea-prevalence: recount and MI notebook
 scripts/
     fetch_official_sample.py   download the sample, never into the repository
+    extract_social_codes.py    regenerate the social code list from a Synthea checkout
 docs/
     acceptance.md              baseline: dataset, numbers, how to reproduce
 ```
