@@ -19,7 +19,9 @@ Choices a reader should know about:
 * **Nothing is dropped silently.** A value that is empty or does not parse is counted
   where the section uses it and again, per column, in ``completeness``.
 * **Order is deterministic.** Distribution rows are ordered by count, highest first,
-  then by value; the empty row comes last. Age bands keep their natural order.
+  then by value; the empty row comes last. Age bands keep their natural order. When the
+  top-N cut falls inside a tie, only that alphabetical tie-break decides which of the
+  tied values are listed, so the section says so (``tie_at_cut`` and a note).
 * **A missing column skips only what needs it.** Without ``STATE`` only the state
   distribution is skipped; without ``DEATHDATE`` every section that depends on who is
   alive is skipped, because guessing aliveness would misstate every number.
@@ -272,6 +274,14 @@ def _distribution(
             f"Only the {limit} most frequent values are listed; the rest are summed in "
             f"other_count."
         )
+    tie = _tie_at_cut(shown, rest)
+    if tie is not None:
+        metrics["tie_at_cut"] = tie
+        notes.append(
+            f"{tie['values']} values tie at count {tie['count']}; ties are broken "
+            f"alphabetically ({tie['listed']} listed, {tie['values'] - tie['listed']} "
+            f"summed in other_count)."
+        )
     return ProfileSection(
         section_id=section_id,
         title=title,
@@ -280,6 +290,22 @@ def _distribution(
         distributions={column: tuple(rows)},
         notes=tuple(notes),
     )
+
+
+def _tie_at_cut(
+    shown: Sequence[tuple[Any, Any]], rest: Sequence[tuple[Any, Any]]
+) -> dict[str, int] | None:
+    """The tie that straddles the top-N cut, if the cut falls in the middle of one.
+
+    Which of the tied values makes the list is decided only by the alphabetical
+    tie-break, so a reader has to be told the cut is arbitrary there.
+    """
+    if not shown or not rest or int(shown[-1][1]) != int(rest[0][1]):
+        return None
+    count = int(shown[-1][1])
+    listed = sum(1 for _, c in shown if int(c) == count)
+    unlisted = sum(1 for _, c in rest if int(c) == count)
+    return {"count": count, "values": listed + unlisted, "listed": listed}
 
 
 def _date_range(parsed: dict[str, ParsedDates]) -> ProfileSection:

@@ -278,3 +278,33 @@ def test_skipped_patient_sections_cover_every_section():
     sections = skipped_patient_sections("patients.csv is not in the dataset")
     assert [s.section_id for s in sections] == [sid for sid, _ in section_ids()]
     assert {s.reason for s in sections} == {"patients.csv is not in the dataset"}
+
+
+def test_a_cut_inside_a_tie_is_reported():
+    # Essex 5, Middlesex 2, Norfolk 2, Suffolk 1: a top-2 cut splits the tie at 2.
+    rows = [{"COUNTY": "Essex County"}] * 5 + [
+        {"COUNTY": "Middlesex County"},
+        {"COUNTY": "Middlesex County"},
+        {"COUNTY": "Norfolk County"},
+        {"COUNTY": "Norfolk County"},
+        {"COUNTY": "Suffolk County"},
+    ]
+    frame = patients([dict(row, BIRTHDATE="2000-01-01") for row in rows])
+    county = compute(frame, top_counties=2)["distribution.COUNTY"]
+    assert [row.value for row in county.distributions["COUNTY"]] == [
+        "Essex County", "Middlesex County",
+    ]
+    assert county.metrics["tie_at_cut"] == {"count": 2, "values": 2, "listed": 1}
+    assert (
+        "2 values tie at count 2; ties are broken alphabetically "
+        "(1 listed, 1 summed in other_count)."
+    ) in county.notes
+
+
+def test_a_cut_between_different_counts_has_no_tie_note():
+    rows = [{"COUNTY": "A"}] * 3 + [{"COUNTY": "B"}] * 2 + [{"COUNTY": "C"}]
+    frame = patients([dict(row, BIRTHDATE="2000-01-01") for row in rows])
+    for limit in (1, 2, 5):
+        county = compute(frame, top_counties=limit)["distribution.COUNTY"]
+        assert "tie_at_cut" not in county.metrics
+        assert not any("tie at count" in note for note in county.notes)
