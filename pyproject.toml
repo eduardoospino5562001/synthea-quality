@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "synthea-quality"
-version = "0.4.0"
+version = "0.5.0"
 description = "Data quality and integrity checks for Synthea CSV datasets"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dev = ["pytest>=8,<9"]
 synthea-quality = "synthea_quality.cli:run"
 synthea-profile = "synthea_quality.profile.cli:run"
 synthea-prevalence = "synthea_quality.prevalence.cli:run"
+synthea-incidence = "synthea_quality.incidence.cli:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["synthea_quality"]

@@ -25,7 +25,10 @@ Three ways to give them, which can be combined:
     object ``{"system": ..., "code": ...}``.
 
 ``--expected "Myocardial infarction:lifetime=0.03"``
-    Repeatable. Adds a reference value to a condition defined by one of the above.
+    Repeatable. Adds a reference value to a condition defined by one of the above. The
+    measures a report accepts are its own: ``point`` and ``lifetime`` (proportions) for
+    ``synthea-prevalence``, ``incidence`` (per 1,000 person-years) for
+    ``synthea-incidence``, which reads the same definitions.
 
 Acute or not
 ------------
@@ -44,7 +47,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 from synthea_quality.errors import SyntheaQualityError
 from synthea_quality.prevalence.models import (
@@ -85,7 +88,9 @@ def parse_condition_option(text: str) -> ConditionDefinition:
     )
 
 
-def load_conditions_file(path: str | Path) -> list[ConditionDefinition]:
+def load_conditions_file(
+    path: str | Path, *, measures: Sequence[str] = MEASURES
+) -> list[ConditionDefinition]:
     """Read the conditions of a ``--conditions`` JSON file."""
     file_path = Path(path)
     try:
@@ -103,7 +108,7 @@ def load_conditions_file(path: str | Path) -> list[ConditionDefinition]:
         if not isinstance(item, dict):
             raise DefinitionError(f"{origin} is not an object")
         system = item.get("system", SNOMED_CT)
-        expected = _expected_block(item.get("expected"), origin)
+        expected = _expected_block(item.get("expected"), origin, measures)
         acute = item.get("acute", False)
         if not isinstance(acute, bool):
             raise DefinitionError(f"{origin}: 'acute' must be true or false")
@@ -116,24 +121,30 @@ def load_conditions_file(path: str | Path) -> list[ConditionDefinition]:
     return definitions
 
 
-def parse_expected_option(text: str) -> tuple[str, Expected]:
+def parse_expected_option(
+    text: str, *, measures: Sequence[str] = MEASURES
+) -> tuple[str, Expected]:
     """Parse ``NAME:MEASURE=VALUE`` into the condition name and its expected value."""
     head, separator, value = text.rpartition("=")
     name, colon, measure = head.rpartition(":")
     if not separator or not colon or not name.strip():
         raise DefinitionError(f"--expected needs NAME:MEASURE=VALUE, got {text!r}")
-    return name.strip(), _expected(measure.strip(), value.strip(), None, origin="--expected")
+    return name.strip(), _expected(
+        measure.strip(), value.strip(), None, origin="--expected", measures=measures
+    )
 
 
 def assemble(
     condition_options: Iterable[str] = (),
     conditions_file: str | Path | None = None,
     expected_options: Iterable[str] = (),
+    *,
+    measures: Sequence[str] = MEASURES,
 ) -> tuple[ConditionDefinition, ...]:
     """Every condition asked for, in the order given, with its expected values attached."""
     definitions: list[ConditionDefinition] = []
     if conditions_file is not None:
-        definitions.extend(load_conditions_file(conditions_file))
+        definitions.extend(load_conditions_file(conditions_file, measures=measures))
     definitions.extend(parse_condition_option(text) for text in condition_options)
 
     names = [d.name for d in definitions]
@@ -143,7 +154,7 @@ def assemble(
 
     by_name = {d.name: d for d in definitions}
     for text in expected_options:
-        name, expected = parse_expected_option(text)
+        name, expected = parse_expected_option(text, measures=measures)
         if name not in by_name:
             raise DefinitionError(
                 f"--expected refers to {name!r}, which no --condition or --conditions defines"
@@ -192,25 +203,27 @@ def _code(raw: Any, default_system: Any, *, origin: str) -> CodeRef:
     return CodeRef(code.strip(), normalise_system(system) if system else None)
 
 
-def _expected_block(block: Any, origin: str) -> tuple[Expected, ...]:
+def _expected_block(block: Any, origin: str, measures: Sequence[str]) -> tuple[Expected, ...]:
     if block is None:
         return ()
     if not isinstance(block, dict):
         raise DefinitionError(f"{origin}: 'expected' must be an object")
-    unknown = sorted(set(block) - {*MEASURES, "source"})
+    unknown = sorted(set(block) - {*measures, "source"})
     if unknown:
         raise DefinitionError(f"{origin}: unknown key(s) in 'expected': {unknown}")
     source = block.get("source")
     return tuple(
-        _expected(measure, block[measure], source, origin=origin)
-        for measure in MEASURES
+        _expected(measure, block[measure], source, origin=origin, measures=measures)
+        for measure in measures
         if measure in block
     )
 
 
-def _expected(measure: str, value: Any, source: Any, *, origin: str) -> Expected:
-    if measure not in MEASURES:
-        raise DefinitionError(f"{origin}: measure must be one of {list(MEASURES)}, not {measure!r}")
+def _expected(
+    measure: str, value: Any, source: Any, *, origin: str, measures: Sequence[str] = MEASURES
+) -> Expected:
+    if measure not in measures:
+        raise DefinitionError(f"{origin}: measure must be one of {list(measures)}, not {measure!r}")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
