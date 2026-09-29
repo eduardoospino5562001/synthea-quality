@@ -199,7 +199,7 @@ enforced, and what remains uncertain about its semantics.
 
 | Relation | Why it is not enforced |
 | --- | --- |
-| `claims_transactions.PATIENTINSURANCEID` → `payer_transitions.MEMBERID` | the exporter writes the claim's plan record member id; on the reference sample 170 of 79,453 references belong to patients with no `payer_transitions` row at all |
+| `claims_transactions.PATIENTINSURANCEID` → `payer_transitions.MEMBERID` | the exporter writes the claim's plan record member id but exports only the plans that ended on or after 1970-01-01; on the reference sample 170 of 79,453 references match no `MEMBERID`, all dated before 1970: 149 belong to a patient with no `payer_transitions` row and 21 to two patients whose rows start in 1969 (reported as synthetichealth/synthea#1725) |
 | `claims_transactions.FROMDATE <= TODATE` | 6,555 of 85,047 rows of the reference sample carry `1970-01-01T00:00:00Z` in `TODATE`, a value that may correspond to a stop time that was never set, so the inversion may mean "no end" rather than an error; its semantics are still pending confirmation |
 | `payer_transitions.START_DATE <= END_DATE` | clean on the reference sample, but its end date goes through the same possibly-unset timestamp path, so an open-ended plan could invert it |
 
