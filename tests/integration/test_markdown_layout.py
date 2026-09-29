@@ -23,20 +23,27 @@ DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 BIN = Path(sys.executable).parent
 MI = "Myocardial infarction=22298006,401303003,401314000;acute"
 
+#: Report name -> (Markdown file, command, module, arguments).
 COMMANDS = {
-    "synthea_profile.md": ("synthea-profile", "synthea_quality.profile.cli", ()),
-    "synthea_prevalence.md": (
-        "synthea-prevalence", "synthea_quality.prevalence.cli", ("--condition", MI),
+    "profile": ("synthea_profile.md", "synthea-profile", "synthea_quality.profile.cli", ()),
+    "prevalence": (
+        "synthea_prevalence.md", "synthea-prevalence", "synthea_quality.prevalence.cli",
+        ("--condition", MI),
     ),
-    "synthea_incidence.md": (
-        "synthea-incidence", "synthea_quality.incidence.cli",
+    "incidence": (
+        "synthea_incidence.md", "synthea-incidence", "synthea_quality.incidence.cli",
         ("--condition", MI, "--condition", "Hypertension=59621000"),
     ),
-    "synthea_module_validation.md": (
-        "synthea-validate-module", "synthea_quality.validate.cli", ("--module", str(EXAMPLE)),
+    "validate-mi": (
+        "synthea_module_validation.md", "synthea-validate-module",
+        "synthea_quality.validate.cli", ("--module", str(EXAMPLE)),
     ),
-    "synthea_observations.md": (
-        "synthea-observations", "synthea_quality.observations.cli",
+    "validate-hypertension": (
+        "synthea_module_validation.md", "synthea-validate-module",
+        "synthea_quality.validate.cli", ("--module", str(HYPERTENSION)),
+    ),
+    "observations": (
+        "synthea_observations.md", "synthea-observations", "synthea_quality.observations.cli",
         ("--module", str(HYPERTENSION)),
     ),
 }
@@ -55,8 +62,8 @@ def sample() -> Path:
 
 @pytest.fixture(scope="module", params=sorted(COMMANDS))
 def markdown(request, sample, tmp_path_factory) -> list[str]:
-    command, module, extra = COMMANDS[request.param]
-    out = tmp_path_factory.mktemp(command)
+    name, command, module, extra = COMMANDS[request.param]
+    out = tmp_path_factory.mktemp(request.param)
     script = BIN / command
     base = [str(script)] if script.exists() else [sys.executable, "-m", module]
     completed = subprocess.run(
@@ -64,7 +71,7 @@ def markdown(request, sample, tmp_path_factory) -> list[str]:
         capture_output=True, text=True, check=False,
     )
     assert completed.returncode == 0, completed.stderr
-    return (out / request.param).read_text(encoding="utf-8").split("\n")
+    return (out / name).read_text(encoding="utf-8").split("\n")
 
 
 def test_every_heading_follows_a_blank_line(markdown):
