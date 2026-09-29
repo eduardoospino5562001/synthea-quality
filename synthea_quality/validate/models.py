@@ -14,7 +14,9 @@ The module file is the conditions JSON of ``synthea-prevalence`` with an optiona
 Expected values may use the three measures (``point`` and ``lifetime`` as proportions,
 ``incidence`` per 1,000 person-years). An optional ``observations`` list describes
 observation values (see :mod:`synthea_quality.observations.definitions`); a file with
-observations may leave ``conditions`` out, unless a cohort names one. The report embeds
+observations may leave ``conditions`` out, unless a cohort names one. An optional
+``medications`` list measures the share of a cohort with each medication (see
+:mod:`synthea_quality.medications.definitions`). The report embeds
 the prevalence, incidence and observation results as their own commands produce them
 (``to_dict``), so there is one JSON layout per result, versioned here as a whole by
 ``MODULE_VALIDATION_SCHEMA_VERSION``.
@@ -30,6 +32,9 @@ from typing import Any
 from synthea_quality import __version__
 from synthea_quality.incidence.models import ConditionIncidence, Window
 from synthea_quality.models import utc_now_iso
+from synthea_quality.medications.definitions import MedicationDefinition, load_medications
+from synthea_quality.medications.models import DEFINITIONS as MEDICATION_DEFINITIONS
+from synthea_quality.medications.models import MedicationResult
 from synthea_quality.observations.definitions import (
     ObservationDefinition,
     load_module_observations,
@@ -71,6 +76,7 @@ class ModuleFile:
     module: ModuleInfo
     conditions: tuple[ConditionDefinition, ...]
     observations: tuple[ObservationDefinition, ...] = ()
+    medications: tuple[MedicationDefinition, ...] = ()
 
 
 def load_module_file(path: str | Path) -> tuple[ModuleInfo, tuple[ConditionDefinition, ...]]:
@@ -80,20 +86,25 @@ def load_module_file(path: str | Path) -> tuple[ModuleInfo, tuple[ConditionDefin
 
 
 def load_module(path: str | Path) -> ModuleFile:
-    """The module block, the conditions and the observations of a module file.
+    """The module block, the conditions, the observations and the medications of a file.
 
-    ``conditions`` may be left out when the file has ``observations``.
+    ``conditions`` may be left out when the file has ``observations`` or ``medications``,
+    unless one of their cohorts names a condition.
 
-    :raises DefinitionError: the file, its ``module`` block, its conditions or its
-        observations cannot be used as given.
+    :raises DefinitionError: the file, its ``module`` block, its conditions, observations
+        or medications cannot be used as given.
     """
     file_path = Path(path)
     data = read_module_json(file_path)
-    if "conditions" not in data and "observations" not in data:
+    if not {"conditions", "observations", "medications"} & set(data):
         raise DefinitionError(
-            f"module file {file_path} needs a non-empty 'conditions' or 'observations' list"
+            f"module file {file_path} needs a non-empty 'conditions', 'observations' or "
+            f"'medications' list"
         )
     definitions, observations = load_module_observations(file_path)
+    medications = load_medications(
+        data, origin=str(file_path), condition_names={c.name for c in definitions}
+    )
     block = data.get("module", {})
     if not isinstance(block, dict):
         raise DefinitionError(f"{file_path}: 'module' must be an object")
@@ -111,7 +122,9 @@ def load_module(path: str | Path) -> ModuleFile:
         raise DefinitionError(f"{file_path}: module 'description' must be a string")
     if not isinstance(modules, list) or not all(isinstance(m, str) for m in modules):
         raise DefinitionError(f"{file_path}: 'synthea_modules' must be a list of strings")
-    return ModuleFile(ModuleInfo(name, tuple(modules), description), definitions, observations)
+    return ModuleFile(
+        ModuleInfo(name, tuple(modules), description), definitions, observations, medications
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +168,7 @@ class ModuleValidationReport:
     incidence_window: Window | None = None
     incidence_population: str = "all"
     observations: tuple[ObservationResult, ...] = ()
+    medications: tuple[MedicationResult, ...] = ()
     history: dict[str, Any] = field(default_factory=dict)
     cohort: dict[str, Any] = field(default_factory=dict)
     inputs: tuple[TableInput, ...] = ()
@@ -188,6 +202,8 @@ class ModuleValidationReport:
             "conditions": [condition.to_dict() for condition in self.conditions],
             "observations": [item.to_dict() for item in self.observations],
             "observation_definitions": observation_definitions() if self.observations else None,
+            "medications": [item.to_dict() for item in self.medications],
+            "medication_definitions": dict(MEDICATION_DEFINITIONS) if self.medications else None,
         }
 
     def to_json(self, *, indent: int | None = 2) -> str:

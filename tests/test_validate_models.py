@@ -94,7 +94,36 @@ def test_a_module_file_may_have_observations_only(tmp_path):
 
 
 def test_a_module_file_needs_conditions_or_observations(tmp_path):
-    with pytest.raises(DefinitionError, match="'conditions' or 'observations'"):
+    with pytest.raises(DefinitionError, match="'conditions', 'observations' or 'medications'"):
         load_module_file(write(tmp_path, {"module": {"name": "X"}}))
     with pytest.raises(DefinitionError, match="do not define"):
         load_module_file(write(tmp_path, {"observations": [{"code": "1", "cohort": "X"}]}))
+
+
+def test_a_module_file_with_medications(tmp_path):
+    from synthea_quality.validate.models import load_module
+
+    loaded = load_module(
+        write(
+            tmp_path,
+            {
+                "conditions": [{"name": "Hypertension", "codes": ["59621000"]}],
+                "medications": [{"name": "Lisinopril", "codes": ["314076"],
+                                 "cohort": "Hypertension", "expected": {"active": 0.8}}],
+            },
+        )
+    )
+    (lisinopril,) = loaded.medications
+    assert lisinopril.cohort.condition == "Hypertension"
+    assert [e.measure for e in lisinopril.expected] == ["active"]
+    only = load_module(write(tmp_path, {"medications": [{"name": "A", "codes": ["1"]}]}))
+    assert only.conditions == () and len(only.medications) == 1
+    with pytest.raises(DefinitionError, match="do not define"):
+        load_module(write(tmp_path, {"medications": [{"name": "A", "codes": ["1"],
+                                                       "cohort": "X"}]}))
+
+
+def test_a_condition_never_takes_a_medication_measure(tmp_path):
+    with pytest.raises(DefinitionError, match="unknown key"):
+        load_module_file(write(tmp_path, {"conditions": [
+            {"name": "A", "codes": ["1"], "expected": {"active": 0.5}}]}))

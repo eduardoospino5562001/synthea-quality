@@ -42,6 +42,10 @@ MEASURES = ("point", "lifetime")
 #: Measure of an incidence report (events per 1,000 person-years).
 INCIDENCE = "incidence"
 ALL_MEASURES = (*MEASURES, INCIDENCE)
+#: Measures of a medication within a cohort (proportions); a condition never takes them.
+MEDICATION_MEASURES = ("active", "ever")
+#: Every measure an expected value can refer to.
+KNOWN_MEASURES = (*ALL_MEASURES, *MEDICATION_MEASURES)
 
 #: The SNOMED CT system as ``conditions.csv`` writes it.
 SNOMED_CT = "http://snomed.info/sct"
@@ -132,15 +136,15 @@ class Expected:
     source: str | None = None
 
     def __post_init__(self) -> None:
-        if self.measure not in ALL_MEASURES:
-            raise ValueError(f"measure must be one of {ALL_MEASURES}, not {self.measure!r}")
+        if self.measure not in KNOWN_MEASURES:
+            raise ValueError(f"measure must be one of {KNOWN_MEASURES}, not {self.measure!r}")
         if not isinstance(self.value, (int, float)) or not math.isfinite(self.value):
             raise ValueError(f"an expected {self.measure} value must be a finite number")
         if self.measure == INCIDENCE:
             if self.value < 0:
                 raise ValueError("an expected incidence (per 1,000 person-years) must be >= 0")
         elif not 0.0 <= float(self.value) <= 1.0:
-            raise ValueError(f"an expected {self.measure} prevalence must be in [0, 1]")
+            raise ValueError(f"an expected {self.measure} proportion must be in [0, 1]")
 
     def to_dict(self) -> dict[str, Any]:
         return {"measure": self.measure, "value": float(self.value), "source": self.source}

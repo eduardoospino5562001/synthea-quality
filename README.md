@@ -14,8 +14,8 @@ modifies the generator or the dataset it inspects.
 
 > **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
 > (`synthea-profile`), condition prevalence (`synthea-prevalence`), incidence
-> (`synthea-incidence`), observation values (`synthea-observations`) and all of them for
-> one module at once (`synthea-validate-module`).**
+> (`synthea-incidence`), observation values (`synthea-observations`) and all of them, with
+> the medications of a cohort, for one module at once (`synthea-validate-module`).**
 > Read *Current limitations* and *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
@@ -105,7 +105,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.7.0
+synthea-quality 0.8.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -257,7 +257,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.7.0",
+    "tool_version": "0.8.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -374,6 +374,11 @@ same file) and reference range. `examples/hypertension.json` is a complete examp
 each one exactly as `synthea-observations` shows it. A file with observations may leave
 `conditions` out, unless a cohort names one.
 
+**Medications (optional).** A module file may also list `medications`: the report gives the
+share of a cohort (or of every alive patient) with each one, active at the reference date
+and ever, with a 95% Wilson interval. See *Medications in a cohort* below; there is no
+separate command.
+
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
@@ -447,7 +452,7 @@ uses it as asked and adds a note.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.7.0)
+synthea-profile (synthea-quality 0.8.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -787,12 +792,69 @@ range counts, the row accounting, the codes with several units or types and ever
 the general table match exactly. It also checks that `synthea-validate-module` reports the
 same observations, key for key.
 
+## Medications in a cohort
+
+`synthea-validate-module` measures the medications a module file lists: among the alive
+patients with a condition of the same file (a cohort), or among every alive patient, the
+share with each medication. It states no verdict.
+
+```json
+{
+  "conditions": [{"name": "Hypertension", "codes": ["59621000"]}],
+  "medications": [
+    {"name": "Lisinopril", "codes": ["314076"],
+     "cohort": {"condition": "Hypertension", "rule": "point"},
+     "expected": {"active": 0.8, "source": "cited reference"}}
+  ]
+}
+```
+
+| | |
+| --- | --- |
+| Population | the cohort (`point`, the default: the condition is active at the reference date; or `lifetime`), which is exactly the numerator of that condition's prevalence; without `cohort`, every alive patient |
+| Active | patients with a record of any of the codes whose `START` is on or before the reference date and whose `STOP` is empty or after it, by calendar day |
+| Ever | patients with a record whose `START` is on or before the reference date |
+| Interval | 95% Wilson score interval, as for prevalence |
+| Condition as reason | of those patients, how many have such a record whose `REASONCODE` is one of the cohort condition's codes |
+| Expected | optional `active` and `ever` proportions with a `source`; shown inside or outside the 95% CI in the table of reference values |
+
+- `codes` are codes of `medications.csv`, which has no `SYSTEM` column (Synthea writes
+  RxNorm). A patient counts once per medication, whichever of its codes they have.
+- **Records without `STOP`** count as active: Synthea writes no `STOP` for a chronic
+  prescription that is never ended. Every medication reports how many of its records have
+  none.
+- **A code absent from `medications.csv`** (any patient, any date) gets a note: its 0 says
+  the code is not in the data, not that the cohort goes without it.
+- Rows of patients outside the alive cohort, with an unusable `START`, or starting after the
+  reference date are left out and counted; an unparseable `STOP` keeps a row for *ever* and
+  leaves it out of *active*.
+
+On the official sample, `examples/hypertension.json` lists the four medications that
+`medications/hypertension_medication.json` prescribes, among the 17 alive patients with
+hypertension active at 2026-08-17 (an approximate reference date):
+
+| Medication | Active | Ever | Condition as reason |
+| --- | ---: | ---: | ---: |
+| Lisinopril (`314076`) | 14 (82.35%, 58.97–93.81%) | 14 | 14 |
+| Hydrochlorothiazide (`310798`) | 11 (64.71%, 41.30–82.69%) | 11 | 11 |
+| Amlodipine (`308136`) | 5 (29.41%, 13.28–53.13%) | 5 | 5 |
+| Losartan (`979485`) | 0 (0.00%, 0.00–18.43%) | 0 | 0 |
+| Any of the four | 17 (100.00%, 81.57–100.00%) | 17 | 17 |
+
+Losartan never appears in the sample's `medications.csv`: the module prescribes it only to
+patients with a lisinopril allergy.
+
+The integration suite recounts the cohort, both shares, their Wilson intervals, the reasons
+and the records without `STOP` with the `csv` module and `datetime` only, and checks that
+the cohort is, key for key, the numerator `synthea-prevalence` reports for hypertension
+with the same file.
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 768 unit and component tests, about 15 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 48 end-to-end tests that run the commands as a user would, about 70 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 805 unit and component tests, about 15 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 57 end-to-end tests that run the commands as a user would, about 70 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -833,7 +895,7 @@ work.
 | `synthea-incidence` on the official sample, through the CLI (two conditions) | 0.7 s, ~77 MB |
 | `synthea-validate-module` on the official sample, with the example module file | 0.8 s, ~78 MB |
 | `synthea-observations` on the official sample, with `examples/hypertension.json` (four observations and the general table) | 1.7 s, ~100 MB |
-| `synthea-validate-module` on the official sample, with `examples/hypertension.json` | 1.6 s, ~101 MB |
+| `synthea-validate-module` on the official sample, with `examples/hypertension.json` (one condition, four observations, five medications) | 1.7 s, ~102 MB |
 | Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
@@ -854,10 +916,11 @@ will need chunked or streamed processing. The dependency is measured, not theore
 - **Only the current confirmed contract.** Rules target the 2026-08 schema. Older datasets
   are reported as `INCOMPATIBLE` rather than coerced, and no legacy support exists.
 - **CSV only.** No FHIR, CCDA or RDF validation.
-- **Prevalence and incidence of conditions only**, from `conditions.csv`; medications,
-  procedures and observations are not measured as rates. Observation values are described
-  (`synthea-observations`), one latest value per patient, without converting units. There
-  is no statistical gate: reference values and ranges are shown, never judged.
+- **Prevalence and incidence of conditions only**, from `conditions.csv`; procedures and
+  observations are not measured as rates. Observation values are described
+  (`synthea-observations`), one latest value per patient, without converting units, and
+  medications as the share of a cohort, active and ever, in `synthea-validate-module` only.
+  There is no statistical gate: reference values and ranges are shown, never judged.
 - **Incidence counts first events only**; repeated episodes are counted apart, not as
   events. It depends on the exported history (`exporter.years_of_history`), which is known
   only with `--metadata`.
@@ -889,8 +952,8 @@ order, none of them started:
   table among the alive patients (step 2);
 - clinical concepts beyond conditions — **started**: `synthea-observations` describes
   observation values per code and unit, optionally within a condition cohort and next to a
-  reference range, and `synthea-validate-module` includes them (step 6). Still to come:
-  medications within a cohort;
+  reference range, and `synthea-validate-module` includes them together with the share of a
+  cohort with each medication, active and ever (step 6);
 - prevalence and incidence — **started**: `synthea-prevalence` computes point and lifetime
   prevalence of conditions among the alive (step 3) and `synthea-incidence` first events per
   1,000 person-years (step 4); `synthea-validate-module` runs both, with a population summary

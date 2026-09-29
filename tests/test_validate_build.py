@@ -236,3 +236,99 @@ def test_an_observation_only_module_without_conditions_csv(tmp_path):
     )
     assert report.observations[0].status is SectionStatus.COMPUTED
     assert report.alive == 2
+
+
+# --------------------------------------------------------------------------- #
+# medications of the module file
+# --------------------------------------------------------------------------- #
+
+
+def with_medications(directory: Path) -> Path:
+    write_table(
+        directory,
+        "medications",
+        [
+            {"START": "2020-01-01T00:00:00Z", "PATIENT": "a2", "CODE": "314076",
+             "REASONCODE": "59621000", "DESCRIPTION": "lisinopril 10 MG Oral Tablet"},
+            {"START": "2020-01-01T00:00:00Z", "STOP": "2021-01-01T00:00:00Z", "PATIENT": "a1",
+             "CODE": "314076"},
+        ],
+    )
+    return directory
+
+
+def medication_report(directory, medications, definitions=None):
+    return build_module_validation(
+        directory, module=ModuleInfo(),
+        definitions=definitions if definitions is not None else assemble(
+            ("Hypertension=59621000",), None, (), measures=ALL_MEASURES
+        ),
+        module_file="m.json", medications=medications, generated_at=GENERATED_AT,
+    )
+
+
+def test_medications_among_a_cohort_and_among_the_alive(tmp_path):
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.medications.definitions import MedicationDefinition
+
+    report = medication_report(
+        with_medications(dataset(tmp_path)),
+        (MedicationDefinition("Lisinopril", ("314076",), CohortSpec("Hypertension")),
+         MedicationDefinition("Lisinopril, everyone", ("314076",))),
+    )
+    cohort, everyone = report.medications
+    assert (cohort.active.numerator, cohort.active.denominator) == (1, 1)
+    assert cohort.active_with_reason == 1
+    assert (everyone.active.numerator, everyone.ever.numerator, everyone.ever.denominator) == (
+        1, 2, 2,
+    )
+    assert "medications" in [i.table for i in report.inputs]
+    data = report.to_dict()
+    assert data["medications"][0]["name"] == "Lisinopril"
+    assert "Wilson" in data["medication_definitions"]["interval"]
+
+
+def test_without_medications_the_table_is_not_read(tmp_path):
+    report = validate(with_medications(dataset(tmp_path)))
+    assert report.medications == ()
+    assert "medications" not in [i.table for i in report.inputs]
+    assert report.to_dict()["medication_definitions"] is None
+
+
+def test_missing_medications_skip_only_the_medications(tmp_path):
+    from synthea_quality.medications.definitions import MedicationDefinition
+
+    report = medication_report(dataset(tmp_path), (MedicationDefinition("A", ("1",)),))
+    assert report.medications[0].status is SectionStatus.SKIPPED
+    assert "medications.csv is not in the dataset" in report.medications[0].reason
+    assert report.conditions[0].prevalence.status is SectionStatus.COMPUTED
+
+
+def test_a_cohort_without_conditions_csv_is_skipped(tmp_path):
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.medications.definitions import MedicationDefinition
+
+    directory = with_medications(dataset(tmp_path))
+    (directory / "conditions.csv").unlink()
+    report = medication_report(
+        directory, (MedicationDefinition("L", ("314076",), CohortSpec("Hypertension")),
+                    MedicationDefinition("All", ("314076",))),
+    )
+    cohort, everyone = report.medications
+    assert cohort.status is SectionStatus.SKIPPED and "conditions.csv" in cohort.reason
+    assert everyone.status is SectionStatus.COMPUTED
+
+
+def test_the_medication_cohort_is_the_prevalence_numerator(tmp_path):
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.medications.definitions import MedicationDefinition
+
+    report = medication_report(
+        with_medications(dataset(tmp_path)),
+        (MedicationDefinition("L", ("314076",), CohortSpec("Hypertension")),
+         MedicationDefinition("L2", ("314076",), CohortSpec("Hypertension", "lifetime"))),
+    )
+    prevalence = report.conditions[0].prevalence
+    point, lifetime = report.medications
+    assert point.ever.denominator == prevalence.point.numerator
+    assert lifetime.ever.denominator == prevalence.lifetime.numerator

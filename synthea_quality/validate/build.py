@@ -12,13 +12,16 @@ and the frames are handed to the existing computations:
   the ``window_years`` before the reference date;
 * observation values, when the module file has ``observations``, are
   :func:`synthea_quality.observations.build.observation_results` — the latest value of
-  each alive patient, or of each patient of a condition cohort.
+  each alive patient, or of each patient of a condition cohort;
+* medications, when the module file has ``medications``, are
+  :func:`synthea_quality.medications.compute.medication_results` — the share of the
+  alive patients, or of a condition cohort, with each medication, active and ever.
 
 Nothing is guessed. Without a reference date or the patients, everything is ``SKIPPED``
 with the reason. Without the condition records, every condition's prevalence and
 incidence, and every observation limited to a cohort, are; without a ``STOP`` column only
 prevalence and the cohorts are (incidence does not need it). Without ``observations.csv``
-only the observations are.
+only the observations are; without ``medications.csv`` only the medications.
 """
 
 from __future__ import annotations
@@ -32,6 +35,8 @@ from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
 from synthea_quality.prevalence import compute as prevalence
+from synthea_quality.medications import compute as medications_compute
+from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.build import (
     load_observations,
     observation_results,
@@ -72,6 +77,7 @@ def build_module_validation(
     definitions: Sequence[ConditionDefinition],
     module_file: str | Path,
     observations: Sequence[ObservationDefinition] = (),
+    medications: Sequence[MedicationDefinition] = (),
     reference_date: str | None = None,
     metadata: str | Path | None = None,
     window_years: int = incidence.DEFAULT_WINDOW_YEARS,
@@ -89,7 +95,11 @@ def build_module_validation(
     bands = validate_age_bands(age_bands)
     if window_years < 1:
         raise ValueError("the window must be at least one year")
-    tables = (*TABLES, *(["observations"] if observations else []))
+    tables = (
+        *TABLES,
+        *(["observations"] if observations else []),
+        *(["medications"] if medications else []),
+    )
     context = open_dataset(
         data_dir, tables=tables, reference_date=reference_date, metadata=metadata,
         discovery=discovery,
@@ -112,6 +122,13 @@ def build_module_validation(
     if observations:
         observation_frame, observations_input = load_observations(context)
         inputs.append(observations_input)
+    medication_frame = None
+    if medications:
+        medication_frame, medications_input = context.load(
+            "medications", medications_compute.MEDICATION_COLUMNS,
+            medications_compute.REQUIRED_MEDICATION_COLUMNS, "medication records",
+        )
+        inputs.append(medications_input)
 
     history = export_history(metadata, conditions, reference, window_years)
     notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
@@ -141,6 +158,9 @@ def build_module_validation(
             ),
             conditions=tuple(_skipped(d, reason) for d in definitions),
             observations=tuple(skipped_observation(d, reason) for d in observations),
+            medications=tuple(
+                medications_compute.skipped_medication(d, reason) for d in medications
+            ),
             **common,
         )
 
@@ -207,11 +227,28 @@ def build_module_validation(
             condition_records=alive_records,
             records_reason=records_reason,
         )
+    if not medications:
+        medication_part: tuple = ()
+    elif medication_frame is None:
+        why = f"no medication records: {medications_input.reason}"
+        medication_part = tuple(
+            medications_compute.skipped_medication(d, why) for d in medications
+        )
+    else:
+        medication_part = medications_compute.medication_results(
+            medications,
+            definitions,
+            medications_compute.prepare_medications(medication_frame, alive_cohort, reference),
+            alive_cohort,
+            condition_records=alive_records,
+            records_reason=records_reason,
+        )
     return ModuleValidationReport(
         alive=alive_cohort.size,
         population=population,
         conditions=tuple(results),
         observations=observation_part,
+        medications=medication_part,
         incidence_window=followed.window,
         incidence_population=followed.population,
         cohort={"followed": followed.size, "excluded": dict(followed.excluded)},
