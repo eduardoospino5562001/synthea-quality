@@ -345,7 +345,11 @@ module's condition codes and reference values:
 A condition groups the codes of one disease (a patient counts once); codes are SNOMED CT
 unless written `SYSTEM|CODE`. `acute` is declared, never inferred. `point` and `lifetime`
 are proportions; `incidence` is per 1,000 person-years. The example's values are
-placeholders, not reference data.
+placeholders, not reference data. It uses the three acute myocardial infarction codes,
+without `History of myocardial infarction (situation)` (`399211009`), so on the official
+sample it counts 6/99 alive patients, not the 7/99 of the notebook comparison in
+*Validation against module-validation* below, whose text search also picks up that
+history code.
 
 **3. Run it:**
 
@@ -678,7 +682,7 @@ size says about a condition this rare.
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
 | Fast | `.venv/bin/pytest -m "not integration"` | no | 675 unit and component tests, about 12 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 27 end-to-end tests that run the commands as a user would, about 60 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 35 end-to-end tests that run the commands as a user would, about 65 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -876,6 +880,8 @@ tests/
         test_profile_official_sample.py      synthea-profile on the official sample
         test_prevalence_official_sample.py   synthea-prevalence: recount and MI notebook
         test_incidence_official_sample.py    synthea-incidence: independent recount
+        test_validate_official_sample.py     synthea-validate-module: same numbers as the others
+        test_markdown_layout.py              headings and tables of every report
 scripts/
     fetch_official_sample.py   download the sample, never into the repository
     extract_social_codes.py    regenerate the social code list from a Synthea checkout
