@@ -1,0 +1,50 @@
+{
+  "module": {
+    "name": "Hypertension",
+    "synthea_modules": [
+      "hypertension.json",
+      "medications/hypertension_medication.json"
+    ],
+    "description": "Example module file with observations. The blood pressure ranges are Synthea's own configuration (src/main/resources/biometrics.yml, metabolic.blood_pressure.normal), not a clinical norm: BloodPressureValueGenerator draws a baseline from them and then adds medication, lifestyle and a 12-hour variation, so recorded values can fall outside them. The file gives no expected prevalence or incidence."
+  },
+  "conditions": [
+    {
+      "name": "Hypertension",
+      "codes": ["59621000"]
+    }
+  ],
+  "observations": [
+    {
+      "name": "Systolic blood pressure",
+      "code": "8480-6",
+      "reference_range": {
+        "low": 100,
+        "high": 139,
+        "units": "mm[Hg]",
+        "basis": "synthea-configuration",
+        "source": "Synthea configuration (biometrics.yml, blood_pressure.normal)"
+      }
+    },
+    {
+      "name": "Diastolic blood pressure",
+      "code": "8462-4",
+      "reference_range": {
+        "low": 70,
+        "high": 89,
+        "units": "mm[Hg]",
+        "basis": "synthea-configuration",
+        "source": "Synthea configuration (biometrics.yml, blood_pressure.normal)"
+      }
+    },
+    {
+      "name": "Systolic blood pressure, patients with hypertension",
+      "code": "8480-6",
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    },
+    {
+      "name": "Diastolic blood pressure, patients with hypertension",
+      "code": "8462-4",
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    }
+  ]
+}
