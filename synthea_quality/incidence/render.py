@@ -58,7 +58,7 @@ def render_markdown(report: IncidenceReport) -> str:
         _reference(report),
         _window(report),
         _definitions(),
-        *(_condition(c) for c in report.conditions),
+        *(render_condition(c) for c in report.conditions),
     ]
     if not report.conditions:
         blocks.append("## Conditions\n\nNone were given.")
@@ -133,13 +133,20 @@ def _definitions() -> str:
     )
 
 
-def _condition(condition: ConditionIncidence) -> str:
+def render_condition(
+    condition: ConditionIncidence, *, level: int = 2, title_prefix: str = "Condition: "
+) -> str:
+    """One condition's section; ``level`` is the Markdown level of its heading.
+
+    Public so that ``synthea-validate-module`` shows a condition exactly as
+    ``synthea-incidence`` does, under its own headings.
+    """
     codes = ", ".join(
         f"`{ref.code}`" if ref.system is None else f"`{ref.system}|{ref.code}`"
         for ref in condition.codes
     )
     title = f"{condition.name} (declared acute)" if condition.acute else condition.name
-    head = f"## Condition: {title}\n\nCodes: {codes}"
+    head = f"{'#' * level} {title_prefix}{title}\n\nCodes: {codes}"
     if condition.status is SectionStatus.SKIPPED:
         return f"{head}\n\n`SKIPPED` — {condition.reason}"
     assert condition.rate is not None
@@ -186,7 +193,9 @@ def _condition(condition: ConditionIncidence) -> str:
     ):
         strata = [s for s in condition.strata if s.dimension == dimension]
         if strata:
-            blocks.append(f"### {title_text}\n\n" + "\n".join(_strata(strata, label)))
+            blocks.append(
+                f"{'#' * (level + 1)} {title_text}\n\n" + "\n".join(_strata(strata, label))
+            )
     m = condition.metrics
     blocks.append(
         f"Patients followed: {m.get('followed')}; prior cases (not at risk): "

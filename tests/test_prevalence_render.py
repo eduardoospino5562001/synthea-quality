@@ -16,7 +16,13 @@ from synthea_quality.prevalence.models import (
     Rate,
     Stratum,
 )
-from synthea_quality.prevalence.render import dumps, render_markdown, write_json, write_markdown
+from synthea_quality.prevalence.render import (
+    dumps,
+    render_condition,
+    render_markdown,
+    write_json,
+    write_markdown,
+)
 from synthea_quality.profile.models import (
     InputState,
     ReferenceDate,
@@ -169,3 +175,10 @@ def test_a_declared_acute_condition_is_labelled_in_its_title():
     assert "## Condition: Myocardial infarction (declared acute)" in text
     assert "## Condition: Myocardial infarction\n" in render_markdown(report())
     assert json.loads(dumps(report(conditions=(condition(acute=True),))))["conditions"][0]["acute"]
+
+
+def test_a_condition_renders_under_any_heading_level():
+    text = render_condition(condition(), level=3, title_prefix="Prevalence: ")
+    assert text.startswith("### Prevalence: Myocardial infarction\n\nCodes:")
+    assert "#### By age band at the reference date" in text
+    assert render_condition(condition()) in render_markdown(report())
