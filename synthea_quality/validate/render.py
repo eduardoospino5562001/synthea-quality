@@ -119,7 +119,7 @@ def _population(report: ModuleValidationReport) -> str:
         f"(the prevalence denominator). Followed for incidence: "
         f"**{followed if followed is not None else '—'}**."
     )
-    return "\n\n".join(["## Population", lead, *sections])
+    return "\n\n".join(["## Population summary", lead, *sections])
 
 
 def _summary(report: ModuleValidationReport) -> str:

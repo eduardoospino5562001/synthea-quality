@@ -73,11 +73,12 @@ POPULATION_ALIVE = "alive"
 
 #: One line the report shows so that nobody coming from the profile or the prevalence
 #: (which describe the patients alive at the end) is surprised by the deceased here.
-WHY_ALL_PATIENTS = (
+SURVIVOR_BIAS = (
     "Incidence counts every patient, deceased included, until their death: restricting it to "
     "the patients alive at the end would drop the time and events of those who died during the "
-    "window (survivor bias). Use --alive-only to measure that cohort instead."
+    "window (survivor bias)."
 )
+WHY_ALL_PATIENTS = f"{SURVIVOR_BIAS} Use --alive-only to measure that cohort instead."
 
 
 def window_start(reference: date, years: int) -> date:

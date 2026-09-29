@@ -72,7 +72,7 @@ def test_sections_come_in_reading_order(report):
         "## Scope",
         "## Reference date",
         "## Definitions and populations",
-        "## Population",
+        "## Population summary",
         "## Summary",
         "## Reference values",
         "## Condition: Myocardial infarction (declared acute)",
@@ -91,6 +91,9 @@ def test_populations_are_stated_for_each_measure(report):
     assert "among the patients **alive at the end of the simulation**" in text
     assert "following **every patient, deceased included, until their death**" in text
     assert "survivor bias" in text
+    # this command has no --alive-only: the note points to the one that does
+    assert "`synthea-incidence --alive-only` measures that cohort instead" in text
+    assert "Use --alive-only" not in text
     assert (
         "Alive at the end: **2** (the prevalence denominator). Followed for incidence: **3**."
     ) in text

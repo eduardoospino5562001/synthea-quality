@@ -24,7 +24,7 @@ from typing import Sequence
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
 from synthea_quality.incidence import compute as incidence
-from synthea_quality.incidence.build import export_history, population_note
+from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
 from synthea_quality.prevalence import compute as prevalence
 from synthea_quality.prevalence.definitions import ConditionDefinition
@@ -40,6 +40,10 @@ from synthea_quality.validate.models import (
 )
 
 TABLES = ("patients", "encounters", "conditions")
+#: This command has no --alive-only; the note points to the one that does.
+WHY_ALL_PATIENTS = (
+    f"{incidence.SURVIVOR_BIAS} `synthea-incidence --alive-only` measures that cohort instead."
+)
 #: The population summary keeps these sections of the profile.
 POPULATION_SECTIONS = ("population", "age", "distribution.GENDER")
 
@@ -92,7 +96,7 @@ def build_module_validation(
     inputs.append(conditions_input)
 
     history = export_history(metadata, conditions, reference, window_years)
-    notes = [*resolution.notes, population_note(incidence.POPULATION_ALL), *history.pop("notes")]
+    notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
     common = dict(
         data_dir=str(context.data_dir),
         module_file=str(module_file),
