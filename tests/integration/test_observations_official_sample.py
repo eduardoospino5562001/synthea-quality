@@ -6,7 +6,8 @@ the report must match exactly (to the six decimals it keeps):
 
 * systolic and diastolic blood pressure among the alive and among the alive patients with
   hypertension active at the reference date: n, minimum, the 5th, 25th, 50th, 75th and
-  95th percentiles (type 7) and maximum, in total, by sex and by age band;
+  95th percentiles (type 7) and maximum, in total, by sex and by age band — with the outer
+  percentiles withheld below 10 patients (several strata of the hypertension cohort);
 * the patients below, within and above the example's reference range;
 * what happened to every row of those codes;
 * the codes written in several units and with several ``TYPE`` values over the whole table.
@@ -42,6 +43,8 @@ BIN = Path(sys.executable).parent
 BANDS = (0, 5, 18, 45, 65)
 HYPERTENSION = "59621000"
 PERCENTILES = (5, 25, 50, 75, 95)
+#: Written here again, not imported: below it only n, minimum, median and maximum.
+MIN_PATIENTS_FOR_PERCENTILES = 10
 
 
 @pytest.fixture(scope="module")
@@ -120,6 +123,8 @@ def summary(values: list[float]) -> dict:
     if not values:
         return {"n": 0, **{k: None for k in ("min", "p5", "p25", "median", "p75", "p95", "max")}}
     p5, p25, p50, p75, p95 = (round(percentile(values, p), 6) for p in PERCENTILES)
+    if len(values) < MIN_PATIENTS_FOR_PERCENTILES:
+        p5 = p25 = p75 = p95 = None
     return {"n": len(values), "min": round(min(values), 6), "p5": p5, "p25": p25,
             "median": p50, "p75": p75, "p95": p95, "max": round(max(values), 6)}
 
@@ -247,6 +252,17 @@ def test_every_row_is_accounted_for(reports, recount, code):
     for fate in ("unknown_patient", "deceased", "after_reference", "not_numeric_type",
                  "value_unparseable", "used"):
         assert metrics[f"rows_{fate}"] == recount["fates"][code][fate], fate
+
+
+def test_small_strata_withhold_the_outer_percentiles(reports):
+    cohort = reports["observations"]["observations"][2]["groups"][0]
+    small = [s for s in cohort["strata"] if 0 < s["summary"]["n"] < 10]
+    assert small, "the hypertension cohort has strata below 10 patients on the sample"
+    for stratum in small:
+        summary_ = stratum["summary"]
+        assert summary_["median"] is not None
+        assert [summary_[k] for k in ("p5", "p25", "p75", "p95")] == [None] * 4
+    assert cohort["summary"]["p25"] is not None  # 17 patients in total
 
 
 def test_codes_in_several_units_and_types(reports, recount):

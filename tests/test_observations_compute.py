@@ -159,13 +159,19 @@ def test_how_old_the_latest_values_are():
 
 
 def test_percentiles_are_type_7():
-    s = summarise(pd.Series([1.0, 2.0, 3.0, 4.0, 10.0]))
-    assert (s.n, s.minimum, s.maximum, s.median) == (5, 1.0, 10.0, 3.0)
-    assert s.p25 == 2.0 and s.p75 == 4.0
-    assert s.p5 == pytest.approx(1.2) and s.p95 == pytest.approx(8.8)
+    s = summarise(pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 100.0]))
+    assert (s.n, s.minimum, s.maximum, s.median) == (10, 1.0, 100.0, 5.5)
+    assert s.p25 == pytest.approx(3.25) and s.p75 == pytest.approx(7.75)
+    assert s.p5 == pytest.approx(1.45) and s.p95 == pytest.approx(59.05)
     assert summarise(pd.Series([], dtype=float)).n == 0
+
+
+def test_below_ten_values_only_n_minimum_median_and_maximum():
+    s = summarise(pd.Series([float(v) for v in range(1, 10)]))
+    assert (s.n, s.minimum, s.median, s.maximum) == (9, 1.0, 5.0, 9.0)
+    assert s.p5 is s.p25 is s.p75 is s.p95 is None
     one = summarise(pd.Series([7.0]))
-    assert one.p5 == one.p95 == 7.0
+    assert one.minimum == one.median == one.maximum == 7.0 and one.p25 is None
 
 
 def test_strata_by_age_band_and_sex():

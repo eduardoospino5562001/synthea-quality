@@ -106,7 +106,10 @@ def test_the_markdown(report):
     assert "## How values are described" in text
     assert "## Observation: Systolic\n" in text
     assert "### Values in `mm[Hg]`" in text
-    assert "| 2 | 120 | 121.5 | 127.5 | 135 | 142.5 | 148.5 | 150 |" in text
+    assert "| 2 | 120 | — | — | 135 | — | — | 150 |" in text
+    assert (
+        "Percentiles are not shown below 10 patients: only n, minimum, median and maximum."
+    ) in text
     assert (
         "| 100 | 139 | `mm[Hg]` | 0 (0.0%) | 1 (50.0%) | 1 (50.0%) | Synthea configuration |"
     ) in text

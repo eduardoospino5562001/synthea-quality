@@ -8,6 +8,7 @@ import pytest
 
 from synthea_quality.observations.definitions import ReferenceRange
 from synthea_quality.observations.models import (
+    MIN_PATIENTS_FOR_PERCENTILES,
     GeneralTable,
     ObservationResult,
     ObservationsReport,
@@ -18,8 +19,12 @@ from synthea_quality.observations.models import (
 from synthea_quality.profile.models import SectionStatus
 
 
-def summary(n=3):
-    return ValueSummary(n, 1.0, 1.1, 1.5, 2.0, 2.5, 2.9, 3.0) if n else ValueSummary(0)
+def summary(n=10):
+    return ValueSummary(n, 1.0, 1.1, 1.5, 2.0, 2.5, 2.9, 3.0)
+
+
+def small(n=3):
+    return ValueSummary(n, minimum=1.0, median=2.0, maximum=3.0)
 
 
 def test_a_summary_has_statistics_exactly_when_it_has_values():
@@ -33,8 +38,21 @@ def test_a_summary_has_statistics_exactly_when_it_has_values():
         ValueSummary(-1)
 
 
+def test_outer_percentiles_need_ten_patients():
+    assert MIN_PATIENTS_FOR_PERCENTILES == 10
+    data = small().to_dict()
+    assert (data["min"], data["median"], data["max"]) == (1.0, 2.0, 3.0)
+    assert data["p5"] is data["p25"] is data["p75"] is data["p95"] is None
+    assert small().percentiles_withheld and not summary().percentiles_withheld
+    assert not ValueSummary(0).percentiles_withheld
+    with pytest.raises(ValueError):
+        ValueSummary(3, 1.0, 1.1, 1.5, 2.0, 2.5, 2.9, 3.0)  # too few for percentiles
+    with pytest.raises(ValueError):
+        ValueSummary(10, minimum=1.0, median=2.0, maximum=3.0)  # enough: they are required
+
+
 def test_values_are_rounded():
-    s = ValueSummary(1, *([1 / 3] * 7))
+    s = ValueSummary(10, *([1 / 3] * 7))
     assert s.to_dict()["min"] == 0.333333
 
 

@@ -28,8 +28,9 @@ mean). The general table lists every code whose numeric rows use more than one u
 every code written with more than one ``TYPE``, over the whole table.
 
 Percentiles are linear interpolation between the closest ranks (type 7), the default of
-``pandas.Series.quantile``. Strata: age band at the reference date and ``GENDER`` of the
-patients described, as in the prevalence report.
+``pandas.Series.quantile``; the 5th, 25th, 75th and 95th are given only with at least
+``MIN_PATIENTS_FOR_PERCENTILES`` (10) values. Strata: age band at the reference date and
+``GENDER`` of the patients described, as in the prevalence report.
 
 This module computes; it reads no file and renders nothing.
 """
@@ -45,6 +46,7 @@ import pandas as pd
 from synthea_quality.incidence.compute import window_start
 from synthea_quality.observations.definitions import ObservationDefinition, ReferenceRange
 from synthea_quality.observations.models import (
+    MIN_PATIENTS_FOR_PERCENTILES,
     PERCENTILES,
     GeneralRow,
     GeneralTable,
@@ -177,12 +179,17 @@ def prepare_values(observations: pd.DataFrame, cohort: Cohort, reference: date) 
 
 
 def summarise(values: pd.Series) -> ValueSummary:
-    """n, minimum, the percentiles of :data:`PERCENTILES` and maximum of ``values``."""
+    """n, minimum, the percentiles of :data:`PERCENTILES` and maximum of ``values``.
+
+    Below :data:`MIN_PATIENTS_FOR_PERCENTILES` values, only the median of the percentiles.
+    """
     values = values.dropna()
     if values.empty:
         return ValueSummary(0)
     quantiles = values.quantile([p / 100 for p in PERCENTILES]).tolist()
     p5, p25, median, p75, p95 = (float(q) for q in quantiles)
+    if len(values) < MIN_PATIENTS_FOR_PERCENTILES:
+        p5 = p25 = p75 = p95 = None
     return ValueSummary(
         n=len(values),
         minimum=float(values.min()),

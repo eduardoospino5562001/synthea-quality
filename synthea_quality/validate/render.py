@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from synthea_quality.incidence.render import render_condition as render_incidence
-from synthea_quality.observations.models import ObservationResult
+from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
 from synthea_quality.observations.render import render_definitions as render_value_rules
 from synthea_quality.observations.render import render_observation
 from synthea_quality.prevalence.models import INCIDENCE
@@ -233,7 +233,7 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
                     f"`{group.units}`" if group.units else "—",
                     s.n,
                     _value(s.median),
-                    f"{_value(s.p25)}–{_value(s.p75)}" if s.n else "—",
+                    f"{_value(s.p25)}–{_value(s.p75)}" if s.p25 is not None else "—",
                     in_range,
                 )
             )
@@ -248,7 +248,14 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
             "## Observation values",
             "The latest value of each patient; details, strata and what was left out follow. "
             "A reference range is shown for comparison, not as a verdict.",
-            "\n".join(table),
+            "\n".join(table)
+            + (
+                f"\n\n{PERCENTILES_NOTE}"
+                if any(
+                    g.summary.percentiles_withheld for item in observations for g in item.groups
+                )
+                else ""
+            ),
             render_value_rules(level=3),
         ]
     )

@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from synthea_quality.observations.models import (
+    MIN_PATIENTS_FOR_PERCENTILES,
     PERCENTILE_METHOD,
+    PERCENTILES_NOTE,
     VALUE_RULE,
     GeneralTable,
     ObservationResult,
@@ -113,7 +115,9 @@ def render_definitions(*, level: int = 2) -> str:
             "- **Used values:** rows with `TYPE` `numeric` whose `VALUE` is a finite number. "
             "Every other row is counted and reported, never dropped silently.",
             "- **Units:** each `UNITS` is described on its own; values are never converted.",
-            f"- **Percentiles:** {PERCENTILE_METHOD}.",
+            f"- **Percentiles:** {PERCENTILE_METHOD}. With fewer than "
+            f"{MIN_PATIENTS_FOR_PERCENTILES} patients only n, minimum, median and maximum are "
+            "shown.",
             "- **Reference range:** shown next to the observed values with the patients below, "
             "within and above it, only for values in the same units.",
         ]
@@ -170,7 +174,8 @@ def _group(group: UnitGroup, level: int) -> str:
                 [(group.summary.n, *_stats(group.summary))],
                 align=("r",) * 8,
             )
-        ),
+        )
+        + (f"\n\n{PERCENTILES_NOTE}" if group.summary.percentiles_withheld else ""),
     ]
     if group.reference_range is not None:
         blocks.append(_range(group.reference_range))
@@ -185,9 +190,10 @@ def _group(group: UnitGroup, level: int) -> str:
     for dimension, title, label in _DIMENSIONS:
         strata = [s for s in group.strata if s.dimension == dimension]
         if strata:
-            blocks.append(
-                f"{'#' * (level + 1)} {title}\n\n" + "\n".join(_strata_table(strata, label))
-            )
+            table = "\n".join(_strata_table(strata, label))
+            if any(s.summary.percentiles_withheld for s in strata):
+                table += f"\n\n{PERCENTILES_NOTE}"
+            blocks.append(f"{'#' * (level + 1)} {title}\n\n{table}")
     return "\n\n".join(blocks)
 
 

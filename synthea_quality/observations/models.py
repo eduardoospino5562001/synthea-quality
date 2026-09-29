@@ -6,7 +6,10 @@ deterministic (fixed key order, rounded floats). The JSON layout is versioned by
 ``OBSERVATIONS_SCHEMA_VERSION``.
 
 A distribution is described, never judged: n, minimum, the 5th, 25th, 50th, 75th and
-95th percentiles and the maximum, with the units the values were written in. A reference
+95th percentiles and the maximum, with the units the values were written in. Below
+:data:`MIN_PATIENTS_FOR_PERCENTILES` patients only n, minimum, median and maximum are
+given: with a handful of values the outer percentiles are interpolations between two or
+three numbers and suggest a precision the data do not have. A reference
 range is shown next to it with how many patients fall below, within and above it.
 
 Only the standard library is imported here.
@@ -33,6 +36,16 @@ VALUE_DECIMALS = 6
 #: The percentiles of every summary.
 PERCENTILES = (5, 25, 50, 75, 95)
 
+#: Fewest values for which the 5th, 25th, 75th and 95th percentiles are given; below it a
+#: summary has only n, minimum, median and maximum.
+MIN_PATIENTS_FOR_PERCENTILES = 10
+
+#: Said wherever a summary below that threshold is shown.
+PERCENTILES_NOTE = (
+    f"Percentiles are not shown below {MIN_PATIENTS_FOR_PERCENTILES} patients: only n, "
+    f"minimum, median and maximum."
+)
+
 #: How percentiles are computed, as the report states it.
 PERCENTILE_METHOD = (
     "linear interpolation between the closest ranks (Hyndman and Fan type 7, the default of "
@@ -48,7 +61,11 @@ VALUE_RULE = (
 
 @dataclass(frozen=True, slots=True)
 class ValueSummary:
-    """A distribution of one value per patient; every statistic is ``None`` when ``n`` is 0."""
+    """A distribution of one value per patient.
+
+    Every statistic is ``None`` when ``n`` is 0, and the 5th, 25th, 75th and 95th
+    percentiles are ``None`` when ``n`` is below :data:`MIN_PATIENTS_FOR_PERCENTILES`.
+    """
 
     n: int
     minimum: float | None = None
@@ -60,11 +77,22 @@ class ValueSummary:
     maximum: float | None = None
 
     def __post_init__(self) -> None:
-        stats = (self.minimum, self.p5, self.p25, self.median, self.p75, self.p95, self.maximum)
+        core = (self.minimum, self.median, self.maximum)
+        outer = (self.p5, self.p25, self.p75, self.p95)
         if self.n < 0:
             raise ValueError("n must be >= 0")
-        if (self.n == 0) != all(value is None for value in stats):
-            raise ValueError("a summary has statistics exactly when n > 0")
+        if (self.n == 0) != all(value is None for value in core):
+            raise ValueError("a summary has minimum, median and maximum exactly when n > 0")
+        if (self.n >= MIN_PATIENTS_FOR_PERCENTILES) != all(v is not None for v in outer):
+            raise ValueError(
+                f"a summary has its outer percentiles exactly when n >= "
+                f"{MIN_PATIENTS_FOR_PERCENTILES}"
+            )
+
+    @property
+    def percentiles_withheld(self) -> bool:
+        """True when there are values but too few for the outer percentiles."""
+        return 0 < self.n < MIN_PATIENTS_FOR_PERCENTILES
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -299,6 +327,8 @@ def definitions() -> dict[str, str]:
         "is counted, never dropped silently",
         "units": "each UNITS is described separately; values are never converted",
         "percentiles": PERCENTILE_METHOD,
+        "percentiles_minimum_patients": f"the 5th, 25th, 75th and 95th percentiles are given "
+        f"only with at least {MIN_PATIENTS_FOR_PERCENTILES} patients",
     }
 
 

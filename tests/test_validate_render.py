@@ -146,12 +146,13 @@ def test_observations_follow_the_conditions(tmp_path):
     summary = text.index("## Observation values")
     assert text.index("## Condition: Hypertension") < summary
     assert (
-        "| Systolic blood pressure | `8480-6` | alive | `mm[Hg]` | 1 | 150 | 150–150 | 0 / 0 / 1 |"
+        "| Systolic blood pressure | `8480-6` | alive | `mm[Hg]` | 1 | 150 | — | 0 / 0 / 1 |"
     ) in text
     assert (
         "| Diastolic blood pressure, patients with hypertension | `8462-4` | Hypertension |"
     ) in text
     assert "### How values are described" in text
+    assert "Percentiles are not shown below 10 patients" in text
     assert "## Observation: Systolic blood pressure\n" in text
     assert text.count(f"> {CONFIGURATION_NOTE}") == 2
     data = json.loads(dumps(report))

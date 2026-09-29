@@ -715,6 +715,7 @@ value, and the codes that need care (see below). Options: `--lookback-years N`, 
 | Used rows | `TYPE` `numeric` and a `VALUE` that is a finite number |
 | Units | each `UNITS` is its own group; values are **never converted** |
 | Percentiles | linear interpolation between the closest ranks (type 7, the default of R, NumPy and pandas) |
+| Small groups | with fewer than **10** patients (`MIN_PATIENTS_FOR_PERCENTILES`), only n, minimum, median and maximum; the 5th, 25th, 75th and 95th percentiles are shown as "—" with a note |
 | Lookback | optional: a patient whose latest value is older than N years is left out and counted |
 
 - **Why the latest value per patient.** A patient measured every month would otherwise weigh
@@ -790,8 +791,8 @@ same observations, key for key.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 766 unit and component tests, about 14 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 47 end-to-end tests that run the commands as a user would, about 65 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 768 unit and component tests, about 15 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 48 end-to-end tests that run the commands as a user would, about 70 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
