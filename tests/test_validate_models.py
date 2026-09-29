@@ -63,3 +63,38 @@ def test_the_module_block_is_optional(tmp_path):
 def test_malformed_module_files_are_input_errors(tmp_path, data, message):
     with pytest.raises(DefinitionError, match=message):
         load_module_file(write(tmp_path, data))
+
+
+def test_a_module_file_with_observations(tmp_path):
+    from synthea_quality.validate.models import load_module
+
+    loaded = load_module(
+        write(
+            tmp_path,
+            {
+                "conditions": [{"name": "Hypertension", "codes": ["59621000"]}],
+                "observations": [
+                    {"code": "8480-6", "cohort": "Hypertension"},
+                    {"code": "8462-4"},
+                ],
+            },
+        )
+    )
+    assert [c.name for c in loaded.conditions] == ["Hypertension"]
+    assert [o.code for o in loaded.observations] == ["8480-6", "8462-4"]
+    assert loaded.observations[0].cohort.condition == "Hypertension"
+
+
+def test_a_module_file_may_have_observations_only(tmp_path):
+    from synthea_quality.validate.models import load_module
+
+    loaded = load_module(write(tmp_path, {"observations": [{"code": "8480-6"}]}))
+    assert loaded.conditions == () and len(loaded.observations) == 1
+    assert loaded.module == ModuleInfo()
+
+
+def test_a_module_file_needs_conditions_or_observations(tmp_path):
+    with pytest.raises(DefinitionError, match="'conditions' or 'observations'"):
+        load_module_file(write(tmp_path, {"module": {"name": "X"}}))
+    with pytest.raises(DefinitionError, match="do not define"):
+        load_module_file(write(tmp_path, {"observations": [{"code": "1", "cohort": "X"}]}))
