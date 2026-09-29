@@ -102,8 +102,8 @@ def build_incidence(
         reason = f"no condition records: {conditions_input.reason}"
 
     reference = context.reference
-    history = _history(metadata, conditions, reference, window_years)
-    notes = [*resolution.notes, _population_note(population), *history.pop("notes")]
+    history = export_history(metadata, conditions, reference, window_years)
+    notes = [*resolution.notes, population_note(population), *history.pop("notes")]
     common: dict[str, Any] = dict(
         data_dir=str(context.data_dir),
         reference_date=resolution.reference,
@@ -141,7 +141,7 @@ def build_incidence(
     )
 
 
-def _population_note(population: str) -> str:
+def population_note(population: str) -> str:
     if population == POPULATION_ALL:
         return WHY_ALL_PATIENTS
     return (
@@ -151,7 +151,7 @@ def _population_note(population: str) -> str:
     )
 
 
-def _history(
+def export_history(
     metadata: str | Path | None,
     conditions: pd.DataFrame | None,
     reference: date | None,
