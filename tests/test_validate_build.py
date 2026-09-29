@@ -132,7 +132,7 @@ def test_without_stop_only_prevalence_is_skipped(tmp_path):
     assert mi.incidence.status is SectionStatus.COMPUTED
 
 
-@pytest.mark.parametrize("remove", ["patients.csv", "conditions.csv", "encounters.csv"])
+@pytest.mark.parametrize("remove", ["patients.csv", "encounters.csv"])
 def test_a_missing_input_skips_everything_with_the_reason(tmp_path, remove):
     directory = dataset(tmp_path)
     (directory / remove).unlink()
@@ -143,8 +143,96 @@ def test_a_missing_input_skips_everything_with_the_reason(tmp_path, remove):
     assert all(s.status is SectionStatus.SKIPPED for s in report.population)
 
 
+def test_missing_conditions_skip_the_conditions_but_not_the_population(tmp_path):
+    directory = dataset(tmp_path)
+    (directory / "conditions.csv").unlink()
+    report = validate(directory)
+    for condition in report.conditions:
+        assert condition.prevalence.status is SectionStatus.SKIPPED
+        assert "conditions.csv" in condition.prevalence.reason
+        assert condition.incidence.status is SectionStatus.SKIPPED
+    assert report.alive == 2
+    assert all(s.status is SectionStatus.COMPUTED for s in report.population)
+
+
 def test_invalid_arguments(tmp_path):
     with pytest.raises(ValueError):
         validate(dataset(tmp_path), window_years=0)
     with pytest.raises(ValueError):
         validate(dataset(tmp_path), age_bands=(2,))
+
+
+# --------------------------------------------------------------------------- #
+# observations of the module file
+# --------------------------------------------------------------------------- #
+
+
+def with_observations(directory: Path) -> Path:
+    write_table(
+        directory,
+        "observations",
+        [
+            {"DATE": "2026-01-01T00:00:00Z", "PATIENT": patient, "CODE": "8480-6",
+             "VALUE": value, "UNITS": "mm[Hg]", "TYPE": "numeric"}
+            for patient, value in (("a1", "150"), ("a2", "120"), ("d1", "180"))
+        ],
+    )
+    return directory
+
+
+def test_observations_use_the_same_functions_as_synthea_observations(tmp_path):
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.observations.build import build_observations
+    from synthea_quality.observations.definitions import ObservationDefinition
+
+    directory = with_observations(dataset(tmp_path))
+    definitions = assemble(("Hypertension=59621000",), None, (), measures=ALL_MEASURES)
+    observations = (
+        ObservationDefinition("8480-6"),
+        ObservationDefinition("8480-6", name="HTN", cohort=CohortSpec("Hypertension")),
+    )
+    report = build_module_validation(
+        directory, module=ModuleInfo(), definitions=definitions, module_file="m.json",
+        observations=observations, generated_at=GENERATED_AT,
+    )
+    alone = build_observations(
+        directory, observations=observations, conditions=definitions, generated_at=GENERATED_AT
+    )
+    assert [o.to_dict() for o in report.observations] == [o.to_dict() for o in alone.observations]
+    everyone, cohort = report.observations
+    assert everyone.groups[0].summary.n == 2
+    assert (cohort.population, cohort.groups[0].summary.median) == (1, 120)
+    assert "observations" in [i.table for i in report.inputs]
+
+
+def test_without_observations_the_table_is_not_read(tmp_path):
+    report = validate(with_observations(dataset(tmp_path)))
+    assert report.observations == ()
+    assert "observations" not in [i.table for i in report.inputs]
+    assert report.to_dict()["observation_definitions"] is None
+
+
+def test_missing_observations_skip_only_the_observations(tmp_path):
+    from synthea_quality.observations.definitions import ObservationDefinition
+
+    directory = dataset(tmp_path)
+    report = build_module_validation(
+        directory, module=ModuleInfo(), definitions=DEFINITIONS, module_file="m.json",
+        observations=(ObservationDefinition("8480-6"),), generated_at=GENERATED_AT,
+    )
+    assert report.observations[0].status is SectionStatus.SKIPPED
+    assert "observations.csv is not in the dataset" in report.observations[0].reason
+    assert report.conditions[0].prevalence.status is SectionStatus.COMPUTED
+
+
+def test_an_observation_only_module_without_conditions_csv(tmp_path):
+    from synthea_quality.observations.definitions import ObservationDefinition
+
+    directory = with_observations(dataset(tmp_path))
+    (directory / "conditions.csv").unlink()
+    report = build_module_validation(
+        directory, module=ModuleInfo(), definitions=(), module_file="m.json",
+        observations=(ObservationDefinition("8480-6"),), generated_at=GENERATED_AT,
+    )
+    assert report.observations[0].status is SectionStatus.COMPUTED
+    assert report.alive == 2

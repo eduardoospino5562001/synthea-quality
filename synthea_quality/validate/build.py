@@ -9,11 +9,16 @@ and the frames are handed to the existing computations:
 * prevalence is :mod:`synthea_quality.prevalence.compute` — among the patients alive at the
   end, at the reference date;
 * incidence is :mod:`synthea_quality.incidence.compute` — every patient until death, over
-  the ``window_years`` before the reference date.
+  the ``window_years`` before the reference date;
+* observation values, when the module file has ``observations``, are
+  :func:`synthea_quality.observations.build.observation_results` — the latest value of
+  each alive patient, or of each patient of a condition cohort.
 
-Nothing is guessed. Without a reference date, the patients or the condition records,
-every condition's prevalence and incidence are ``SKIPPED`` with the reason; without a
-``STOP`` column only prevalence is (incidence does not need it).
+Nothing is guessed. Without a reference date or the patients, everything is ``SKIPPED``
+with the reason. Without the condition records, every condition's prevalence and
+incidence, and every observation limited to a cohort, are; without a ``STOP`` column only
+prevalence and the cohorts are (incidence does not need it). Without ``observations.csv``
+only the observations are.
 """
 
 from __future__ import annotations
@@ -27,6 +32,13 @@ from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
 from synthea_quality.prevalence import compute as prevalence
+from synthea_quality.observations.build import (
+    load_observations,
+    observation_results,
+    skipped_observation,
+)
+from synthea_quality.observations.compute import prepare_values
+from synthea_quality.observations.definitions import ObservationDefinition
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import ConditionResult
 from synthea_quality.profile.demographics import PATIENT_COLUMNS as PROFILE_COLUMNS
@@ -59,6 +71,7 @@ def build_module_validation(
     module: ModuleInfo,
     definitions: Sequence[ConditionDefinition],
     module_file: str | Path,
+    observations: Sequence[ObservationDefinition] = (),
     reference_date: str | None = None,
     metadata: str | Path | None = None,
     window_years: int = incidence.DEFAULT_WINDOW_YEARS,
@@ -76,8 +89,9 @@ def build_module_validation(
     bands = validate_age_bands(age_bands)
     if window_years < 1:
         raise ValueError("the window must be at least one year")
+    tables = (*TABLES, *(["observations"] if observations else []))
     context = open_dataset(
-        data_dir, tables=TABLES, reference_date=reference_date, metadata=metadata,
+        data_dir, tables=tables, reference_date=reference_date, metadata=metadata,
         discovery=discovery,
     )
     resolution = context.resolution
@@ -94,6 +108,10 @@ def build_module_validation(
     if resolution.encounters is not None:
         inputs.append(resolution.encounters)
     inputs.append(conditions_input)
+    observation_frame = None
+    if observations:
+        observation_frame, observations_input = load_observations(context)
+        inputs.append(observations_input)
 
     history = export_history(metadata, conditions, reference, window_years)
     notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
@@ -115,8 +133,6 @@ def build_module_validation(
         reason = resolution.reason or "no reference date"
     elif patients is None:
         reason = f"the population is unknown: {patients_input.reason}"
-    elif conditions is None:
-        reason = f"no condition records: {conditions_input.reason}"
     if reason is not None:
         return ModuleValidationReport(
             alive=None,
@@ -124,10 +140,11 @@ def build_module_validation(
                 s for s in skipped_patient_sections(reason) if s.section_id in POPULATION_SECTIONS
             ),
             conditions=tuple(_skipped(d, reason) for d in definitions),
+            observations=tuple(skipped_observation(d, reason) for d in observations),
             **common,
         )
 
-    assert reference is not None and patients is not None and conditions is not None
+    assert reference is not None and patients is not None
     population = tuple(
         section
         for section in profile_patients(
@@ -140,39 +157,61 @@ def build_module_validation(
     )
 
     alive_cohort = prevalence.build_cohort(patients, reference, bands)
-    no_stop = "STOP" not in conditions.columns
-    alive_records = None if no_stop else prevalence.prepare_records(
-        conditions, alive_cohort, reference
-    )
     followed = incidence.build_cohort(
         patients, reference, window_years=window_years, age_bands=bands
     )
-    followed_records = incidence.prepare_records(conditions, followed)
+    alive_records = None
+    if conditions is None:
+        records_reason = f"no condition records: {conditions_input.reason}"
+        results = [_skipped(d, records_reason) for d in definitions]
+    else:
+        records_reason = "conditions.csv has no STOP column"
+        if "STOP" in conditions.columns:
+            alive_records = prevalence.prepare_records(conditions, alive_cohort, reference)
+        followed_records = incidence.prepare_records(conditions, followed)
+        results = []
+        for definition in definitions:
+            if alive_records is None:
+                prevalence_result: ConditionResult = _skipped_prevalence(
+                    definition,
+                    f"no condition records usable for prevalence: {records_reason}",
+                )
+            else:
+                prevalence_result = prevalence.condition_prevalence(
+                    definition, alive_records, alive_cohort
+                )
+            results.append(
+                ConditionValidation(
+                    name=definition.name,
+                    codes=definition.codes,
+                    acute=definition.acute,
+                    prevalence=prevalence_result,
+                    incidence=incidence.condition_incidence(
+                        definition, followed_records, followed
+                    ),
+                )
+            )
 
-    results = []
-    for definition in definitions:
-        if alive_records is None:
-            prevalence_result: ConditionResult = _skipped_prevalence(
-                definition,
-                "no condition records usable for prevalence: conditions.csv has no STOP column",
-            )
-        else:
-            prevalence_result = prevalence.condition_prevalence(
-                definition, alive_records, alive_cohort
-            )
-        results.append(
-            ConditionValidation(
-                name=definition.name,
-                codes=definition.codes,
-                acute=definition.acute,
-                prevalence=prevalence_result,
-                incidence=incidence.condition_incidence(definition, followed_records, followed),
-            )
+    if not observations:
+        observation_part: tuple = ()
+    elif observation_frame is None:
+        why = f"no observation values: {observations_input.reason}"
+        observation_part = tuple(skipped_observation(d, why) for d in observations)
+    else:
+        observation_part = observation_results(
+            observations,
+            definitions,
+            prepare_values(observation_frame, alive_cohort, reference),
+            alive_cohort,
+            reference,
+            condition_records=alive_records,
+            records_reason=records_reason,
         )
     return ModuleValidationReport(
         alive=alive_cohort.size,
         population=population,
         conditions=tuple(results),
+        observations=observation_part,
         incidence_window=followed.window,
         incidence_population=followed.population,
         cohort={"followed": followed.size, "excluded": dict(followed.excluded)},

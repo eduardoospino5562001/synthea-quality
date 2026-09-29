@@ -313,3 +313,29 @@ def test_expected_values_of_other_reports_are_left_to_them():
     )
     result = condition_prevalence(definition, records, cohort)
     assert [e.expected.measure for e in result.expected] == ["point"]
+
+
+# --------------------------------------------------------------------------- #
+# the patients a condition selects (cohorts)
+# --------------------------------------------------------------------------- #
+
+
+def test_patients_with_is_the_numerator_of_each_measure():
+    from synthea_quality.prevalence.compute import patients_with
+
+    result, records = run(
+        [
+            {"PATIENT": "a1", "CODE": "100", "START": "2020-01-01"},
+            {"PATIENT": "a2", "CODE": "100", "START": "2020-01-01", "STOP": "2021-01-01"},
+            {"PATIENT": "d1", "CODE": "100", "START": "2010-01-01"},
+        ]
+    )
+    definition = parse_condition_option("C=100")
+    point = patients_with(definition, records, "point")
+    lifetime = patients_with(definition, records, "lifetime")
+    assert sorted(point) == ["a1"]
+    assert sorted(lifetime) == ["a1", "a2"]
+    assert (len(point), len(lifetime)) == (result.point.numerator, result.lifetime.numerator)
+    assert sorted(patients_with(definition, records)) == ["a1"]  # point by default
+    with pytest.raises(ValueError):
+        patients_with(definition, records, "incidence")

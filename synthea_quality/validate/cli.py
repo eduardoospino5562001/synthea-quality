@@ -31,7 +31,7 @@ from synthea_quality.profile.cli import (
 from synthea_quality.profile.models import InputState, SectionStatus
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS
 from synthea_quality.validate.build import build_module_validation
-from synthea_quality.validate.models import ModuleValidationReport, load_module_file
+from synthea_quality.validate.models import ModuleValidationReport, load_module
 from synthea_quality.validate.render import (
     JSON_NAME,
     MARKDOWN_NAME,
@@ -46,8 +46,11 @@ _EPILOG = f"""\
 module file (see examples/myocardial_infarction.json):
   {{"module": {{"name": "...", "synthea_modules": ["..."]}},
    "conditions": [{{"name": "...", "codes": ["..."], "acute": true,
-                   "expected": {{"lifetime": 0.03, "incidence": 2.5, "source": "..."}}}}]}}
-  point and lifetime are proportions; incidence is per 1,000 person-years
+                   "expected": {{"lifetime": 0.03, "incidence": 2.5, "source": "..."}}}}],
+   "observations": [{{"name": "...", "code": "8480-6", "cohort": "...",
+                     "reference_range": {{"low": 100, "high": 139, "units": "mm[Hg]"}}}}]}}
+  point and lifetime are proportions; incidence is per 1,000 person-years;
+  observations are optional (see examples/hypertension.json)
 
 populations:
   prevalence counts the patients alive at the end of the simulation; incidence follows
@@ -71,8 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="synthea-validate-module",
         description=(
             "Validate a Synthea module against a generated population: population summary, "
-            "prevalence and incidence of the module's conditions, and reference values next "
-            "to the observed ones, in one Markdown and one JSON report."
+            "prevalence and incidence of the module's conditions, the values of its "
+            "observations, and reference values next to the observed ones, in one Markdown "
+            "and one JSON report."
         ),
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -88,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         type=Path,
         required=True,
-        help="module file: the conditions to validate and their reference values",
+        help="module file: the conditions and observations to validate, with reference values",
     )
     parser.add_argument(
         "--output-dir",
@@ -137,11 +141,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line interface and return the exit code."""
     args = build_parser().parse_args(argv)
     try:
-        module, definitions = load_module_file(args.module)
+        loaded = load_module(args.module)
         report = build_module_validation(
             args.dataset,
-            module=module,
-            definitions=definitions,
+            module=loaded.module,
+            definitions=loaded.conditions,
+            observations=loaded.observations,
             module_file=args.module,
             reference_date=args.reference_date,
             metadata=args.metadata,
@@ -194,6 +199,14 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
         if condition.references:
             parts.append(f"{placed} reference value(s) placed against the 95% CI")
         print(f"Condition:  {condition.name}: {', '.join(parts) or 'not computed'}")
+    for item in report.observations:
+        if item.status is SectionStatus.SKIPPED:
+            print(f"Observation: {item.name}: not computed — {item.reason}")
+            continue
+        values = "; ".join(
+            f"{g.summary.n} patient(s) in {g.units or 'no units'}" for g in item.groups
+        )
+        print(f"Observation: {item.name}: {values}")
     for item in report.inputs:
         if item.state is InputState.UNREADABLE:
             print(f"Incomplete: {item.table} could not be read — {item.reason}")

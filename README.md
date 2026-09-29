@@ -14,7 +14,8 @@ modifies the generator or the dataset it inspects.
 
 > **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
 > (`synthea-profile`), condition prevalence (`synthea-prevalence`), incidence
-> (`synthea-incidence`) and all of them for one module at once (`synthea-validate-module`).**
+> (`synthea-incidence`), observation values (`synthea-observations`) and all of them for
+> one module at once (`synthea-validate-module`).**
 > Read *Current limitations* and *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
@@ -104,7 +105,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.6.0
+synthea-quality 0.7.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -256,7 +257,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.6.0",
+    "tool_version": "0.7.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -366,6 +367,13 @@ for the incidence window (5 by default), `--age-bands` for the strata, and
 and `synthea-incidence` report for the same conditions: the command reuses their
 computations, and the test suite checks that they are identical.
 
+**Observations (optional).** A module file may also list `observations` — the values the
+module records, such as blood pressure — each with an optional cohort (a condition of the
+same file) and reference range. `examples/hypertension.json` is a complete example; see
+*Observation values* below. The report then adds a summary table of the observations and
+each one exactly as `synthea-observations` shows it. A file with observations may leave
+`conditions` out, unless a cohort names one.
+
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
@@ -439,7 +447,7 @@ uses it as asked and adds a note.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.6.0)
+synthea-profile (synthea-quality 0.7.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -677,12 +685,114 @@ the window), myocardial infarction has **one** first event in 463.4 person-years
 1,000 person-years, 95% CI 0.05–12.02. The interval shows how little a population of this
 size says about a condition this rare.
 
+## Observation values
+
+`synthea-observations` describes the numeric values of `observations.csv` among the patients
+alive at the end of the simulation: for each code, n, minimum, the 5th, 25th, 50th, 75th and
+95th percentiles and maximum, with their units, in total and by age band and sex. It states
+no verdict.
+
+```bash
+.venv/bin/synthea-observations /path/to/synthea/output/csv \
+    --observation 8480-6 --observation "Diastolic=8462-4" \
+    --output-dir ./reports
+.venv/bin/synthea-observations /path/to/synthea/output/csv \
+    --module examples/hypertension.json --output-dir ./reports
+```
+
+It writes `synthea_observations.md` and `synthea_observations.json`, and exits `0` when the
+report is written and `2` when it cannot be completed. Without any observation it still
+writes the general table: every numeric code and unit among the alive, by patients with a
+value, and the codes that need care (see below). Options: `--lookback-years N`, `--top N`,
+`--age-bands`, and `--reference-date` or `--metadata`.
+
+### Definitions
+
+| | |
+| --- | --- |
+| Population | the patients alive at the end of the simulation, or those of a cohort |
+| One value per patient | the **latest** with `DATE` on or before the reference date, per code and units; the median of the values sharing that latest `DATE`, if several |
+| Used rows | `TYPE` `numeric` and a `VALUE` that is a finite number |
+| Units | each `UNITS` is its own group; values are **never converted** |
+| Percentiles | linear interpolation between the closest ranks (type 7, the default of R, NumPy and pandas) |
+| Small groups | with fewer than **10** patients (`MIN_PATIENTS_FOR_PERCENTILES`), only n, minimum, median and maximum; the 5th, 25th, 75th and 95th percentiles are shown as "—" with a note |
+| Lookback | optional: a patient whose latest value is older than N years is left out and counted |
+
+- **Why the latest value per patient.** A patient measured every month would otherwise weigh
+  twelve times as much as one measured once a year, and the patients measured most often are
+  usually the sickest. One value per patient describes the population, as prevalence does.
+  Each group reports how old those values are (median days before the reference date, and
+  how many are more than 1 and 3 years old); `lookback_years` or `--lookback-years` leaves
+  the old ones out.
+- **Left out and counted**, per code: rows of deceased patients or of patients not in
+  `patients.csv`, rows with an unusable `DATE` or after the reference date, rows whose `TYPE`
+  is not `numeric` (Synthea writes `text` for coded answers) and rows whose `VALUE` is not a
+  number. Nothing is dropped silently.
+- **Codes that need care.** The general table lists, over the whole table, every code whose
+  numeric rows use more than one unit and every code written with more than one `TYPE`.
+
+### Module file keys
+
+```json
+{
+  "conditions": [{"name": "Hypertension", "codes": ["59621000"]}],
+  "observations": [
+    {"name": "Systolic blood pressure", "code": "8480-6",
+     "reference_range": {"low": 100, "high": 139, "units": "mm[Hg]",
+                         "basis": "synthea-configuration",
+                         "source": "Synthea configuration (biometrics.yml, blood_pressure.normal)"}},
+    {"name": "Systolic blood pressure, patients with hypertension", "code": "8480-6",
+     "cohort": {"condition": "Hypertension", "rule": "point"}, "lookback_years": 3}
+  ]
+}
+```
+
+- `code` is a code of `observations.csv`, which has no `SYSTEM` column (Synthea writes LOINC).
+- `cohort` names a condition of the same file. The rule is `point` by default: the condition
+  is active at the reference date. It can also be `lifetime`: a record on or before that
+  date. The cohort is exactly the numerator of that condition's prevalence.
+- `reference_range` needs `units` and at least one of `low` and `high`. It is compared only
+  with values in the same units, and the report shows how many patients fall below, within
+  and above it — never a verdict. `basis` says what the range is. `synthea-configuration`
+  marks the generator's own settings, and the report adds a note: the comparison shows how
+  the output relates to those settings, not whether the values are clinically plausible.
+  `external` marks a published or clinical reference.
+
+### Example (official sample)
+
+`examples/hypertension.json` on the official sample (99 alive, 17 with hypertension active at
+2026-08-17, an approximate reference date). Blood pressure is written for every alive
+patient, always in `mm[Hg]`:
+
+| Observation | Population | Patients | Median | P25–P75 | Below / within / above the configured range |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Systolic (`8480-6`) | alive | 99 | 120 | 109–130 | 13 / 78 / 8 (100–139) |
+| Diastolic (`8462-4`) | alive | 99 | 80 | 72.5–86 | 13 / 73 / 13 (70–89) |
+| Systolic | hypertension | 17 | 114 | 105–130 | — |
+| Diastolic | hypertension | 17 | 85 | 79–90 | — |
+
+The configured ranges are the baseline Synthea draws from (`BloodPressureValueGenerator`);
+medication, lifestyle and a 12-hour variation are added afterwards, so values outside them
+are expected. Over the whole table, five codes are written in more than one unit — for
+example `788-0` in `fL` and `%`, `33914-3` in `mL/min` and `mL/min/{1.73_m2}`, `89579-7` in
+`pg/mL` and `ng/L` — and seven codes with both `TYPE` `numeric` and `text` (urine test
+strips such as `2514-8`).
+
+### Validation
+
+The integration suite re-implements the rules with the `csv` module, `datetime` and `math`
+only, and checks that every statistic of systolic and diastolic blood pressure — among the
+alive and among the patients with hypertension, in total, by sex and by age band — the
+range counts, the row accounting, the codes with several units or types and every row of
+the general table match exactly. It also checks that `synthea-validate-module` reports the
+same observations, key for key.
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 675 unit and component tests, about 12 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 35 end-to-end tests that run the commands as a user would, about 65 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 768 unit and component tests, about 15 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 48 end-to-end tests that run the commands as a user would, about 70 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -722,6 +832,8 @@ work.
 | `synthea-prevalence` on the official sample, through the CLI (one condition and the general table) | 0.8 s, ~78 MB |
 | `synthea-incidence` on the official sample, through the CLI (two conditions) | 0.7 s, ~77 MB |
 | `synthea-validate-module` on the official sample, with the example module file | 0.8 s, ~78 MB |
+| `synthea-observations` on the official sample, with `examples/hypertension.json` (four observations and the general table) | 1.7 s, ~100 MB |
+| `synthea-validate-module` on the official sample, with `examples/hypertension.json` | 1.6 s, ~101 MB |
 | Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
@@ -743,8 +855,9 @@ will need chunked or streamed processing. The dependency is measured, not theore
   are reported as `INCOMPATIBLE` rather than coerced, and no legacy support exists.
 - **CSV only.** No FHIR, CCDA or RDF validation.
 - **Prevalence and incidence of conditions only**, from `conditions.csv`; medications,
-  procedures and observations are not measured as rates. There is no statistical gate:
-  reference values are shown, never judged.
+  procedures and observations are not measured as rates. Observation values are described
+  (`synthea-observations`), one latest value per patient, without converting units. There
+  is no statistical gate: reference values and ranges are shown, never judged.
 - **Incidence counts first events only**; repeated episodes are counted apart, not as
   events. It depends on the exported history (`exporter.years_of_history`), which is known
   only with `--metadata`.
@@ -752,7 +865,8 @@ will need chunked or streamed processing. The dependency is measured, not theore
   plausible.
 - **No chunking**, as measured above.
 - **The profile describes, it does not estimate.** Code counts are historical (at least one
-  record ever), not prevalence; observation values are not summarised yet. Without a
+  record ever), not prevalence; observation values are described by
+  `synthea-observations`, not by the profile. Without a
   metadata file or an explicit date, the reference date is an approximation from
   `encounters.csv`, reported as such.
 - **Three documented relations are not enforced** because their semantics are not yet fully
@@ -772,7 +886,11 @@ order, none of them started:
 
 - descriptive profiling — **started**: `synthea-profile` describes the population and
   demographics from `patients.csv` (step 1) and the most common codes of each clinical
-  table among the alive patients (step 2). Still to come: value ranges of observations;
+  table among the alive patients (step 2);
+- clinical concepts beyond conditions — **started**: `synthea-observations` describes
+  observation values per code and unit, optionally within a condition cohort and next to a
+  reference range, and `synthea-validate-module` includes them (step 6). Still to come:
+  medications within a cohort;
 - prevalence and incidence — **started**: `synthea-prevalence` computes point and lifetime
   prevalence of conditions among the alive (step 3) and `synthea-incidence` first events per
   1,000 person-years (step 4); `synthea-validate-module` runs both, with a population summary

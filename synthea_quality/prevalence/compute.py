@@ -44,6 +44,7 @@ import pandas as pd
 
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import (
+    MEASURES,
     ConditionResult,
     ExpectedComparison,
     GeneralRow,
@@ -164,7 +165,7 @@ def prepare_records(conditions: pd.DataFrame, cohort: Cohort, reference: date) -
         else pd.Series("", index=conditions.index)
     )
     coded = conditions["CODE"].notna()
-    descriptions = _descriptions(conditions, system, coded)
+    descriptions = most_frequent_descriptions(conditions, system, coded)
     table_codes = frozenset(zip(system[coded], conditions.loc[coded, "CODE"]))
 
     alive = conditions["PATIENT"].isin(cohort.alive_ids)
@@ -204,13 +205,17 @@ def prepare_records(conditions: pd.DataFrame, cohort: Cohort, reference: date) -
     return Records(frame, descriptions, table_codes, has_system, metrics)
 
 
-def _descriptions(
-    conditions: pd.DataFrame, system: pd.Series, coded: pd.Series
+def most_frequent_descriptions(
+    table: pd.DataFrame, system: pd.Series, coded: pd.Series
 ) -> dict[tuple[str, str], str | None]:
-    if "DESCRIPTION" not in conditions.columns:
+    """The most frequent ``DESCRIPTION`` of every (SYSTEM, CODE) of ``table``'s ``coded`` rows.
+
+    Ties go to a non-empty description, then to the first in alphabetical order.
+    """
+    if "DESCRIPTION" not in table.columns:
         return {}
     work = pd.DataFrame(
-        {"SYSTEM": system, "CODE": conditions["CODE"], "DESCRIPTION": conditions["DESCRIPTION"]}
+        {"SYSTEM": system, "CODE": table["CODE"], "DESCRIPTION": table["DESCRIPTION"]}
     )[coded]
     counted = work.groupby(["SYSTEM", "CODE", "DESCRIPTION"], dropna=False).size().reset_index()
     counted.columns = ["SYSTEM", "CODE", "DESCRIPTION", "records"]
@@ -237,23 +242,7 @@ def condition_prevalence(
 ) -> ConditionResult:
     """Point and lifetime prevalence of one condition, in total and by stratum."""
     frame = records.frame
-    match = pd.Series(False, index=frame.index)
-    per_code: dict[str, int] = {}
-    missing_codes: list[str] = []
-    for ref in definition.codes:
-        this = frame["CODE"] == ref.code
-        if ref.system is not None and records.has_system:
-            this &= frame["SYSTEM"] == ref.system
-        match |= this
-        per_code[_label(ref.system, ref.code)] = int(this.sum())
-        in_table = any(
-            code == ref.code
-            and (ref.system is None or not records.has_system or system == ref.system)
-            for system, code in records.table_codes
-        )
-        if not in_table:
-            missing_codes.append(_label(ref.system, ref.code))
-
+    match, per_code, missing_codes = _match(definition, records)
     rows = frame[match]
     point_ids = pd.Index(rows.loc[rows["point"], "PATIENT"].unique())
     lifetime_ids = pd.Index(rows["PATIENT"].unique())
@@ -327,6 +316,48 @@ def condition_prevalence(
         metrics=metrics,
         notes=tuple(notes),
     )
+
+
+def patients_with(
+    definition: ConditionDefinition, records: Records, rule: str = "point"
+) -> pd.Index:
+    """The alive patients who have ``definition`` at the reference date under ``rule``.
+
+    ``rule`` is ``"point"`` (a record active at the reference date) or ``"lifetime"`` (a
+    record started on or before it): the numerators of :func:`condition_prevalence`, so a
+    cohort defined by a condition is exactly the patients its prevalence counts.
+    """
+    if rule not in MEASURES:
+        raise ValueError(f"rule must be one of {list(MEASURES)}, not {rule!r}")
+    match, _, _ = _match(definition, records)
+    rows = records.frame[match]
+    if rule == "point":
+        rows = rows[rows["point"]]
+    return pd.Index(rows["PATIENT"].unique())
+
+
+def _match(
+    definition: ConditionDefinition, records: Records
+) -> tuple[pd.Series, dict[str, int], list[str]]:
+    """Rows of any of the definition's codes, records per code, and codes absent from the table."""
+    frame = records.frame
+    match = pd.Series(False, index=frame.index)
+    per_code: dict[str, int] = {}
+    missing_codes: list[str] = []
+    for ref in definition.codes:
+        this = frame["CODE"] == ref.code
+        if ref.system is not None and records.has_system:
+            this &= frame["SYSTEM"] == ref.system
+        match |= this
+        per_code[_label(ref.system, ref.code)] = int(this.sum())
+        in_table = any(
+            code == ref.code
+            and (ref.system is None or not records.has_system or system == ref.system)
+            for system, code in records.table_codes
+        )
+        if not in_table:
+            missing_codes.append(_label(ref.system, ref.code))
+    return match, per_code, missing_codes
 
 
 def _stratum(

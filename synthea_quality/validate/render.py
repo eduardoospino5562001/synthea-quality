@@ -6,7 +6,9 @@ alive at the end, incidence follows everyone until death); the population summar
 summary table of every condition; one table of every reference value next to its
 observed rate, inside or outside the 95% CI; then each condition's prevalence and
 incidence exactly as ``synthea-prevalence`` and ``synthea-incidence`` show them (their
-reference values are already in the table above, so they are not repeated there).
+reference values are already in the table above, so they are not repeated there). When
+the module file has observations, a summary of their values and each one exactly as
+``synthea-observations`` shows it follow.
 """
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from synthea_quality.incidence.render import render_condition as render_incidence
+from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
+from synthea_quality.observations.render import render_definitions as render_value_rules
+from synthea_quality.observations.render import render_observation
 from synthea_quality.prevalence.models import INCIDENCE
 from synthea_quality.prevalence.render import render_condition as render_prevalence
 from synthea_quality.profile.models import InputState, SectionStatus
@@ -45,7 +50,13 @@ def render_markdown(report: ModuleValidationReport) -> str:
         "This report **describes** a Synthea population against the conditions of one "
         "module: their prevalence among the patients alive at the end of the simulation and "
         "their incidence per 1,000 person-years. It states no verdict: each reference value "
-        "is shown next to the observed one, inside or outside its 95% confidence interval.",
+        "is shown next to the observed one, inside or outside its 95% confidence interval."
+        + (
+            " It also describes the values of the module's observations, with each reference "
+            "range next to the observed values."
+            if report.observations
+            else ""
+        ),
         _scope(report),
         _reference(report),
         _definitions(report),
@@ -53,6 +64,7 @@ def render_markdown(report: ModuleValidationReport) -> str:
         _summary(report),
         _references(report),
         *(_condition(condition) for condition in report.conditions),
+        *_observations(report.observations),
     ]
     return "\n\n".join(block.rstrip() for block in blocks) + "\n"
 
@@ -167,7 +179,9 @@ def _references(report: ModuleValidationReport) -> str:
                 )
             )
     if not rows:
-        return "## Reference values\n\nThe module file gives no reference values."
+        return (
+            "## Reference values\n\nThe module file gives no expected prevalence or incidence."
+        )
     table = _table(
         ("Condition", "Measure", "Reference", "Observed", "95% CI", "Position", "Source"),
         rows,
@@ -191,6 +205,68 @@ def _condition(condition: ConditionValidation) -> str:
             ),
         ]
     )
+
+
+def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
+    if not observations:
+        return []
+    rows = []
+    for item in observations:
+        population = item.cohort.condition if item.cohort else "alive"
+        if item.status is SectionStatus.SKIPPED:
+            rows.append((item.name, f"`{item.code}`", population, *("—",) * 5))
+            continue
+        for group in item.groups:
+            s = group.summary
+            comparison = group.reference_range
+            if comparison is None:
+                in_range = "—"
+            elif comparison.status is SectionStatus.SKIPPED:
+                in_range = "not compared"
+            else:
+                in_range = f"{comparison.below} / {comparison.within} / {comparison.above}"
+            rows.append(
+                (
+                    item.name,
+                    f"`{item.code}`",
+                    population,
+                    f"`{group.units}`" if group.units else "—",
+                    s.n,
+                    _value(s.median),
+                    f"{_value(s.p25)}–{_value(s.p75)}" if s.p25 is not None else "—",
+                    in_range,
+                )
+            )
+    table = _table(
+        ("Observation", "Code", "Population", "Units", "Patients", "Median", "P25–P75",
+         "Below / within / above range"),
+        rows,
+        align=("", "", "", "", "r", "r", "r", "r"),
+    )
+    summary = "\n\n".join(
+        [
+            "## Observation values",
+            "The latest value of each patient; details, strata and what was left out follow. "
+            "A reference range is shown for comparison, not as a verdict.",
+            "\n".join(table)
+            + (
+                f"\n\n{PERCENTILES_NOTE}"
+                if any(
+                    g.summary.percentiles_withheld for item in observations for g in item.groups
+                )
+                else ""
+            ),
+            render_value_rules(level=3),
+        ]
+    )
+    return [summary, *(render_observation(item, level=2) for item in observations)]
+
+
+def _value(value: float | None) -> str:
+    if value is None:
+        return "—"
+    text = f"{value:.4f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
 
 
 def _proportion(rate: Any) -> str:

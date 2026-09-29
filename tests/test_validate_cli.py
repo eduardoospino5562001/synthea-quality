@@ -118,3 +118,21 @@ def test_the_console_script_runs_as_installed(tmp_path):
         capture_output=True, text=True, check=False,
     )
     assert completed.returncode == EXIT_OK, completed.stderr
+
+
+def test_the_hypertension_example_with_observations(tmp_path, capsys):
+    example = REPOSITORY / "examples" / "hypertension.json"
+    out = tmp_path / "out"
+    directory = dataset(tmp_path / "csv")
+    with (directory / "observations.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tables_by_name()["observations"].columns)
+        writer.writeheader()
+        writer.writerow({"DATE": "2026-01-01T00:00:00Z", "PATIENT": "a1", "CODE": "8480-6",
+                         "VALUE": "150", "UNITS": "mm[Hg]", "TYPE": "numeric"})
+    code = main([str(directory), "--module", str(example), "--output-dir", str(out)])
+    assert code == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "Observation: Systolic blood pressure: 1 patient(s) in mm[Hg]" in printed
+    assert (
+        "Observation: Diastolic blood pressure: not computed — no row of code 8462-4"
+    ) in printed

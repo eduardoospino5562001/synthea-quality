@@ -120,3 +120,41 @@ def test_json_and_writers(report, tmp_path):
     assert data["conditions"][0]["incidence"]["rate"]["events"] == 2
     assert write_json(report, tmp_path / "o" / "v.json").read_text("utf-8").endswith("\n")
     assert write_markdown(report, tmp_path / "o" / "v.md").read_text("utf-8").startswith("# ")
+
+
+def test_observations_follow_the_conditions(tmp_path):
+    from synthea_quality.observations.definitions import CONFIGURATION_NOTE
+    from synthea_quality.validate.models import load_module
+
+    write_table(tmp_path, "patients", [{"Id": "a1", "BIRTHDATE": "1950-01-01", "GENDER": "M"}])
+    write_table(tmp_path, "encounters", [{"Id": "e1", "START": "2026-01-01T00:00:00Z"}])
+    write_table(tmp_path, "conditions", [
+        {"PATIENT": "a1", "CODE": "59621000", "SYSTEM": SNOMED, "START": "2015-01-01"},
+    ])
+    write_table(tmp_path, "observations", [
+        {"DATE": "2026-01-01T00:00:00Z", "PATIENT": "a1", "CODE": code, "VALUE": value,
+         "UNITS": "mm[Hg]", "TYPE": "numeric"}
+        for code, value in (("8480-6", "150"), ("8462-4", "95"))
+    ])
+    example = Path(__file__).resolve().parents[1] / "examples" / "hypertension.json"
+    loaded = load_module(example)
+    report = build_module_validation(
+        tmp_path, module=loaded.module, definitions=loaded.conditions, module_file=example,
+        observations=loaded.observations, generated_at="2026-09-29T00:00:00+00:00",
+    )
+    text = render_markdown(report)
+    summary = text.index("## Observation values")
+    assert text.index("## Condition: Hypertension") < summary
+    assert (
+        "| Systolic blood pressure | `8480-6` | alive | `mm[Hg]` | 1 | 150 | — | 0 / 0 / 1 |"
+    ) in text
+    assert (
+        "| Diastolic blood pressure, patients with hypertension | `8462-4` | Hypertension |"
+    ) in text
+    assert "### How values are described" in text
+    assert "Percentiles are not shown below 10 patients" in text
+    assert "## Observation: Systolic blood pressure\n" in text
+    assert text.count(f"> {CONFIGURATION_NOTE}") == 2
+    data = json.loads(dumps(report))
+    assert data["observations"][0]["groups"][0]["reference_range"]["above"] == 1
+    assert "type 7" in data["observation_definitions"]["percentiles"]
