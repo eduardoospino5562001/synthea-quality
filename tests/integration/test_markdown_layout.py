@@ -18,6 +18,7 @@ pytestmark = pytest.mark.integration
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 EXAMPLE = REPOSITORY / "examples" / "myocardial_infarction.json"
+HYPERTENSION = REPOSITORY / "examples" / "hypertension.json"
 DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 BIN = Path(sys.executable).parent
 MI = "Myocardial infarction=22298006,401303003,401314000;acute"
@@ -33,6 +34,10 @@ COMMANDS = {
     ),
     "synthea_module_validation.md": (
         "synthea-validate-module", "synthea_quality.validate.cli", ("--module", str(EXAMPLE)),
+    ),
+    "synthea_observations.md": (
+        "synthea-observations", "synthea_quality.observations.cli",
+        ("--module", str(HYPERTENSION)),
     ),
 }
 
