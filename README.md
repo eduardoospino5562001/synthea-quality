@@ -104,7 +104,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.5.0
+synthea-quality 0.6.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -256,7 +256,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.5.0",
+    "tool_version": "0.6.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -435,7 +435,7 @@ uses it as asked and adds a note.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.5.0)
+synthea-profile (synthea-quality 0.6.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
