@@ -68,7 +68,7 @@ def test_conditions_file_with_expected_values_and_code_objects(tmp_path):
         ('{"conditions": []}', "non-empty"),
         ('{"conditions": [{"name": "X"}]}', "at least one code"),
         ('{"conditions": [{"codes": ["1"]}]}', "needs a name"),
-        ('{"conditions": [{"name": "X", "codes": ["1"], "expected": {"incidence": 0.1}}]}',
+        ('{"conditions": [{"name": "X", "codes": ["1"], "expected": {"mortality": 0.1}}]}',
          "unknown key"),
         ('{"conditions": [{"name": "X", "codes": ["1"], "expected": {"point": 2}}]}', "[0, 1]"),
     ],
@@ -147,5 +147,15 @@ def test_each_report_accepts_only_its_own_measures(tmp_path):
     ]}), "utf-8")
     (from_file,) = load_conditions_file(path, measures=("incidence",))
     assert from_file.expected == (Expected("incidence", 40.0, "CDC"),)
-    with pytest.raises(DefinitionError, match="unknown key"):
+    # the same file serves the prevalence report, which keeps only its own measures
+    (for_prevalence,) = load_conditions_file(path)
+    assert for_prevalence.expected == ()
+
+
+def test_a_file_measure_of_another_report_is_still_validated(tmp_path):
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({"conditions": [
+        {"name": "MI", "codes": ["1"], "expected": {"incidence": -4}}
+    ]}), "utf-8")
+    with pytest.raises(DefinitionError, match=">= 0"):
         load_conditions_file(path)

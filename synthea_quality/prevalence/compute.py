@@ -321,6 +321,8 @@ def condition_prevalence(
         expected=tuple(
             ExpectedComparison(expected, by_measure[expected.measure])
             for expected in definition.expected
+            # a definition shared with the incidence report may carry its measure too
+            if expected.measure in by_measure
         ),
         metrics=metrics,
         notes=tuple(notes),

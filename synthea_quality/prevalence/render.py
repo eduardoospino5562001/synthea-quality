@@ -116,16 +116,23 @@ def _conditions(report: PrevalenceReport) -> list[str]:
             "## Conditions asked for\n\nNone. Use `--condition NAME=CODE[,CODE...]` or "
             "`--conditions FILE.json` to measure specific conditions."
         ]
-    return [_condition(condition) for condition in report.conditions]
+    return [render_condition(condition) for condition in report.conditions]
 
 
-def _condition(condition: ConditionResult) -> str:
+def render_condition(
+    condition: ConditionResult, *, level: int = 2, title_prefix: str = "Condition: "
+) -> str:
+    """One condition's section; ``level`` is the Markdown level of its heading.
+
+    Public so that a report combining several analyses (``synthea-validate-module``)
+    shows a condition exactly as ``synthea-prevalence`` does, under its own headings.
+    """
     codes = ", ".join(
         f"`{ref.code}`" if ref.system is None else f"`{ref.system}|{ref.code}`"
         for ref in condition.codes
     )
     title = f"{condition.name} (declared acute)" if condition.acute else condition.name
-    head = f"## Condition: {title}\n\nCodes: {codes}"
+    head = f"{'#' * level} {title_prefix}{title}\n\nCodes: {codes}"
     if condition.status is SectionStatus.SKIPPED:
         return f"{head}\n\n`SKIPPED` — {condition.reason}"
     assert condition.point is not None and condition.lifetime is not None
@@ -174,7 +181,9 @@ def _condition(condition: ConditionResult) -> str:
     for dimension, title, label in _DIMENSIONS:
         strata = [s for s in condition.strata if s.dimension == dimension]
         if strata:
-            blocks.append(f"### {title}\n\n" + "\n".join(_strata_table(strata, label)))
+            blocks.append(
+                f"{'#' * (level + 1)} {title}\n\n" + "\n".join(_strata_table(strata, label))
+            )
     by_code = condition.metrics.get("records_by_code", {})
     records = condition.metrics.get("records", 0)
     without_stop = condition.metrics.get("records_without_stop", 0)

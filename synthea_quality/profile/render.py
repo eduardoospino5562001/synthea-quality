@@ -83,7 +83,7 @@ def render_markdown(profile: DatasetProfile) -> str:
         _reference(profile),
     ]
     for section in profile.sections:
-        blocks.append(_section(section))
+        blocks.append(render_section(section))
     return "\n\n".join(block.rstrip() for block in blocks) + "\n"
 
 
@@ -129,8 +129,13 @@ def _reference(profile: DatasetProfile) -> str:
     return "\n".join(lines)
 
 
-def _section(section: ProfileSection) -> str:
-    title = f"## {section.title}"
+def render_section(section: ProfileSection, *, level: int = 2) -> str:
+    """One profile section; ``level`` is the Markdown level of its heading.
+
+    Public so that ``synthea-validate-module`` shows the population exactly as the profile
+    does.
+    """
+    title = f"{'#' * level} {section.title}"
     if section.status is SectionStatus.SKIPPED:
         return f"{title}\n\n`SKIPPED` — {section.reason}"
     if section.section_id.startswith("codes."):

@@ -21,11 +21,13 @@ Two facts are deliberately *not* modelled as rules:
     as a constraint**. See :data:`UNRESOLVED_FOREIGN_KEYS`: the dictionary states the
     relationship, the reference dataset (see
     :data:`~synthea_quality.schema.tables.REFERENCE_DATASET`) shows 170 references
-    (3 patients) that match no ``payer_transitions.MEMBERID``, and
-    ``CSVExporter.java`` writes the value from the claim's plan record
-    (``this.memberId = claim.getPlanRecordMemberId()``). Until a maintainer confirms
-    the intended semantics, the relationship is neither enforced (which would emit
-    ``FAIL`` for legitimate data) nor declared wrong.
+    (3 patients) that match no ``payer_transitions.MEMBERID``, all dated before 1970,
+    and ``CSVExporter.java`` writes the value from the claim's plan record
+    (``this.memberId = claim.getPlanRecordMemberId()``) while exporting only the plans
+    that ended on or after 1970-01-01 (``exportPayerTransitions(person, 0L, time)``).
+    Reported upstream as synthetichealth/synthea#1725. Until a maintainer confirms the
+    intended semantics, the relationship is neither enforced (which would emit ``FAIL``
+    for legitimate data) nor declared wrong.
 
 The catalogue is validated on import against the generated table catalogue: a rule
 pointing at a table or column that does not exist is a bug here, not a dataset
@@ -178,13 +180,15 @@ UNRESOLVED_FOREIGN_KEYS: tuple[UnresolvedForeignKey, ...] = (
         implemented_as=(
             "CSVExporter.java:1566 sets 'this.memberId = claim.getPlanRecordMemberId()' and "
             "line 1686 writes it to PATIENTINSURANCEID, while payer_transitions.MEMBERID is "
-            "produced by a separate export"
+            "produced by a separate export that line 274 calls with a cutoff of 0L "
+            "(1970-01-01): line 173 keeps only the plans whose stop time is on or after it"
         ),
         reference_dataset=REFERENCE_DATASET,
         reference_evidence=(
             "170 of 79,453 non-null references (5 distinct values, belonging to 3 patients) "
-            "match no payer_transitions.MEMBERID, and those 3 patients have no row in "
-            "payer_transitions at all"
+            "match no payer_transitions.MEMBERID, all dated before 1970 (FROMDATE 1942-11-26 "
+            "to 1961-08-25): 149 belong to a patient with no payer_transitions row (born 1960, "
+            "died 1961) and 21 to two patients whose rows start in 1969"
         ),
         why_not_enforced=(
             "applying it as a strict foreign key would emit FAIL for data the generator "
@@ -192,8 +196,8 @@ UNRESOLVED_FOREIGN_KEYS: tuple[UnresolvedForeignKey, ...] = (
         ),
         pending=(
             "a maintainer's confirmation of whether PATIENTINSURANCEID is meant to reference "
-            "payer_transitions.MEMBERID; until then the relationship is neither enforced nor "
-            "declared wrong"
+            "payer_transitions.MEMBERID (reported as synthetichealth/synthea#1725); until "
+            "then the relationship is neither enforced nor declared wrong"
         ),
     ),
 )

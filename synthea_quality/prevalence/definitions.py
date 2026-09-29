@@ -28,7 +28,9 @@ Three ways to give them, which can be combined:
     Repeatable. Adds a reference value to a condition defined by one of the above. The
     measures a report accepts are its own: ``point`` and ``lifetime`` (proportions) for
     ``synthea-prevalence``, ``incidence`` (per 1,000 person-years) for
-    ``synthea-incidence``, which reads the same definitions.
+    ``synthea-incidence``, which reads the same definitions. A file may carry the
+    measures of every report, so that one module file serves them all: each report keeps
+    its own and ignores the others, which are still validated.
 
 Acute or not
 ------------
@@ -51,6 +53,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from synthea_quality.errors import SyntheaQualityError
 from synthea_quality.prevalence.models import (
+    ALL_MEASURES,
     MEASURES,
     SNOMED_CT,
     CodeRef,
@@ -208,15 +211,18 @@ def _expected_block(block: Any, origin: str, measures: Sequence[str]) -> tuple[E
         return ()
     if not isinstance(block, dict):
         raise DefinitionError(f"{origin}: 'expected' must be an object")
-    unknown = sorted(set(block) - {*measures, "source"})
+    # One module file serves every report: a measure another report uses is accepted
+    # (and validated) here but kept only by the report it belongs to.
+    unknown = sorted(set(block) - {*ALL_MEASURES, "source"})
     if unknown:
         raise DefinitionError(f"{origin}: unknown key(s) in 'expected': {unknown}")
     source = block.get("source")
-    return tuple(
-        _expected(measure, block[measure], source, origin=origin, measures=measures)
-        for measure in measures
+    parsed = [
+        _expected(measure, block[measure], source, origin=origin, measures=ALL_MEASURES)
+        for measure in ALL_MEASURES
         if measure in block
-    )
+    ]
+    return tuple(expected for expected in parsed if expected.measure in measures)
 
 
 def _expected(

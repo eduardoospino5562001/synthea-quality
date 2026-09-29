@@ -1,9 +1,9 @@
 """[PREVALENCE] Build the prevalence report of one dataset directory.
 
-The only module of the package that touches the file system, following the profile's
-builder step by step: discovery, structural validation of the tables it reads
-(``patients``, ``encounters``, ``conditions``) before any of them is loaded, the shared
-reference-date resolution, and a loader that reads only the columns needed.
+The only module of the package that touches the file system. It opens the dataset with
+:func:`synthea_quality.dataset.open_dataset`, the steps every analysis report shares:
+discovery, structural validation of ``patients``, ``encounters`` and ``conditions``
+before any of them is loaded, the reference date, and loading only the columns needed.
 
 Nothing is guessed. Every rate needs the alive patients and the reference date, so
 without either every result is ``SKIPPED`` with the reason; without ``conditions.csv``
@@ -14,13 +14,10 @@ too. A table that is present but unreadable marks the report incomplete.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Sequence
 
-import pandas as pd
-
-from synthea_quality.discovery import DiscoveryResult, discover_dataset
-from synthea_quality.errors import EmptyDatasetError, TableLoadError
-from synthea_quality.loader import DatasetLoader
+from synthea_quality.dataset import open_dataset
+from synthea_quality.discovery import DiscoveryResult
 from synthea_quality.prevalence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_TOP,
@@ -38,11 +35,8 @@ from synthea_quality.prevalence.models import (
     PrevalenceReport,
 )
 from synthea_quality.prevalence.social import describe_list
-from synthea_quality.profile.models import InputState, SectionStatus, TableInput
+from synthea_quality.profile.models import SectionStatus
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
-from synthea_quality.profile.reference import parse_reference_date, resolve_reference_date
-from synthea_quality.schema.tables import SYNTHEA_TABLES
-from synthea_quality.structure import StructureReport, gate_reason, validate_tables
 
 PREVALENCE_TABLES = ("patients", "encounters", "conditions")
 PATIENTS_USED_FOR = "the alive cohort, ages and sex"
@@ -71,36 +65,19 @@ def build_prevalence(
     bands = validate_age_bands(age_bands)
     if top < 1:
         raise ValueError("top must be at least 1")
-    data_path = Path(data_dir)
-    found = discovery if discovery is not None else discover_dataset(data_path)
-    if not found.tables:
-        raise EmptyDatasetError(
-            f"no Synthea CSV table was found in {data_path}: a dataset directory has to "
-            f"hold at least one of the {len(SYNTHEA_TABLES)} tables the schema contract "
-            f"describes (for example patients.csv or conditions.csv)"
-        )
-
-    loader = DatasetLoader()
-    readable: dict[str, Path] = {}
-    for table in found.tables:
-        if table.name in PREVALENCE_TABLES:
-            try:
-                loader.read_header(table.path)
-            except TableLoadError:
-                continue
-            readable[table.name] = table.path
-    structure = validate_tables(readable)
-
-    resolution = resolve_reference_date(
-        found, loader, user_date=reference_date, metadata_path=metadata, structure=structure
+    context = open_dataset(
+        data_dir,
+        tables=PREVALENCE_TABLES,
+        reference_date=reference_date,
+        metadata=metadata,
+        discovery=discovery,
     )
-    patients, patients_input = _load(
-        found, loader, structure, "patients", PATIENT_COLUMNS, ("Id", "DEATHDATE"),
-        PATIENTS_USED_FOR,
+    resolution = context.resolution
+    patients, patients_input = context.load(
+        "patients", PATIENT_COLUMNS, ("Id", "DEATHDATE"), PATIENTS_USED_FOR
     )
-    conditions, conditions_input = _load(
-        found, loader, structure, "conditions", CONDITION_COLUMNS, REQUIRED_CONDITION_COLUMNS,
-        CONDITIONS_USED_FOR,
+    conditions, conditions_input = context.load(
+        "conditions", CONDITION_COLUMNS, REQUIRED_CONDITION_COLUMNS, CONDITIONS_USED_FOR
     )
     inputs = [patients_input]
     if resolution.encounters is not None:
@@ -108,7 +85,7 @@ def build_prevalence(
     inputs.append(conditions_input)
 
     common = dict(
-        data_dir=str(data_path),
+        data_dir=str(context.data_dir),
         reference_date=resolution.reference,
         reference_reason=resolution.reason,
         age_bands=bands,
@@ -140,7 +117,8 @@ def build_prevalence(
             **common,
         )
 
-    reference = parse_reference_date(resolution.reference.value)
+    reference = context.reference
+    assert reference is not None
     cohort = build_cohort(patients, reference, bands)
     records = prepare_records(conditions, cohort, reference)
     return PrevalenceReport(
@@ -151,34 +129,3 @@ def build_prevalence(
         **common,
     )
 
-
-def _load(
-    found: DiscoveryResult,
-    loader: DatasetLoader,
-    structure: Mapping[str, StructureReport],
-    name: str,
-    wanted: Sequence[str],
-    required: Sequence[str],
-    used_for: str,
-) -> tuple[pd.DataFrame | None, TableInput]:
-    """The ``wanted`` columns of table ``name`` that exist, or ``None`` and why not."""
-    table = next((t for t in found.tables if t.name == name), None)
-    if table is None:
-        reason = f"{name}.csv is not in the dataset"
-        return None, TableInput(name, used_for, InputState.ABSENT, reason=reason)
-    gated = gate_reason(structure, name)
-    if gated is not None:
-        return None, TableInput(name, used_for, InputState.UNREADABLE, reason=gated)
-    try:
-        header = loader.read_header(table.path)
-        missing = [c for c in required if c not in header]
-        if missing:
-            reason = f"{name}.csv has no {', '.join(missing)} column(s)"
-            return None, TableInput(name, used_for, InputState.ABSENT, reason=reason)
-        loaded = loader.load(
-            table.path, table=name, columns=[c for c in wanted if c in header]
-        )
-    except TableLoadError as exc:
-        reason = f"{name}.csv could not be read: {exc}"
-        return None, TableInput(name, used_for, InputState.UNREADABLE, reason=reason)
-    return loaded.frame, TableInput(name, used_for, InputState.READ, rows=loaded.rows)

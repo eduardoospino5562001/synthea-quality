@@ -12,7 +12,13 @@ from synthea_quality.incidence.models import (
     IncidenceStratum,
     Window,
 )
-from synthea_quality.incidence.render import dumps, render_markdown, write_json, write_markdown
+from synthea_quality.incidence.render import (
+    dumps,
+    render_condition,
+    render_markdown,
+    write_json,
+    write_markdown,
+)
 from synthea_quality.prevalence.models import CodeRef, Expected, ExpectedComparison
 from synthea_quality.profile.models import (
     InputState,
@@ -118,3 +124,10 @@ def test_alive_only_population_and_skipped_conditions():
 def test_writers(tmp_path):
     assert write_json(report(), tmp_path / "x" / "i.json").read_text("utf-8").endswith("\n")
     assert write_markdown(report(), tmp_path / "x" / "i.md").read_text("utf-8").startswith("#")
+
+
+def test_a_condition_renders_under_any_heading_level():
+    text = render_condition(mi(), level=3, title_prefix="Incidence: ")
+    assert text.startswith("### Incidence: Myocardial infarction (declared acute)\n\nCodes:")
+    assert "#### By age band (person-years split between bands)" in text
+    assert render_condition(mi()) in render_markdown(report())

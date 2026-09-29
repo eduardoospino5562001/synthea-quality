@@ -13,9 +13,9 @@ Synthea maintainer. It is not currently an official MITRE or Synthea tool, and i
 modifies the generator or the dataset it inspects.
 
 > **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
-> (`synthea-profile`), condition prevalence (`synthea-prevalence`) and incidence
-> (`synthea-incidence`).** Read *Current limitations* and *Roadmap* before relying on it for
-> anything beyond that.
+> (`synthea-profile`), condition prevalence (`synthea-prevalence`), incidence
+> (`synthea-incidence`) and all of them for one module at once (`synthea-validate-module`).**
+> Read *Current limitations* and *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
 
@@ -104,7 +104,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.5.0
+synthea-quality 0.6.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -199,7 +199,7 @@ enforced, and what remains uncertain about its semantics.
 
 | Relation | Why it is not enforced |
 | --- | --- |
-| `claims_transactions.PATIENTINSURANCEID` → `payer_transitions.MEMBERID` | the exporter writes the claim's plan record member id; on the reference sample 170 of 79,453 references belong to patients with no `payer_transitions` row at all |
+| `claims_transactions.PATIENTINSURANCEID` → `payer_transitions.MEMBERID` | the exporter writes the claim's plan record member id but exports only the plans that ended on or after 1970-01-01; on the reference sample 170 of 79,453 references match no `MEMBERID`, all dated before 1970: 149 belong to a patient with no `payer_transitions` row and 21 to two patients whose rows start in 1969 (reported as synthetichealth/synthea#1725) |
 | `claims_transactions.FROMDATE <= TODATE` | 6,555 of 85,047 rows of the reference sample carry `1970-01-01T00:00:00Z` in `TODATE`, a value that may correspond to a stop time that was never set, so the inversion may mean "no end" rather than an error; its semantics are still pending confirmation |
 | `payer_transitions.START_DATE <= END_DATE` | clean on the reference sample, but its end date goes through the same possibly-unset timestamp path, so an open-ended plan could invert it |
 
@@ -256,7 +256,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.5.0",
+    "tool_version": "0.6.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -305,6 +305,66 @@ This is **not** a statistical gate: every check is deterministic, no rate is com
 against an expectation, and no tolerance is invented. Usage errors print one readable line
 without a traceback; an unexpected failure is reported with its traceback on stderr and
 still returns `2`, so a real bug is never swallowed.
+
+## Validate a module in 3 steps
+
+`synthea-validate-module` puts the analyses below behind one command. Given a generated
+population and a file describing a module's conditions, it writes one report with a
+summary of the population, the prevalence (among the patients alive at the end) and the
+incidence (per 1,000 person-years, deceased included until death) of each condition, and
+every reference value next to the observed one, inside or outside its 95% confidence
+interval. It states no verdict.
+
+**1. Generate a population** with Synthea, exporting CSV and the whole history:
+
+```bash
+./run_synthea -p 10000 --exporter.csv.export=true --exporter.years_of_history=0
+```
+
+This writes `output/csv/` and, by default, the run's metadata (`output/metadata/*.json`),
+which holds the exact end of the simulation and `exporter.years_of_history`.
+
+**2. Describe the module.** Copy `examples/myocardial_infarction.json` and put in your
+module's condition codes and reference values:
+
+```json
+{
+  "module": {"name": "Myocardial infarction",
+             "synthea_modules": ["myocardial_infarction.json", "heart/stemi_pathway.json",
+                                 "heart/nsteacs_pathway.json"]},
+  "conditions": [
+    {"name": "Myocardial infarction",
+     "codes": ["22298006", "401303003", "401314000"],
+     "acute": true,
+     "expected": {"lifetime": 0.03, "incidence": 2.5,
+                  "source": "illustrative — replace with a cited reference"}}
+  ]
+}
+```
+
+A condition groups the codes of one disease (a patient counts once); codes are SNOMED CT
+unless written `SYSTEM|CODE`. `acute` is declared, never inferred. `point` and `lifetime`
+are proportions; `incidence` is per 1,000 person-years. The example's values are
+placeholders, not reference data. It uses the three acute myocardial infarction codes,
+without `History of myocardial infarction (situation)` (`399211009`), so on the official
+sample it counts 6/99 alive patients, not the 7/99 of the notebook comparison in
+*Validation against module-validation* below, whose text search also picks up that
+history code.
+
+**3. Run it:**
+
+```bash
+.venv/bin/synthea-validate-module output/csv \
+    --module my_module.json \
+    --metadata output/metadata/<run>.json \
+    --output-dir reports
+```
+
+It writes `reports/synthea_module_validation.md` and `.json`. Options: `--window-years N`
+for the incidence window (5 by default), `--age-bands` for the strata, and
+`--reference-date` instead of `--metadata`. The numbers are the ones `synthea-prevalence`
+and `synthea-incidence` report for the same conditions: the command reuses their
+computations, and the test suite checks that they are identical.
 
 ## Dataset profile
 
@@ -379,7 +439,7 @@ uses it as asked and adds a note.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.5.0)
+synthea-profile (synthea-quality 0.6.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -621,8 +681,8 @@ size says about a condition this rare.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 637 unit and component tests, about 10 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 24 end-to-end tests that run the commands as a user would, about 60 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 675 unit and component tests, about 12 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 35 end-to-end tests that run the commands as a user would, about 65 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
@@ -661,6 +721,7 @@ work.
 | `synthea-profile` on the official sample, through the CLI (population and the seven clinical tables) | 1.6 s, ~97 MB |
 | `synthea-prevalence` on the official sample, through the CLI (one condition and the general table) | 0.8 s, ~78 MB |
 | `synthea-incidence` on the official sample, through the CLI (two conditions) | 0.7 s, ~77 MB |
+| `synthea-validate-module` on the official sample, with the example module file | 0.8 s, ~78 MB |
 | Most common codes of `observations` alone (68,648 rows): structural validation 0.25 s, loading 3 columns 0.14 s, ranking 0.12 s | 0.5 s, +25 MB over a 70 MB process |
 | One full `observations.csv` of a larger dataset (1.78 GB, 10,209,651 rows × 9 columns) | 24.7 s, ~1.64 GB |
 | Key checks over a 2021 dataset from another repository (17 tables, 12M+ rows) | 65.0 s, ~772 MB |
@@ -714,8 +775,9 @@ order, none of them started:
   table among the alive patients (step 2). Still to come: value ranges of observations;
 - prevalence and incidence — **started**: `synthea-prevalence` computes point and lifetime
   prevalence of conditions among the alive (step 3) and `synthea-incidence` first events per
-  1,000 person-years (step 4). Still to come: episodes of recurrent conditions, and grouping
-  observations by `CATEGORY`;
+  1,000 person-years (step 4); `synthea-validate-module` runs both, with a population summary
+  and reference values, for one module (step 5). Still to come: episodes of recurrent
+  conditions, and grouping observations by `CATEGORY`;
 - chunked or streamed processing for datasets much larger than the sample;
 - CI that runs both suites on every change, which would also enforce the acceptance
   baseline continuously;
@@ -778,6 +840,12 @@ synthea_quality/
         build.py      one dataset directory into a report, exported history
         render.py     JSON and Markdown renderings
         cli.py        synthea-incidence entry point
+    validate/
+        models.py     module file and ModuleValidationReport
+        build.py      one module over one dataset, from the existing computations
+        render.py     JSON and Markdown renderings
+        cli.py        synthea-validate-module entry point
+    dataset.py        how every analysis report opens a dataset
         demographics.py  population, age, distributions, date range, completeness
         build.py      profile one dataset directory
         render.py     JSON and Markdown renderings
@@ -804,15 +872,21 @@ tests/
     test_prevalence_compute.py  test_prevalence_build.py  test_prevalence_render.py
     test_prevalence_cli.py
     test_incidence_models.py  test_incidence_compute.py  test_incidence_build.py
-    test_incidence_render.py  test_incidence_cli.py
+    test_incidence_render.py  test_incidence_cli.py  test_dataset.py
+    test_validate_models.py  test_validate_build.py  test_validate_render.py
+    test_validate_cli.py
     integration/
         test_acceptance_official_sample.py   end-to-end acceptance run
         test_profile_official_sample.py      synthea-profile on the official sample
         test_prevalence_official_sample.py   synthea-prevalence: recount and MI notebook
         test_incidence_official_sample.py    synthea-incidence: independent recount
+        test_validate_official_sample.py     synthea-validate-module: same numbers as the others
+        test_markdown_layout.py              headings and tables of every report
 scripts/
     fetch_official_sample.py   download the sample, never into the repository
     extract_social_codes.py    regenerate the social code list from a Synthea checkout
+examples/
+    myocardial_infarction.json example module file (illustrative reference values)
 docs/
     acceptance.md              baseline: dataset, numbers, how to reproduce
 ```

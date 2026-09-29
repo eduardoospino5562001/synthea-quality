@@ -301,3 +301,15 @@ def test_a_declared_acute_condition_whose_records_all_stop_gets_no_note():
     rows = [{"PATIENT": "a1", "CODE": "100", "START": "2020-01-01", "STOP": "2020-01-03"}]
     result, _ = run(rows, "C=100;acute")
     assert not any(ACUTE_NOTE in note for note in result.notes)
+
+
+def test_expected_values_of_other_reports_are_left_to_them():
+    cohort = build_cohort(population(), REF, BANDS)
+    records = prepare_records(
+        conditions({"PATIENT": "a1", "CODE": "100", "START": "2020-01-01"}), cohort, REF
+    )
+    definition = ConditionDefinition(
+        "C", (CodeRef("100", SNOMED_CT),), (Expected("incidence", 5.0), Expected("point", 0.2))
+    )
+    result = condition_prevalence(definition, records, cohort)
+    assert [e.expected.measure for e in result.expected] == ["point"]

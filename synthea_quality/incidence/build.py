@@ -1,8 +1,9 @@
 """[INCIDENCE] Build the incidence report of one dataset directory.
 
-The only module of the package that reads the dataset, following the prevalence builder:
-discovery, structural validation of ``patients``, ``encounters`` and ``conditions``
-before loading them, the shared reference date, and only the columns needed.
+The only module of the package that reads the dataset. It opens it with
+:func:`synthea_quality.dataset.open_dataset`, as the prevalence does: discovery,
+structural validation of ``patients``, ``encounters`` and ``conditions`` before loading
+them, the reference date, and only the columns needed.
 
 It also states what is known about the **exported history**, because incidence depends on
 it. Synthea's CSV export keeps only the last ``exporter.years_of_history`` years (10 by
@@ -18,12 +19,12 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 import pandas as pd
 
-from synthea_quality.discovery import DiscoveryResult, discover_dataset
-from synthea_quality.errors import EmptyDatasetError, TableLoadError
+from synthea_quality.dataset import open_dataset
+from synthea_quality.discovery import DiscoveryResult
 from synthea_quality.incidence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_WINDOW_YEARS,
@@ -39,14 +40,10 @@ from synthea_quality.incidence.compute import (
     window_start,
 )
 from synthea_quality.incidence.models import ConditionIncidence, IncidenceReport
-from synthea_quality.loader import DatasetLoader
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.profile.dates import parse_date_only
-from synthea_quality.profile.models import InputState, SectionStatus, TableInput
+from synthea_quality.profile.models import SectionStatus
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
-from synthea_quality.profile.reference import parse_reference_date, resolve_reference_date
-from synthea_quality.schema.tables import SYNTHEA_TABLES
-from synthea_quality.structure import StructureReport, gate_reason, validate_tables
 
 INCIDENCE_TABLES = ("patients", "encounters", "conditions")
 PATIENTS_USED_FOR = "the followed population: birth, death and sex"
@@ -77,36 +74,19 @@ def build_incidence(
     if window_years < 1:
         raise ValueError("the window must be at least one year")
     population = POPULATION_ALIVE if alive_only else POPULATION_ALL
-    data_path = Path(data_dir)
-    found = discovery if discovery is not None else discover_dataset(data_path)
-    if not found.tables:
-        raise EmptyDatasetError(
-            f"no Synthea CSV table was found in {data_path}: a dataset directory has to "
-            f"hold at least one of the {len(SYNTHEA_TABLES)} tables the schema contract "
-            f"describes (for example patients.csv or conditions.csv)"
-        )
-
-    loader = DatasetLoader()
-    readable: dict[str, Path] = {}
-    for table in found.tables:
-        if table.name in INCIDENCE_TABLES:
-            try:
-                loader.read_header(table.path)
-            except TableLoadError:
-                continue
-            readable[table.name] = table.path
-    structure = validate_tables(readable)
-
-    resolution = resolve_reference_date(
-        found, loader, user_date=reference_date, metadata_path=metadata, structure=structure
+    context = open_dataset(
+        data_dir,
+        tables=INCIDENCE_TABLES,
+        reference_date=reference_date,
+        metadata=metadata,
+        discovery=discovery,
     )
-    patients, patients_input = _load(
-        found, loader, structure, "patients", PATIENT_COLUMNS, REQUIRED_PATIENT_COLUMNS,
-        PATIENTS_USED_FOR,
+    resolution = context.resolution
+    patients, patients_input = context.load(
+        "patients", PATIENT_COLUMNS, REQUIRED_PATIENT_COLUMNS, PATIENTS_USED_FOR
     )
-    conditions, conditions_input = _load(
-        found, loader, structure, "conditions", CONDITION_COLUMNS, REQUIRED_CONDITION_COLUMNS,
-        CONDITIONS_USED_FOR,
+    conditions, conditions_input = context.load(
+        "conditions", CONDITION_COLUMNS, REQUIRED_CONDITION_COLUMNS, CONDITIONS_USED_FOR
     )
     inputs = [patients_input]
     if resolution.encounters is not None:
@@ -121,13 +101,11 @@ def build_incidence(
     elif conditions is None:
         reason = f"no condition records: {conditions_input.reason}"
 
-    reference = (
-        parse_reference_date(resolution.reference.value) if resolution.reference else None
-    )
-    history = _history(metadata, conditions, reference, window_years)
-    notes = [*resolution.notes, _population_note(population), *history.pop("notes")]
+    reference = context.reference
+    history = export_history(metadata, conditions, reference, window_years)
+    notes = [*resolution.notes, population_note(population), *history.pop("notes")]
     common: dict[str, Any] = dict(
-        data_dir=str(data_path),
+        data_dir=str(context.data_dir),
         reference_date=resolution.reference,
         reference_reason=resolution.reason,
         population=population,
@@ -163,7 +141,7 @@ def build_incidence(
     )
 
 
-def _population_note(population: str) -> str:
+def population_note(population: str) -> str:
     if population == POPULATION_ALL:
         return WHY_ALL_PATIENTS
     return (
@@ -173,7 +151,7 @@ def _population_note(population: str) -> str:
     )
 
 
-def _history(
+def export_history(
     metadata: str | Path | None,
     conditions: pd.DataFrame | None,
     reference: date | None,
@@ -238,31 +216,3 @@ def _years_of_history(metadata: str | Path | None) -> int | None:
     except (TypeError, ValueError):
         return None
 
-
-def _load(
-    found: DiscoveryResult,
-    loader: DatasetLoader,
-    structure: Mapping[str, StructureReport],
-    name: str,
-    wanted: Sequence[str],
-    required: Sequence[str],
-    used_for: str,
-) -> tuple[pd.DataFrame | None, TableInput]:
-    table = next((t for t in found.tables if t.name == name), None)
-    if table is None:
-        reason = f"{name}.csv is not in the dataset"
-        return None, TableInput(name, used_for, InputState.ABSENT, reason=reason)
-    gated = gate_reason(structure, name)
-    if gated is not None:
-        return None, TableInput(name, used_for, InputState.UNREADABLE, reason=gated)
-    try:
-        header = loader.read_header(table.path)
-        missing = [c for c in required if c not in header]
-        if missing:
-            reason = f"{name}.csv has no {', '.join(missing)} column(s)"
-            return None, TableInput(name, used_for, InputState.ABSENT, reason=reason)
-        loaded = loader.load(table.path, table=name, columns=[c for c in wanted if c in header])
-    except TableLoadError as exc:
-        reason = f"{name}.csv could not be read: {exc}"
-        return None, TableInput(name, used_for, InputState.UNREADABLE, reason=reason)
-    return loaded.frame, TableInput(name, used_for, InputState.READ, rows=loaded.rows)
