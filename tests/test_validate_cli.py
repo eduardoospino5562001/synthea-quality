@@ -136,3 +136,17 @@ def test_the_hypertension_example_with_observations(tmp_path, capsys):
     assert (
         "Observation: Diastolic blood pressure: not computed — no row of code 8462-4"
     ) in printed
+
+
+def test_the_hypertension_example_with_medications(tmp_path, capsys):
+    example = REPOSITORY / "examples" / "hypertension.json"
+    directory = dataset(tmp_path / "csv")
+    with (directory / "medications.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tables_by_name()["medications"].columns)
+        writer.writeheader()
+        writer.writerow({"START": "2020-01-01T00:00:00Z", "PATIENT": "a1", "CODE": "314076"})
+    code = main([str(directory), "--module", str(example), "--output-dir", str(tmp_path / "o")])
+    assert code == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "Medication: Lisinopril: active 0/0, ever 0/0" in printed
+    assert "Medication: Losartan: active 0/0, ever 0/0" in printed

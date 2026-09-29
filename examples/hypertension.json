@@ -5,7 +5,7 @@
       "hypertension.json",
       "medications/hypertension_medication.json"
     ],
-    "description": "Example module file with observations. The blood pressure ranges are Synthea's own configuration (src/main/resources/biometrics.yml, metabolic.blood_pressure.normal), not a clinical norm: BloodPressureValueGenerator draws a baseline from them and then adds medication, lifestyle and a 12-hour variation, so recorded values can fall outside them. The file gives no expected prevalence or incidence."
+    "description": "Example module file with observations. The blood pressure ranges are Synthea's own configuration (src/main/resources/biometrics.yml, metabolic.blood_pressure.normal), not a clinical norm: BloodPressureValueGenerator draws a baseline from them and then adds medication, lifestyle and a 12-hour variation, so recorded values can fall outside them. The medications are the four that medications/hypertension_medication.json prescribes, each measured among the patients with hypertension active at the reference date. The file gives no expected prevalence, incidence or medication share."
   },
   "conditions": [
     {
@@ -44,6 +44,33 @@
     {
       "name": "Diastolic blood pressure, patients with hypertension",
       "code": "8462-4",
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    }
+  ],
+  "medications": [
+    {
+      "name": "Lisinopril",
+      "codes": ["314076"],
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    },
+    {
+      "name": "Hydrochlorothiazide",
+      "codes": ["310798"],
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    },
+    {
+      "name": "Amlodipine",
+      "codes": ["308136"],
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    },
+    {
+      "name": "Losartan",
+      "codes": ["979485"],
+      "cohort": {"condition": "Hypertension", "rule": "point"}
+    },
+    {
+      "name": "Any of the four",
+      "codes": ["314076", "310798", "308136", "979485"],
       "cohort": {"condition": "Hypertension", "rule": "point"}
     }
   ]

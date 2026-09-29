@@ -158,3 +158,35 @@ def test_observations_follow_the_conditions(tmp_path):
     data = json.loads(dumps(report))
     assert data["observations"][0]["groups"][0]["reference_range"]["above"] == 1
     assert "type 7" in data["observation_definitions"]["percentiles"]
+
+
+def test_medications_and_their_reference_values(tmp_path):
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.medications.definitions import MedicationDefinition
+    from synthea_quality.prevalence.models import Expected
+
+    write_table(tmp_path, "patients", [{"Id": "a1", "BIRTHDATE": "1950-01-01", "GENDER": "M"}])
+    write_table(tmp_path, "encounters", [{"Id": "e1", "START": "2026-01-01T00:00:00Z"}])
+    write_table(tmp_path, "conditions", [
+        {"PATIENT": "a1", "CODE": "59621000", "SYSTEM": SNOMED, "START": "2015-01-01"},
+    ])
+    write_table(tmp_path, "medications", [
+        {"START": "2020-01-01T00:00:00Z", "PATIENT": "a1", "CODE": "314076",
+         "REASONCODE": "59621000"},
+    ])
+    report = build_module_validation(
+        tmp_path, module=ModuleInfo("Hypertension"),
+        definitions=assemble(("Hypertension=59621000",), None, (), measures=ALL_MEASURES),
+        module_file="m.json",
+        medications=(MedicationDefinition(
+            "Lisinopril", ("314076",), CohortSpec("Hypertension"),
+            (Expected("active", 0.9, "Illustrative"),),
+        ),),
+        generated_at="2026-09-29T00:00:00+00:00",
+    )
+    text = render_markdown(report)
+    assert "It also gives the share of a population that takes each" in text
+    assert text.index("## Condition: Hypertension") < text.index("## Medications")
+    assert "| Condition or medication | Measure |" in text
+    assert "| Lisinopril | active share | 90.00% | 100.00% |" in text
+    assert "| Lisinopril | `314076` | Hypertension | 1 | 1 (100.00%; 20.65–100.00%) |" in text

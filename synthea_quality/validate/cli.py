@@ -48,9 +48,12 @@ module file (see examples/myocardial_infarction.json):
    "conditions": [{{"name": "...", "codes": ["..."], "acute": true,
                    "expected": {{"lifetime": 0.03, "incidence": 2.5, "source": "..."}}}}],
    "observations": [{{"name": "...", "code": "8480-6", "cohort": "...",
-                     "reference_range": {{"low": 100, "high": 139, "units": "mm[Hg]"}}}}]}}
+                     "reference_range": {{"low": 100, "high": 139, "units": "mm[Hg]"}}}}],
+   "medications": [{{"name": "...", "codes": ["314076"], "cohort": "...",
+                    "expected": {{"active": 0.8, "source": "..."}}}}]}}
   point and lifetime are proportions; incidence is per 1,000 person-years;
-  observations are optional (see examples/hypertension.json)
+  observations and medications are optional (see examples/hypertension.json);
+  a medication's active and ever expected values are proportions
 
 populations:
   prevalence counts the patients alive at the end of the simulation; incidence follows
@@ -75,8 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Validate a Synthea module against a generated population: population summary, "
             "prevalence and incidence of the module's conditions, the values of its "
-            "observations, and reference values next to the observed ones, in one Markdown "
-            "and one JSON report."
+            "observations, the share of a cohort with each medication, and reference values "
+            "next to the observed ones, in one Markdown and one JSON report."
         ),
         epilog=_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -92,7 +95,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         type=Path,
         required=True,
-        help="module file: the conditions and observations to validate, with reference values",
+        help="module file: the conditions, observations and medications to validate, with "
+        "reference values",
     )
     parser.add_argument(
         "--output-dir",
@@ -147,6 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             module=loaded.module,
             definitions=loaded.conditions,
             observations=loaded.observations,
+            medications=loaded.medications,
             module_file=args.module,
             reference_date=args.reference_date,
             metadata=args.metadata,
@@ -207,6 +212,14 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
             f"{g.summary.n} patient(s) in {g.units or 'no units'}" for g in item.groups
         )
         print(f"Observation: {item.name}: {values}")
+    for item in report.medications:
+        if item.status is SectionStatus.SKIPPED:
+            print(f"Medication: {item.name}: not computed — {item.reason}")
+            continue
+        print(
+            f"Medication: {item.name}: active {item.active.numerator}/{item.active.denominator}, "
+            f"ever {item.ever.numerator}/{item.ever.denominator}"
+        )
     for item in report.inputs:
         if item.state is InputState.UNREADABLE:
             print(f"Incomplete: {item.table} could not be read — {item.reason}")

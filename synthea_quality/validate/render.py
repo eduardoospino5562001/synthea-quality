@@ -7,8 +7,10 @@ summary table of every condition; one table of every reference value next to its
 observed rate, inside or outside the 95% CI; then each condition's prevalence and
 incidence exactly as ``synthea-prevalence`` and ``synthea-incidence`` show them (their
 reference values are already in the table above, so they are not repeated there). When
-the module file has observations, a summary of their values and each one exactly as
-``synthea-observations`` shows it follow.
+the module file has medications, the share of each one's population that takes it,
+active and ever, follows; with observations, a summary of their values and each one
+exactly as ``synthea-observations`` shows it. Expected medication shares join the table
+of reference values.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from synthea_quality.incidence.render import render_condition as render_incidence
+from synthea_quality.medications.render import render_medications
 from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
 from synthea_quality.observations.render import render_definitions as render_value_rules
 from synthea_quality.observations.render import render_observation
@@ -52,6 +55,12 @@ def render_markdown(report: ModuleValidationReport) -> str:
         "their incidence per 1,000 person-years. It states no verdict: each reference value "
         "is shown next to the observed one, inside or outside its 95% confidence interval."
         + (
+            " It also gives the share of a population that takes each of the module's "
+            "medications."
+            if report.medications
+            else ""
+        )
+        + (
             " It also describes the values of the module's observations, with each reference "
             "range next to the observed values."
             if report.observations
@@ -64,6 +73,7 @@ def render_markdown(report: ModuleValidationReport) -> str:
         _summary(report),
         _references(report),
         *(_condition(condition) for condition in report.conditions),
+        *([render_medications(report.medications)] if report.medications else []),
         *_observations(report.observations),
     ]
     return "\n\n".join(block.rstrip() for block in blocks) + "\n"
@@ -163,32 +173,43 @@ def _references(report: ModuleValidationReport) -> str:
     for condition in report.conditions:
         for item in condition.references:
             is_rate = item.expected.measure == INCIDENCE
-            show = _rate_number if is_rate else _percent
-            interval = item.observed.interval
-            ci = "—" if interval is None else f"{show(interval[0])}–{show(interval[1])}"
-            position = f"{item.position} the 95% CI" if item.position else "no interval"
-            rows.append(
-                (
-                    condition.name,
-                    "incidence per 1,000 PY" if is_rate else f"{item.expected.measure} prevalence",
-                    show(item.expected.value),
-                    show(item.observed.value),
-                    ci,
-                    position,
-                    item.expected.source or "—",
-                )
-            )
+            label = "incidence per 1,000 PY" if is_rate else f"{item.expected.measure} prevalence"
+            rows.append(_reference_row(condition.name, label, item, is_rate=is_rate))
+    medication_rows = [
+        _reference_row(medication.name, f"{item.expected.measure} share", item)
+        for medication in report.medications
+        for item in medication.expected
+    ]
+    rows += medication_rows
     if not rows:
-        return (
-            "## Reference values\n\nThe module file gives no expected prevalence or incidence."
+        what = "prevalence, incidence or medication share" if report.medications else (
+            "prevalence or incidence"
         )
+        return f"## Reference values\n\nThe module file gives no expected {what}."
     table = _table(
-        ("Condition", "Measure", "Reference", "Observed", "95% CI", "Position", "Source"),
+        ("Condition or medication" if medication_rows else "Condition", "Measure", "Reference",
+         "Observed", "95% CI", "Position", "Source"),
         rows,
         align=("", "", "r", "r", "r", "", ""),
     )
     return (
         "## Reference values\n\nShown for comparison, not as a verdict.\n\n" + "\n".join(table)
+    )
+
+
+def _reference_row(name: str, label: str, item: Any, *, is_rate: bool = False) -> tuple:
+    show = _rate_number if is_rate else _percent
+    interval = item.observed.interval
+    ci = "—" if interval is None else f"{show(interval[0])}–{show(interval[1])}"
+    position = f"{item.position} the 95% CI" if item.position else "no interval"
+    return (
+        name,
+        label,
+        show(item.expected.value),
+        show(item.observed.value),
+        ci,
+        position,
+        item.expected.source or "—",
     )
 
 
