@@ -1,0 +1,23 @@
+{
+  "module": {
+    "name": "Myocardial infarction",
+    "synthea_modules": [
+      "myocardial_infarction.json",
+      "heart/stemi_pathway.json",
+      "heart/nsteacs_pathway.json"
+    ],
+    "description": "Example module file. The expected values are illustrative placeholders, not reference data: replace them with values from a cited source before drawing any conclusion."
+  },
+  "conditions": [
+    {
+      "name": "Myocardial infarction",
+      "codes": ["22298006", "401303003", "401314000"],
+      "acute": true,
+      "expected": {
+        "lifetime": 0.03,
+        "incidence": 2.5,
+        "source": "illustrative — replace with a cited reference"
+      }
+    }
+  ]
+}
