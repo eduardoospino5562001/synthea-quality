@@ -6,7 +6,7 @@
       "heart/stemi_pathway.json",
       "heart/nsteacs_pathway.json"
     ],
-    "description": "Example module file. The expected values are illustrative placeholders, not reference data: replace them with values from a cited source before drawing any conclusion."
+    "description": "Example module file. The expected values are illustrative placeholders, not reference data: replace them with values from a cited source before drawing any conclusion. It uses the three acute myocardial infarction codes, without 'History of myocardial infarction (situation)' (399211009), so on the official sample it counts 6/99 alive patients, not the 7/99 of the comparison with MI Module Validation.ipynb, whose text search also picks up that history code."
   },
   "conditions": [
     {
