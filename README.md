@@ -677,8 +677,8 @@ size says about a condition this rare.
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 637 unit and component tests, about 10 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 24 end-to-end tests that run the commands as a user would, about 60 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 675 unit and component tests, about 12 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 27 end-to-end tests that run the commands as a user would, about 60 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
