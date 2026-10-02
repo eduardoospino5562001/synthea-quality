@@ -160,7 +160,8 @@ def export_history(
     window_years: int,
 ) -> dict[str, Any]:
     """What is known about the exported history, and the notes it calls for."""
-    years = read_export_history(metadata, reference).years
+    exported = read_export_history(metadata, reference)
+    years = exported.years
     earliest = None
     if conditions is not None and len(conditions):
         starts = parse_date_only(conditions["START"]).values.dropna()
@@ -176,9 +177,16 @@ def export_history(
         return history
     start = window_start(reference, window_years)
     if years is None:
+        if metadata is None:
+            why = f"{YEARS_OF_HISTORY_KEY} is only in Synthea's run metadata; use --metadata"
+        else:
+            why = (
+                f"the metadata file `{exported.metadata_file}` has no usable "
+                f"{YEARS_OF_HISTORY_KEY}"
+            )
         notes.append(
-            f"The exported history is unknown ({YEARS_OF_HISTORY_KEY} is only in Synthea's run "
-            f"metadata; use --metadata). Synthea exports {SYNTHEA_DEFAULT_YEARS_OF_HISTORY} "
+            f"The exported history is unknown ({why}). Synthea exports "
+            f"{SYNTHEA_DEFAULT_YEARS_OF_HISTORY} "
             f"years by default, and a condition that ended before then is not in the files, "
             f"so a prior case could be counted as new. The earliest condition record here "
             f"starts on {earliest or 'no date'}."
