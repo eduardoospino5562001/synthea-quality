@@ -420,9 +420,7 @@ def general_table(
         grouped["social"] = [str(code) in excluded for code in grouped["CODE"]]
     social_records = int(grouped.loc[grouped["social"], "records"].sum())
     social_codes = int(grouped["social"].sum())
-    if exclude is None and include_social:
-        pass
-    else:
+    if exclude is not None or not include_social:
         grouped = grouped[~grouped["social"]]
     grouped = grouped.sort_values(
         ["point", "lifetime", "SYSTEM", "CODE"],
