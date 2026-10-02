@@ -449,6 +449,10 @@ the real end: every exported encounter precedes it. A metadata `endTime` earlier
 latest encounter is contradictory — the file may belong to another run — so the profile
 uses it as asked and adds a note.
 
+The same file may hold `exporter.years_of_history`, which drives the time-filtered
+dataset notice (see *The exported history* under *Incidence*): every analysis report
+shows it right after its title, and records it as `export_history` in its JSON.
+
 ### Example (official sample)
 
 ```
@@ -678,11 +682,28 @@ be completed.
 Synthea's CSV export keeps only the last `exporter.years_of_history` years (10 by default,
 0 for everything): a condition that ended before that horizon is not in the files, so a
 prior case can look new and a window reaching past the horizon misses events. The setting
-is recorded in Synthea's run metadata file. With `--metadata` the report uses it and says
+is recorded in Synthea's run metadata file, as a string (for example `"10"`, written by
+`MetadataExporter` from the configuration). With `--metadata` the report uses it and says
 how many exported years precede the window; without it the report says it is unknown and
 gives the earliest condition record it saw. The official sample appears to have been
 exported with its whole history (it holds conditions that ended in the 1960s), but without
 its metadata this cannot be confirmed.
+
+When the metadata says `exporter.years_of_history` is greater than 0, **every** analysis
+report (`synthea-profile`, `synthea-prevalence`, `synthea-incidence`,
+`synthea-observations`, `synthea-validate-module`) shows a notice right after its title:
+the dataset is filtered by time and statistics that look back — lifetime prevalence,
+"ever" medication use, prior cases in incidence, the earliest records — may rest on
+incomplete data. With `0` or without metadata there is no notice; a metadata file without
+a usable value gets an "exported history unknown" notice instead. Every JSON report
+carries the reading as `export_history` (`years_of_history`, `status`, `metadata_file`,
+`cutoff`, `reason`).
+
+The cut-off is the reference date minus 365 × N days — not calendar years, so leap days
+stay inside the span. That is how Synthea computes it: `Exporter.filterForExport` keeps
+what is after `endTime` minus `Utilities.convertTime("years", N)`, and that conversion
+truncates 365.25 to 365 (`(long) 365.25 * value`). Conditions, allergies, medications
+and care plans still active after the cut-off are kept; the notice says so.
 
 ### Validation
 
