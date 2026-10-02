@@ -40,6 +40,21 @@ CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-prevalence")
 MI_CODES = ("22298006", "401303003", "401314000")
 #: The four codes the notebook's text search "myocardial infarction" selects on this sample.
 NOTEBOOK_MI_CODES = (*MI_CODES, "399211009")
+#: The 12 fixed codes the Synthea maintainers list as social and administrative.
+EXTERNAL_CODES = (
+    "314529007",
+    "5251000175109",
+    "424393004",
+    "160903007",
+    "706893006",
+    "73595000",
+    "160904001",
+    "741062008",
+    "10939881000119105",
+    "422650009",
+    "423315002",
+    "266948004",
+)
 
 
 @pytest.fixture(scope="module")
@@ -170,3 +185,48 @@ def test_mi_declared_acute_gets_the_unstopped_records_note(sample, report):
     notebook = condition(report, "MI as in the notebook")
     assert notebook["acute"] is False
     assert not any("for an acute condition" in note for note in notebook["notes"])
+
+
+def test_an_exclusion_file_matches_an_independent_csv_count(sample, tmp_path_factory):
+    out = tmp_path_factory.mktemp("prevalence-exclude")
+    exclude = out / "external.txt"
+    exclude.write_text(
+        "# the 12 fixed codes listed by the Synthea maintainers\n"
+        + "\n".join(EXTERNAL_CODES)
+        + "\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [*command(), str(sample), "--exclude-codes", str(exclude),
+         "--output-dir", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    data = json.loads((out / "synthea_prevalence.json").read_text(encoding="utf-8"))
+
+    reference = data["reference_date"]["value"]
+    alive = {row["Id"] for row in read(sample, "patients") if not row["DEATHDATE"]}
+    by_key: dict[tuple[str, str], dict] = {}
+    for row in read(sample, "conditions"):
+        if row["PATIENT"] not in alive or not row["START"] or row["START"] > reference:
+            continue
+        key = (row["SYSTEM"], row["CODE"])
+        entry = by_key.setdefault(key, {"patients": set(), "records": 0})
+        entry["patients"].add(row["PATIENT"])
+        entry["records"] += 1
+    wanted = set(EXTERNAL_CODES)
+    excluded = {key: entry for key, entry in by_key.items() if key[1] in wanted}
+
+    assert data["social_list"]["source"] == "file"
+    assert data["social_list"]["codes"] == len(wanted)
+    assert data["general"]["metrics"]["social_codes_in_data"] == len(excluded)
+    assert data["general"]["metrics"]["social_records_in_data"] == sum(
+        entry["records"] for entry in excluded.values()
+    )
+    assert len(data["general"]["rows"]) + len(excluded) == len(by_key)
+    assert not any(row["code"] in wanted for row in data["general"]["rows"])
+    # Only 5251000175109 has no record in the sample's conditions.csv at all.
+    assert data["social_list"]["listed_absent_from_data"] == ["5251000175109"]
+    assert any(str(exclude) in note for note in data["general"]["notes"])
