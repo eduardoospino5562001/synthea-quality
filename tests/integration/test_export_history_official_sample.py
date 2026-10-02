@@ -148,3 +148,29 @@ def test_the_numbers_do_not_change_with_the_notice(reports):
         } == {
             key: value for key, value in without.items() if key not in VOLATILE
         }, command
+
+
+def test_the_report_with_the_notice_is_anchored_on_an_independent_csv_count(
+    sample, reports
+):
+    import csv
+
+    def rows(table: str) -> list[dict[str, str]]:
+        with (sample / f"{table}.csv").open(newline="", encoding="utf-8-sig") as handle:
+            return list(csv.DictReader(handle))
+
+    alive = {row["Id"] for row in rows("patients") if not row["DEATHDATE"]}
+    mi_codes = {"22298006", "401303003", "401314000"}
+    mi_alive = {
+        row["PATIENT"]
+        for row in rows("conditions")
+        if row["CODE"] in mi_codes
+        and row["PATIENT"] in alive
+        and row["START"] <= "2026-08-17"
+    }
+    data = read_json(reports, "validate", "ten")
+    assert data["reference_date"]["value"] == "2026-08-17"
+    assert data["alive"] == len(alive) == 99
+    mi = next(c for c in data["conditions"] if c["name"] == "Myocardial infarction")
+    assert mi["prevalence"]["lifetime"]["numerator"] == len(mi_alive) == 6
+    assert read_json(reports, "prevalence", "ten")["alive"] == len(alive)
