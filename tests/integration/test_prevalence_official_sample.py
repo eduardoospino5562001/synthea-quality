@@ -230,3 +230,18 @@ def test_an_exclusion_file_matches_an_independent_csv_count(sample, tmp_path_fac
     # Only 5251000175109 has no record in the sample's conditions.csv at all.
     assert data["social_list"]["listed_absent_from_data"] == ["5251000175109"]
     assert any(str(exclude) in note for note in data["general"]["notes"])
+
+
+def test_the_example_file_matches_the_built_in_list(sample):
+    from synthea_quality.prevalence.build import build_prevalence
+
+    example = Path(__file__).resolve().parent.parent.parent / "examples" / "social_codes.txt"
+    generated_at = "2026-10-02T00:00:00+00:00"
+    plain = build_prevalence(sample, generated_at=generated_at)
+    with_file = build_prevalence(sample, exclude_codes=example, generated_at=generated_at)
+    assert [row.to_dict() for row in with_file.general.rows] == [
+        row.to_dict() for row in plain.general.rows
+    ]
+    assert with_file.general.metrics == plain.general.metrics
+    assert with_file.social_list["source"] == "file"
+    assert plain.social_list["source"] == "built-in"

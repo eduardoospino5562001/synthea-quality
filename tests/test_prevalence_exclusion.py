@@ -100,6 +100,15 @@ def test_absent_codes_are_listed_in_stable_order():
     assert codes_absent_from_data(listed, {"b"}) == ("a", "c")
 
 
+def test_the_example_file_holds_the_built_in_codes():
+    from synthea_quality.prevalence.social import SOCIAL_CODES
+
+    example = Path(__file__).resolve().parent.parent / "examples" / "social_codes.txt"
+    exclusion = read_exclusion_file(example)
+    assert sorted(exclusion.codes) == sorted(entry.code for entry in SOCIAL_CODES)
+    assert exclusion.duplicates == 0
+
+
 # --------------------------------------------------------------------------- #
 # the computation over a small dataset
 # --------------------------------------------------------------------------- #
