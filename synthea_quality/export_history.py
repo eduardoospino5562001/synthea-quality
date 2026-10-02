@@ -175,7 +175,9 @@ def _parse_years(value: Any) -> int | None:
     if isinstance(value, int):
         return value if value >= 0 else None
     if isinstance(value, str):
-        if re.fullmatch(r"\d+", value.strip()):
+        # [0-9], not \d: Unicode digits (for example "١٠") convert with int() but are
+        # not a value Synthea writes.
+        if re.fullmatch(r"[0-9]+", value.strip()):
             try:
                 return int(value.strip())
             except (ValueError, OverflowError):

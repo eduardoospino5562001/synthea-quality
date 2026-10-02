@@ -76,7 +76,9 @@ def test_an_out_of_range_value_is_invalid_without_raising(tmp_path, value, reaso
     assert "Exported history unknown" in "\n".join(notice_lines(history))
 
 
-@pytest.mark.parametrize("value", ["abc", "-1", -1, 2.5, 10.0, True, [10], {"n": 10}])
+@pytest.mark.parametrize(
+    "value", ["abc", "-1", -1, 2.5, 10.0, True, [10], {"n": 10}, "١٠", " ١٠ "]
+)
 def test_a_negative_decimal_or_textual_value_is_invalid(tmp_path, value):
     path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": value})
     history = read_export_history(path, REF)
@@ -100,6 +102,12 @@ def test_a_thousand_years_is_still_valid(tmp_path):
     path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": 1000})
     history = read_export_history(path, REF)
     assert (history.status, history.years) == ("read", 1000)
+
+
+def test_a_padded_string_is_still_valid(tmp_path):
+    path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": " 10 "})
+    history = read_export_history(path, REF)
+    assert (history.status, history.years) == ("read", 10)
 
 
 def test_a_missing_key_is_reported_without_raising(tmp_path):
