@@ -241,3 +241,27 @@ def test_the_example_file_matches_the_built_in_list(sample):
     assert with_file.general.metrics == plain.general.metrics
     assert with_file.social_list["source"] == "file"
     assert plain.social_list["source"] == "built-in"
+
+    # Independent anchor with csv only: the excluded codes and records of the file
+    # match the report's metrics.
+    wanted = set()
+    for line in example.read_text(encoding="utf-8").splitlines():
+        code = line.split("#", 1)[0].strip()
+        if code:
+            wanted.add(code)
+    reference = with_file.to_dict()["reference_date"]["value"]
+    alive = {row["Id"] for row in read(sample, "patients") if not row["DEATHDATE"]}
+    by_key: dict[tuple[str, str], dict] = {}
+    for row in read(sample, "conditions"):
+        if row["PATIENT"] not in alive or not row["START"] or row["START"] > reference:
+            continue
+        key = (row["SYSTEM"], row["CODE"])
+        entry = by_key.setdefault(key, {"patients": set(), "records": 0})
+        entry["patients"].add(row["PATIENT"])
+        entry["records"] += 1
+    excluded = {key: entry for key, entry in by_key.items() if key[1] in wanted}
+    assert with_file.general.metrics["social_codes_in_data"] == len(excluded)
+    assert with_file.general.metrics["social_records_in_data"] == sum(
+        entry["records"] for entry in excluded.values()
+    )
+    assert len(with_file.general.rows) + len(excluded) == len(by_key)
