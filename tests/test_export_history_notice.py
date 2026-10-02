@@ -171,3 +171,17 @@ def test_an_unusable_value_is_announced_once_at_the_top(tmp_path):
     assert text.count("Exported history unknown") == 1
     assert first_after_title(text).startswith("> **Exported history unknown.**")
     assert report.to_dict()["export_history"]["status"] == "invalid"
+
+
+def test_an_out_of_range_value_writes_the_report_with_the_unknown_notice(tmp_path):
+    from synthea_quality.prevalence.cli import main
+    from synthea_quality.prevalence.render import MARKDOWN_NAME
+
+    out = tmp_path / "out"
+    code = main(
+        [str(dataset(tmp_path / "csv")), "--metadata", str(metadata(tmp_path / "meta", 1001)),
+         "--output-dir", str(out)]
+    )
+    assert code == 0
+    text = (out / MARKDOWN_NAME).read_text(encoding="utf-8")
+    assert first_after_title(text).startswith("> **Exported history unknown.**")

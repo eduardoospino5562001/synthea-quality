@@ -59,6 +59,23 @@ def test_an_integer_and_its_string_form_are_valid(tmp_path, value):
     assert ExportHistory.from_dict(history.to_dict()) == history
 
 
+@pytest.mark.parametrize(
+    "value, reason",
+    [
+        ("9" * 5000, "not a non-negative integer"),
+        (10**18, "out of range"),
+        ("99999999", "out of range"),
+        (1001, "out of range"),
+    ],
+)
+def test_an_out_of_range_value_is_invalid_without_raising(tmp_path, value, reason):
+    path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": value})
+    history = read_export_history(path, REF)
+    assert history.status == "invalid" and history.years is None
+    assert reason in (history.reason or "")
+    assert "Exported history unknown" in "\n".join(notice_lines(history))
+
+
 @pytest.mark.parametrize("value", ["abc", "-1", -1, 2.5, 10.0, True, [10], {"n": 10}])
 def test_a_negative_decimal_or_textual_value_is_invalid(tmp_path, value):
     path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": value})
@@ -67,6 +84,22 @@ def test_a_negative_decimal_or_textual_value_is_invalid(tmp_path, value):
     assert "not a non-negative integer" in (history.reason or "")
     assert len(notice_lines(history)) == 1
     assert "Exported history unknown" in notice_lines(history)[0]
+
+
+def test_a_giant_integer_in_the_file_is_invalid_without_raising(tmp_path):
+    path = tmp_path / "run.json"
+    path.write_text(
+        '{"endTime": "20260817", "exporter.years_of_history": ' + "9" * 5000 + "}",
+        encoding="utf-8",
+    )
+    history = read_export_history(path, REF)
+    assert history.status == "invalid" and history.years is None
+
+
+def test_a_thousand_years_is_still_valid(tmp_path):
+    path = metadata_file(tmp_path, {"endTime": "20260817", "exporter.years_of_history": 1000})
+    history = read_export_history(path, REF)
+    assert (history.status, history.years) == ("read", 1000)
 
 
 def test_a_missing_key_is_reported_without_raising(tmp_path):
