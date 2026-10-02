@@ -122,6 +122,7 @@ def test_to_dict_carries_version_provenance_and_fixed_key_order():
         "age_bands",
         "inputs",
         "notes",
+        "export_history",
         "sections",
     ]
     assert data["schema_version"] == PROFILE_SCHEMA_VERSION

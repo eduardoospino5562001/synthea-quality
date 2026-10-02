@@ -36,6 +36,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from synthea_quality import __version__
+from synthea_quality.export_history import ExportHistory
 from synthea_quality.models import utc_now_iso
 
 #: Version of the JSON layout produced by :meth:`DatasetProfile.to_dict`.
@@ -394,6 +395,8 @@ class DatasetProfile:
     reference_reason: str | None = None
     #: Observations about the run as a whole (e.g. an inconsistent metadata endTime).
     notes: tuple[str, ...] = ()
+    #: What the metadata file says about the exported history (no notice without it).
+    export_history: ExportHistory = field(default_factory=ExportHistory.no_metadata)
     generated_at: str = field(default_factory=utc_now_iso)
     tool_version: str = __version__
 
@@ -434,6 +437,7 @@ class DatasetProfile:
             "age_bands": list(self.age_bands),
             "inputs": [item.to_dict() for item in self.inputs],
             "notes": list(self.notes),
+            "export_history": self.export_history.to_dict(),
             "sections": [section.to_dict() for section in self.sections],
         }
 
@@ -449,6 +453,7 @@ class DatasetProfile:
                 f"this tool reads version {PROFILE_SCHEMA_VERSION}"
             )
         reference = data.get("reference_date")
+        history = data.get("export_history")
         return cls(
             data_dir=data["data_dir"],
             reference_date=ReferenceDate.from_dict(reference) if reference else None,
@@ -457,6 +462,7 @@ class DatasetProfile:
             sections=tuple(ProfileSection.from_dict(s) for s in data["sections"]),
             inputs=tuple(TableInput.from_dict(i) for i in data.get("inputs", ())),
             notes=tuple(data.get("notes", ())),
+            export_history=ExportHistory.from_dict(history) if history else ExportHistory.no_metadata(),
             generated_at=data["generated_at"],
             tool_version=data["tool_version"],
         )

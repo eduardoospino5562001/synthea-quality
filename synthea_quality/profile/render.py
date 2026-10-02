@@ -34,6 +34,7 @@ from synthea_quality.profile.models import (
     ProfileSection,
     SectionStatus,
 )
+from synthea_quality.export_history import notice_lines
 
 #: Predictable report file names inside the output directory.
 MARKDOWN_NAME = "synthea_profile.md"
@@ -79,6 +80,11 @@ def render_markdown(profile: DatasetProfile) -> str:
         "This profile **describes** the dataset. It runs no check and states no verdict: "
         "a section is either computed or skipped with the reason. Data quality is "
         "reported separately by `synthea-quality`.",
+    ]
+    notice = notice_lines(profile.export_history)
+    if notice:
+        blocks.append("\n".join(notice))
+    blocks += [
         _scope(profile),
         _reference(profile),
     ]

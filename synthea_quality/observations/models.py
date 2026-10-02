@@ -23,6 +23,7 @@ from typing import Any
 
 from synthea_quality import __version__
 from synthea_quality.condition_cohort import CohortSpec
+from synthea_quality.export_history import ExportHistory
 from synthea_quality.models import utc_now_iso
 from synthea_quality.observations.definitions import ReferenceRange
 from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
@@ -287,6 +288,8 @@ class ObservationsReport:
     lookback_years: int | None = None
     inputs: tuple[TableInput, ...] = ()
     notes: tuple[str, ...] = ()
+    #: What the metadata file says about the exported history (no notice without it).
+    export_history: ExportHistory = field(default_factory=ExportHistory.no_metadata)
     generated_at: str = field(default_factory=utc_now_iso)
     tool_version: str = __version__
 
@@ -310,6 +313,7 @@ class ObservationsReport:
             "inputs": [item.to_dict() for item in self.inputs],
             "notes": list(self.notes),
             "observations": [item.to_dict() for item in self.observations],
+            "export_history": self.export_history.to_dict(),
             "general": self.general.to_dict(),
         }
 

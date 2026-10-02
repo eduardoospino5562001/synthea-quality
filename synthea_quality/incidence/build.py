@@ -103,6 +103,7 @@ def build_incidence(
 
     reference = context.reference
     history = export_history(metadata, conditions, reference, window_years)
+    exported = read_export_history(metadata, reference)
     notes = [*resolution.notes, population_note(population), *history.pop("notes")]
     common: dict[str, Any] = dict(
         data_dir=str(context.data_dir),
@@ -112,6 +113,7 @@ def build_incidence(
         age_bands=bands,
         history=history,
         inputs=tuple(inputs),
+        export_history=exported,
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
     if reason is not None:

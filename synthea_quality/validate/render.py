@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from synthea_quality.incidence.render import render_condition as render_incidence
+from synthea_quality.export_history import notice_lines
 from synthea_quality.medications.render import render_medications
 from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
 from synthea_quality.observations.render import render_definitions as render_value_rules
@@ -66,6 +67,11 @@ def render_markdown(report: ModuleValidationReport) -> str:
             if report.observations
             else ""
         ),
+    ]
+    notice = notice_lines(report.export_history)
+    if notice:
+        blocks.append("\n".join(notice))
+    blocks += [
         _scope(report),
         _reference(report),
         _definitions(report),

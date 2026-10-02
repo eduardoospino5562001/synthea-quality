@@ -24,6 +24,7 @@ import pandas as pd
 from synthea_quality.condition_cohort import select_cohort
 from synthea_quality.dataset import DatasetContext, open_dataset
 from synthea_quality.discovery import DiscoveryResult
+from synthea_quality.export_history import read_export_history
 from synthea_quality.observations.compute import (
     DEFAULT_TOP,
     OBSERVATION_COLUMNS,
@@ -114,6 +115,7 @@ def build_observations(
         age_bands=bands,
         lookback_years=lookback_years,
         inputs=tuple(inputs),
+        export_history=read_export_history(metadata, reference),
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
 

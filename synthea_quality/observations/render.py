@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+from synthea_quality.export_history import notice_lines
 from synthea_quality.observations.models import (
     MIN_PATIENTS_FOR_PERCENTILES,
     PERCENTILE_METHOD,
@@ -60,6 +61,11 @@ def render_markdown(report: ObservationsReport) -> str:
         "patients alive at the end of the simulation. It states no verdict: a reference range "
         "is shown next to the observed values, with how many patients fall below, within and "
         "above it, and nothing more.",
+    ]
+    notice = notice_lines(report.export_history)
+    if notice:
+        blocks.append("\n".join(notice))
+    blocks += [
         _scope(report),
         _reference(report),
         render_definitions(),
