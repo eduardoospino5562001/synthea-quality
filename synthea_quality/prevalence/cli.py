@@ -61,7 +61,8 @@ conditions:
 general table:
   every condition code among the alive, by point prevalence. The social and
   administrative codes of list {SOCIAL_LIST_ID} (SDoH screening and medication review)
-  are excluded unless --include-social is given.
+  are excluded unless --include-social is given. --exclude-codes FILE replaces that
+  list with the codes of the file.
 
 exit codes:
   0  the report was written (skipped parts do not change this)
@@ -120,10 +121,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="a reference prevalence (point or lifetime, as a proportion) to show (repeatable)",
     )
-    parser.add_argument(
+    social = parser.add_mutually_exclusive_group()
+    social.add_argument(
         "--include-social",
         action="store_true",
         help="keep the social and administrative codes in the general table",
+    )
+    social.add_argument(
+        "--exclude-codes",
+        metavar="FILE",
+        type=Path,
+        help="replace the built-in social and administrative list with the codes in FILE "
+        "(one code per line, # comments)",
     )
     parser.add_argument(
         "--top",
@@ -174,6 +183,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             age_bands=args.age_bands,
             include_social=args.include_social,
             top=args.top,
+            exclude_codes=args.exclude_codes,
         )
         markdown_path = write_markdown(report, Path(args.output_dir) / MARKDOWN_NAME)
         json_path = write_json(report, Path(args.output_dir) / JSON_NAME)
@@ -218,8 +228,11 @@ def print_summary(report: PrevalenceReport, markdown_path: Path, json_path: Path
         )
     general = report.general
     if general.status is SectionStatus.COMPUTED:
-        social = "included" if general.include_social else "excluded"
-        print(f"General:    {len(general.rows)} codes (social codes {social})")
+        if report.social_list.get("source") == "file":
+            print(f"General:    {len(general.rows)} codes (excluded via {report.social_list.get('path')})")
+        else:
+            social = "included" if general.include_social else "excluded"
+            print(f"General:    {len(general.rows)} codes (social codes {social})")
     else:
         print(f"General:    not computed — {general.reason}")
     for item in report.inputs:
