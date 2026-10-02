@@ -40,20 +40,15 @@ CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-prevalence")
 MI_CODES = ("22298006", "401303003", "401314000")
 #: The four codes the notebook's text search "myocardial infarction" selects on this sample.
 NOTEBOOK_MI_CODES = (*MI_CODES, "399211009")
-#: The 12 fixed codes the Synthea maintainers list as social and administrative.
-EXTERNAL_CODES = (
+#: A mixed list built for the exclusion test: codes of the built-in list, a clinical
+#: code the sample holds that is not on it, a code absent from the sample, and a
+#: duplicate to exercise the duplicate count.
+MIXED_CODES = (
     "314529007",
-    "5251000175109",
-    "424393004",
     "160903007",
-    "706893006",
     "73595000",
-    "160904001",
-    "741062008",
     "10939881000119105",
-    "422650009",
-    "423315002",
-    "266948004",
+    "999999999",
 )
 
 
@@ -191,8 +186,8 @@ def test_an_exclusion_file_matches_an_independent_csv_count(sample, tmp_path_fac
     out = tmp_path_factory.mktemp("prevalence-exclude")
     exclude = out / "external.txt"
     exclude.write_text(
-        "# the 12 fixed codes listed by the Synthea maintainers\n"
-        + "\n".join(EXTERNAL_CODES)
+        "# a mixed exclusion list for the test\n"
+        + "\n".join([*MIXED_CODES, MIXED_CODES[0]])
         + "\n",
         encoding="utf-8",
     )
@@ -216,19 +211,20 @@ def test_an_exclusion_file_matches_an_independent_csv_count(sample, tmp_path_fac
         entry = by_key.setdefault(key, {"patients": set(), "records": 0})
         entry["patients"].add(row["PATIENT"])
         entry["records"] += 1
-    wanted = set(EXTERNAL_CODES)
+    wanted = set(MIXED_CODES)
     excluded = {key: entry for key, entry in by_key.items() if key[1] in wanted}
 
     assert data["social_list"]["source"] == "file"
     assert data["social_list"]["codes"] == len(wanted)
+    assert data["social_list"]["duplicates"] == 1
     assert data["general"]["metrics"]["social_codes_in_data"] == len(excluded)
     assert data["general"]["metrics"]["social_records_in_data"] == sum(
         entry["records"] for entry in excluded.values()
     )
     assert len(data["general"]["rows"]) + len(excluded) == len(by_key)
     assert not any(row["code"] in wanted for row in data["general"]["rows"])
-    # Only 5251000175109 has no record in the sample's conditions.csv at all.
-    assert data["social_list"]["listed_absent_from_data"] == ["5251000175109"]
+    # Only 999999999 has no record in the sample's conditions.csv at all.
+    assert data["social_list"]["listed_absent_from_data"] == ["999999999"]
     assert any(str(exclude) in note for note in data["general"]["notes"])
 
 
