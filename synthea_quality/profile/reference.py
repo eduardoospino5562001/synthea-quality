@@ -113,7 +113,9 @@ def reference_from_metadata(path: str | Path) -> ReferenceDate:
         data = json.loads(file_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
         raise ReferenceDateError(f"metadata file {file_path} could not be read: {exc}") from exc
-    except json.JSONDecodeError as exc:
+    # ValueError is explicit although it is the base of JSONDecodeError: a huge integer
+    # literal fails json.loads with a plain ValueError.
+    except ValueError as exc:
         raise ReferenceDateError(f"metadata file {file_path} is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise ReferenceDateError(f"metadata file {file_path} is not a JSON object")

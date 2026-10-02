@@ -121,6 +121,28 @@ def test_an_unusable_metadata_file_is_an_error_without_traceback(tmp_path, capsy
     assert err.startswith("error: metadata file") and "Traceback" not in err
 
 
+def test_a_metadata_file_with_an_oversized_number_is_invalid_json_without_traceback(
+    tmp_path, capsys
+):
+    metadata = tmp_path / "big.json"
+    metadata.write_text(
+        '{"endTime": "20260101", "exporter.years_of_history": ' + "9" * 5000 + "}",
+        encoding="utf-8",
+    )
+    code = main(
+        [
+            str(dataset(tmp_path / "csv")),
+            "--metadata", str(metadata),
+            "--output-dir", str(tmp_path / "out"),
+        ]
+    )
+    assert code == EXIT_ERROR
+    err = capsys.readouterr().err
+    assert str(metadata) in err and "not valid JSON" in err
+    assert "Traceback" not in err
+    assert not (tmp_path / "out").exists()
+
+
 def test_an_inconsistent_metadata_end_time_is_a_note_not_an_error(tmp_path, capsys):
     metadata = tmp_path / "run.json"
     metadata.write_text(json.dumps({"endTime": "20251231"}), encoding="utf-8")
