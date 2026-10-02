@@ -43,6 +43,7 @@ from typing import Any, Sequence
 import pandas as pd
 
 from synthea_quality.prevalence.definitions import ConditionDefinition
+from synthea_quality.prevalence.exclusion import ExclusionList, codes_absent_from_data
 from synthea_quality.prevalence.models import (
     MEASURES,
     ConditionResult,
@@ -385,11 +386,22 @@ def _label(system: str | None, code: str) -> str:
 
 
 def general_table(
-    records: Records, cohort: Cohort, *, include_social: bool = False, top: int = DEFAULT_TOP
+    records: Records,
+    cohort: Cohort,
+    *,
+    include_social: bool = False,
+    top: int = DEFAULT_TOP,
+    exclude: ExclusionList | None = None,
 ) -> GeneralTable:
-    """Every code with at least one alive patient, by point then lifetime prevalence."""
+    """Every code with at least one alive patient, by point then lifetime prevalence.
+
+    With ``exclude`` the codes of that file are left out instead of the built-in
+    social and administrative list; the two options are mutually exclusive.
+    """
     if top < 1:
         raise ValueError("top must be at least 1")
+    if exclude is not None and include_social:
+        raise ValueError("an exclusion file and --include-social cannot be combined")
     frame = records.frame
     keys = ["SYSTEM", "CODE"]
     grouped = (
@@ -399,12 +411,16 @@ def general_table(
         .fillna({"point": 0})
         .reset_index()
     )
-    grouped["social"] = [
-        is_social(system or None, code) for system, code in zip(grouped["SYSTEM"], grouped["CODE"])
-    ]
+    if exclude is None:
+        grouped["social"] = [
+            is_social(system or None, code) for system, code in zip(grouped["SYSTEM"], grouped["CODE"])
+        ]
+    else:
+        excluded = set(exclude.codes)
+        grouped["social"] = [str(code) in excluded for code in grouped["CODE"]]
     social_records = int(grouped.loc[grouped["social"], "records"].sum())
     social_codes = int(grouped["social"].sum())
-    if not include_social:
+    if exclude is not None or not include_social:
         grouped = grouped[~grouped["social"]]
     grouped = grouped.sort_values(
         ["point", "lifetime", "SYSTEM", "CODE"],
@@ -433,6 +449,31 @@ def general_table(
         "Sorted by point prevalence, then lifetime prevalence, then system and code; the JSON "
         "lists every code.",
     ]
+    if exclude is not None:
+        short = exclude.sha256[:12]
+        notes.append(
+            f"Codes listed in {exclude.path} are excluded: {social_codes} code(s) and "
+            f"{social_records} record(s) of alive patients (file sha256 {short}, "
+            f"{len(exclude.codes)} code(s) listed, {exclude.duplicates} duplicate(s)). "
+            f"Conditions asked for by code are never filtered."
+        )
+        absent = codes_absent_from_data(
+            exclude, {code for _, code in records.table_codes}
+        )
+        if absent:
+            listed = ", ".join(f"`{code}`" for code in absent)
+            notes.append(
+                f"{len(absent)} listed code(s) are not in conditions.csv "
+                f"(any patient, any date): {listed}."
+            )
+        return GeneralTable(
+            status=SectionStatus.COMPUTED,
+            rows=rows,
+            top=top,
+            include_social=False,
+            metrics=metrics,
+            notes=tuple(notes),
+        )
     list_note = (
         f"list {SOCIAL_LIST_ID}: {len(SOCIAL_CODES)} codes written by "
         f"{' and '.join(SOURCE_MODULES)}"

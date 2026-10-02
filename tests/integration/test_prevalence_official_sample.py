@@ -40,6 +40,16 @@ CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-prevalence")
 MI_CODES = ("22298006", "401303003", "401314000")
 #: The four codes the notebook's text search "myocardial infarction" selects on this sample.
 NOTEBOOK_MI_CODES = (*MI_CODES, "399211009")
+#: A mixed list built for the exclusion test: codes of the built-in list, a clinical
+#: code the sample holds that is not on it, a code absent from the sample, and a
+#: duplicate to exercise the duplicate count.
+MIXED_CODES = (
+    "314529007",
+    "160903007",
+    "73595000",
+    "10939881000119105",
+    "999999999",
+)
 
 
 @pytest.fixture(scope="module")
@@ -170,3 +180,88 @@ def test_mi_declared_acute_gets_the_unstopped_records_note(sample, report):
     notebook = condition(report, "MI as in the notebook")
     assert notebook["acute"] is False
     assert not any("for an acute condition" in note for note in notebook["notes"])
+
+
+def test_an_exclusion_file_matches_an_independent_csv_count(sample, tmp_path_factory):
+    out = tmp_path_factory.mktemp("prevalence-exclude")
+    exclude = out / "external.txt"
+    exclude.write_text(
+        "# a mixed exclusion list for the test\n"
+        + "\n".join([*MIXED_CODES, MIXED_CODES[0]])
+        + "\n",
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [*command(), str(sample), "--exclude-codes", str(exclude),
+         "--output-dir", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    data = json.loads((out / "synthea_prevalence.json").read_text(encoding="utf-8"))
+
+    reference = data["reference_date"]["value"]
+    alive = {row["Id"] for row in read(sample, "patients") if not row["DEATHDATE"]}
+    by_key: dict[tuple[str, str], dict] = {}
+    for row in read(sample, "conditions"):
+        if row["PATIENT"] not in alive or not row["START"] or row["START"] > reference:
+            continue
+        key = (row["SYSTEM"], row["CODE"])
+        entry = by_key.setdefault(key, {"patients": set(), "records": 0})
+        entry["patients"].add(row["PATIENT"])
+        entry["records"] += 1
+    wanted = set(MIXED_CODES)
+    excluded = {key: entry for key, entry in by_key.items() if key[1] in wanted}
+
+    assert data["social_list"]["source"] == "file"
+    assert data["social_list"]["codes"] == len(wanted)
+    assert data["social_list"]["duplicates"] == 1
+    assert data["general"]["metrics"]["social_codes_in_data"] == len(excluded)
+    assert data["general"]["metrics"]["social_records_in_data"] == sum(
+        entry["records"] for entry in excluded.values()
+    )
+    assert len(data["general"]["rows"]) + len(excluded) == len(by_key)
+    assert not any(row["code"] in wanted for row in data["general"]["rows"])
+    # Only 999999999 has no record in the sample's conditions.csv at all.
+    assert data["social_list"]["listed_absent_from_data"] == ["999999999"]
+    assert any(str(exclude) in note for note in data["general"]["notes"])
+
+
+def test_the_example_file_matches_the_built_in_list(sample):
+    from synthea_quality.prevalence.build import build_prevalence
+
+    example = Path(__file__).resolve().parent.parent.parent / "examples" / "social_codes.txt"
+    generated_at = "2026-10-02T00:00:00+00:00"
+    plain = build_prevalence(sample, generated_at=generated_at)
+    with_file = build_prevalence(sample, exclude_codes=example, generated_at=generated_at)
+    assert [row.to_dict() for row in with_file.general.rows] == [
+        row.to_dict() for row in plain.general.rows
+    ]
+    assert with_file.general.metrics == plain.general.metrics
+    assert with_file.social_list["source"] == "file"
+    assert plain.social_list["source"] == "built-in"
+
+    # Independent anchor with csv only: the excluded codes and records of the file
+    # match the report's metrics.
+    wanted = set()
+    for line in example.read_text(encoding="utf-8").splitlines():
+        code = line.split("#", 1)[0].strip()
+        if code:
+            wanted.add(code)
+    reference = with_file.to_dict()["reference_date"]["value"]
+    alive = {row["Id"] for row in read(sample, "patients") if not row["DEATHDATE"]}
+    by_key: dict[tuple[str, str], dict] = {}
+    for row in read(sample, "conditions"):
+        if row["PATIENT"] not in alive or not row["START"] or row["START"] > reference:
+            continue
+        key = (row["SYSTEM"], row["CODE"])
+        entry = by_key.setdefault(key, {"patients": set(), "records": 0})
+        entry["patients"].add(row["PATIENT"])
+        entry["records"] += 1
+    excluded = {key: entry for key, entry in by_key.items() if key[1] in wanted}
+    assert with_file.general.metrics["social_codes_in_data"] == len(excluded)
+    assert with_file.general.metrics["social_records_in_data"] == sum(
+        entry["records"] for entry in excluded.values()
+    )
+    assert len(with_file.general.rows) + len(excluded) == len(by_key)

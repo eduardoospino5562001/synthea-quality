@@ -1,0 +1,28 @@
+# Social and administrative condition codes excluded by default by synthea-prevalence.
+# Every condition code written by two Synthea modules, extracted from Synthea commit
+# d9d07a6e: encounter/sdoh_hrsn.json (20 codes) and med_rec.json (1 code).
+# One code per line; matching is by CODE in any SYSTEM. This file holds the same
+# codes as the built-in list synthea-d9d07a6e-social-1, so running with
+# --exclude-codes examples/social_codes.txt gives the same general table.
+# A # starts a comment; blank lines are ignored; repeated codes are counted.
+105531004 # Housing unsatisfactory (finding)
+1187604002 # Serving in military service (finding)
+160701002 # Social migrant (finding)
+160903007 # Full-time employment (finding)
+160904001 # Part-time employment (finding)
+224295006 # Only received primary school education (finding)
+224299000 # Received higher education (finding)
+266934004 # Transport problem (finding)
+266948004 # Has a criminal record (finding)
+314529007 # Medication review due (situation)
+32911000 # Homeless (finding)
+422650009 # Social isolation (finding)
+423315002 # Limited social contact (finding)
+424393004 # Reports of violence in the environment (finding)
+446654005 # Refugee (person)
+473461003 # Educated to high school level (finding)
+706893006 # Victim of intimate partner abuse (finding)
+713458007 # Lack of access to transportation (finding)
+73438004 # Unemployed (finding)
+73595000 # Stress (finding)
+741062008 # Not in labor force (finding)
