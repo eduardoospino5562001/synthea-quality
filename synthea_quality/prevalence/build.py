@@ -29,6 +29,7 @@ from synthea_quality.prevalence.compute import (
     prepare_records,
 )
 from synthea_quality.prevalence.definitions import ConditionDefinition
+from synthea_quality.prevalence.exclusion import ExclusionList, codes_absent_from_data, read_exclusion_file
 from synthea_quality.prevalence.models import (
     ConditionResult,
     GeneralTable,
@@ -52,19 +53,27 @@ def build_prevalence(
     age_bands: Sequence[int] = DEFAULT_AGE_BANDS,
     include_social: bool = False,
     top: int = DEFAULT_TOP,
+    exclude_codes: str | Path | None = None,
     discovery: DiscoveryResult | None = None,
     generated_at: str | None = None,
 ) -> PrevalenceReport:
     """Compute the prevalence of ``definitions`` and the general table for ``data_dir``.
 
+    With ``exclude_codes`` the codes of that file are left out of the general table
+    instead of the built-in social and administrative list.
+
     :raises ValueError: invalid age bands or ``top``, or both ``reference_date`` and
-        ``metadata``.
+        ``metadata``, or both ``include_social`` and ``exclude_codes``.
     :raises EmptyDatasetError: the directory holds none of the known tables.
     :raises ReferenceDateError: the explicit date or metadata file cannot be used.
+    :raises ExclusionListError: the exclusion file cannot be used as given.
     """
     bands = validate_age_bands(age_bands)
     if top < 1:
         raise ValueError("top must be at least 1")
+    if include_social and exclude_codes is not None:
+        raise ValueError("give either --include-social or --exclude-codes, not both")
+    exclusion = read_exclusion_file(exclude_codes) if exclude_codes is not None else None
     context = open_dataset(
         data_dir,
         tables=PREVALENCE_TABLES,
@@ -84,12 +93,26 @@ def build_prevalence(
         inputs.append(resolution.encounters)
     inputs.append(conditions_input)
 
+    if exclusion is None:
+        social_list: dict = describe_list()
+    else:
+        described = exclusion.describe()
+        if conditions is None:
+            # No table to compare with: every listed code is absent from the data.
+            described["listed_absent_from_data"] = list(exclusion.codes)
+        else:
+            present = {str(code) for code in conditions["CODE"].dropna().unique()}
+            described["listed_absent_from_data"] = list(
+                codes_absent_from_data(exclusion, present)
+            )
+        social_list = described
+
     common = dict(
         data_dir=str(context.data_dir),
         reference_date=resolution.reference,
         reference_reason=resolution.reason,
         age_bands=bands,
-        social_list=describe_list(),
+        social_list=social_list,
         inputs=tuple(inputs),
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
@@ -121,11 +144,22 @@ def build_prevalence(
     assert reference is not None
     cohort = build_cohort(patients, reference, bands)
     records = prepare_records(conditions, cohort, reference)
+    if exclusion is not None:
+        # The absent list is recomputed over the whole table (any patient, any date),
+        # the scope the general table uses for its own note; the early return above
+        # only covers a missing conditions table.
+        present = {str(code) for _, code in records.table_codes}
+        social_list = {
+            **exclusion.describe(),
+            "listed_absent_from_data": list(codes_absent_from_data(exclusion, present)),
+        }
     return PrevalenceReport(
         alive=cohort.size,
         conditions=tuple(condition_prevalence(d, records, cohort) for d in definitions),
-        general=general_table(records, cohort, include_social=include_social, top=top),
+        general=general_table(
+            records, cohort, include_social=include_social, top=top, exclude=exclusion
+        ),
         notes=(*resolution.notes, *cohort.notes),
-        **common,
+        **{**common, "social_list": social_list},
     )
 

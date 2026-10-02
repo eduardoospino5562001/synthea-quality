@@ -201,6 +201,7 @@ def describe_list() -> dict[str, Any]:
     """The list's identity and provenance, as recorded in a report."""
     return {
         "id": SOCIAL_LIST_ID,
+        "source": "built-in",
         "synthea_commit": SYNTHEA_COMMIT,
         "source_modules": list(SOURCE_MODULES),
         "codes": len(SOCIAL_CODES),

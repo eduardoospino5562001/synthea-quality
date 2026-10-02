@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,7 +41,6 @@ CODE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*$")
 
 class ExclusionListError(SyntheaQualityError):
     """An exclusion file cannot be used as given."""
-
 
 @dataclass(frozen=True, slots=True)
 class ExclusionList:
@@ -120,3 +120,17 @@ def read_exclusion_file(path: str | Path) -> ExclusionList:
         codes=tuple(ordered),
         duplicates=duplicates,
     )
+
+
+def codes_absent_from_data(
+    exclusion: ExclusionList, present: Iterable[str],
+) -> tuple[str, ...]:
+    """The listed codes with no record in the data, in stable (sorted) order.
+
+    ``present`` is the codes the dataset holds (whatever the system): a listed code
+    matches by CODE alone, as the exclusion itself does. Absent means not in
+    ``conditions.csv`` at all (any patient, any date), the same scope the prevalence
+    uses when it says a condition code has no record.
+    """
+    present_set = set(present)
+    return tuple(code for code in exclusion.codes if code not in present_set)
