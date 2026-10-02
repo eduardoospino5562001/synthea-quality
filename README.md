@@ -586,7 +586,8 @@ prediabetes and obesity and keep `Medication review due (situation)` and `Refuge
 `synthea-d9d07a6e-social-1`, and recorded in every report with the modules that write each
 code. Substance use and anxiety screening findings are clinical and stay in the table.
 
-`--exclude-codes FILE` replaces that list with the codes of the file: one code per
+`--exclude-codes FILE` replaces that list with the codes of the file (UTF-8, with or
+without BOM): one code per
 line, `#` starting a comment (whole line or trailing), blank lines ignored, and anything
 else on the line an error, so a stray column is never silently dropped. The match is by
 `CODE` alone, in any `SYSTEM`; repeated codes are kept once and counted, and a file with

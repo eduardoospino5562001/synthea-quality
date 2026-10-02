@@ -93,6 +93,13 @@ def test_a_non_utf8_file_is_an_error(tmp_path):
         read_exclusion_file(path)
 
 
+def test_a_utf8_bom_is_accepted(tmp_path):
+    plain = write_list(tmp_path, "plain.txt", "73595000 # Stress\n160903007\n")
+    bom = tmp_path / "bom.txt"
+    bom.write_bytes(b"\xef\xbb\xbf" + plain.read_bytes())
+    assert read_exclusion_file(bom).codes == read_exclusion_file(plain).codes
+
+
 def test_absent_codes_are_listed_in_stable_order():
     from synthea_quality.prevalence.exclusion import ExclusionList
 

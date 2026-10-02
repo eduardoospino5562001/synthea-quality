@@ -6,7 +6,7 @@ The maintainers of Synthea say there is no easy way to identify such codes, so t
 tool accepts ``--exclude-codes FILE``, which **replaces** the built-in list: the codes
 of the file are left out instead.
 
-File format (UTF-8 text, one entry per line):
+File format (UTF-8 text, with or without a BOM, one entry per line):
 
 * the **first token** of a line is the code; a ``#`` starts a comment (a whole line or
   the end of one); blank lines are ignored;
@@ -82,7 +82,7 @@ def read_exclusion_file(path: str | Path) -> ExclusionList:
             f"exclusion file {file_path} could not be read: {exc}"
         ) from exc
     try:
-        text = raw.decode("utf-8")
+        text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ExclusionListError(
             f"exclusion file {file_path} is not UTF-8: {exc}"
