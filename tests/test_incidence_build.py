@@ -96,6 +96,19 @@ def test_history_unknown_without_metadata(tmp_path):
     assert any("exported history is unknown" in note for note in report.notes)
 
 
+def test_history_unknown_with_metadata_names_the_file_instead_of_asking_for_it(tmp_path):
+    metadata = tmp_path / "run.json"
+    metadata.write_text(json.dumps({"endTime": "20260101"}), "utf-8")
+    report = build_incidence(dataset(tmp_path / "csv"), definitions=MI, metadata=metadata)
+    assert report.history["years_of_history"] is None
+    assert any(
+        "exported history is unknown" in note
+        and str(metadata) in note
+        and "use --metadata" not in note
+        for note in report.notes
+    )
+
+
 @pytest.mark.parametrize(
     "years, window, expected",
     [

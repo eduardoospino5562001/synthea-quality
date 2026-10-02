@@ -18,6 +18,7 @@ from synthea_quality.incidence.models import (
     IncidenceReport,
     IncidenceStratum,
 )
+from synthea_quality.export_history import notice_lines
 from synthea_quality.profile.models import InputState, SectionStatus
 
 MARKDOWN_NAME = "synthea_incidence.md"
@@ -54,6 +55,11 @@ def render_markdown(report: IncidenceReport) -> str:
         "This report **describes** how often new cases of each condition appear, per 1,000 "
         "person-years. It states no verdict: a reference value is shown next to the observed "
         "rate, inside or outside its 95% confidence interval, and nothing more.",
+    ]
+    notice = notice_lines(report.export_history)
+    if notice:
+        blocks.append("\n".join(notice))
+    blocks += [
         _scope(report),
         _reference(report),
         _window(report),

@@ -18,6 +18,7 @@ from typing import Sequence
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
+from synthea_quality.export_history import read_export_history
 from synthea_quality.prevalence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_TOP,
@@ -114,6 +115,7 @@ def build_prevalence(
         age_bands=bands,
         social_list=social_list,
         inputs=tuple(inputs),
+        export_history=read_export_history(metadata, context.reference),
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
 

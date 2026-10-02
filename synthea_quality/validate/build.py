@@ -31,6 +31,7 @@ from typing import Sequence
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
+from synthea_quality.export_history import read_export_history
 from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
@@ -142,6 +143,7 @@ def build_module_validation(
         history=history,
         inputs=tuple(inputs),
         notes=tuple(notes),
+        export_history=read_export_history(metadata, reference),
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
 

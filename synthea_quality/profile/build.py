@@ -33,6 +33,7 @@ import pandas as pd
 
 from synthea_quality.discovery import DiscoveryResult, discover_dataset
 from synthea_quality.errors import EmptyDatasetError, TableLoadError
+from synthea_quality.export_history import read_export_history
 from synthea_quality.loader import DatasetLoader, load_table, read_header
 from synthea_quality.profile.codes import (
     CLINICAL_TABLES,
@@ -170,6 +171,7 @@ def build_profile(
         sections=sections,
         inputs=tuple(inputs),
         notes=resolution.notes,
+        export_history=read_export_history(metadata, reference),
         **extra,
     )
 

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from synthea_quality import __version__
+from synthea_quality.export_history import ExportHistory
 from synthea_quality.models import utc_now_iso
 from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
 
@@ -303,6 +304,8 @@ class PrevalenceReport:
     social_list: dict[str, Any]
     inputs: tuple[TableInput, ...] = ()
     notes: tuple[str, ...] = ()
+    #: What the metadata file says about the exported history (no notice without it).
+    export_history: ExportHistory = field(default_factory=ExportHistory.no_metadata)
     generated_at: str = field(default_factory=utc_now_iso)
     tool_version: str = __version__
 
@@ -330,6 +333,7 @@ class PrevalenceReport:
             "inputs": [item.to_dict() for item in self.inputs],
             "notes": list(self.notes),
             "social_list": _sorted(self.social_list),
+            "export_history": self.export_history.to_dict(),
             "conditions": [condition.to_dict() for condition in self.conditions],
             "general": self.general.to_dict(),
         }

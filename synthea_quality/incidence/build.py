@@ -16,7 +16,6 @@ gives the earliest condition record it saw.
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
@@ -25,6 +24,7 @@ import pandas as pd
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
+from synthea_quality.export_history import read_export_history, synthea_cutoff
 from synthea_quality.incidence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_WINDOW_YEARS,
@@ -103,6 +103,7 @@ def build_incidence(
 
     reference = context.reference
     history = export_history(metadata, conditions, reference, window_years)
+    exported = read_export_history(metadata, reference)
     notes = [*resolution.notes, population_note(population), *history.pop("notes")]
     common: dict[str, Any] = dict(
         data_dir=str(context.data_dir),
@@ -112,6 +113,7 @@ def build_incidence(
         age_bands=bands,
         history=history,
         inputs=tuple(inputs),
+        export_history=exported,
         **({"generated_at": generated_at} if generated_at is not None else {}),
     )
     if reason is not None:
@@ -158,7 +160,8 @@ def export_history(
     window_years: int,
 ) -> dict[str, Any]:
     """What is known about the exported history, and the notes it calls for."""
-    years = _years_of_history(metadata)
+    exported = read_export_history(metadata, reference)
+    years = exported.years
     earliest = None
     if conditions is not None and len(conditions):
         starts = parse_date_only(conditions["START"]).values.dropna()
@@ -174,9 +177,16 @@ def export_history(
         return history
     start = window_start(reference, window_years)
     if years is None:
+        if metadata is None:
+            why = f"{YEARS_OF_HISTORY_KEY} is only in Synthea's run metadata; use --metadata"
+        else:
+            why = (
+                f"the metadata file `{exported.metadata_file}` has no usable "
+                f"{YEARS_OF_HISTORY_KEY}"
+            )
         notes.append(
-            f"The exported history is unknown ({YEARS_OF_HISTORY_KEY} is only in Synthea's run "
-            f"metadata; use --metadata). Synthea exports {SYNTHEA_DEFAULT_YEARS_OF_HISTORY} "
+            f"The exported history is unknown ({why}). Synthea exports "
+            f"{SYNTHEA_DEFAULT_YEARS_OF_HISTORY} "
             f"years by default, and a condition that ended before then is not in the files, "
             f"so a prior case could be counted as new. The earliest condition record here "
             f"starts on {earliest or 'no date'}."
@@ -184,7 +194,7 @@ def export_history(
     elif years == 0:
         notes.append(f"{YEARS_OF_HISTORY_KEY} = 0: the whole history was exported.")
     else:
-        horizon = window_start(reference, years)
+        horizon = synthea_cutoff(reference, years)
         if start < horizon:
             notes.append(
                 f"The window starts on {start.isoformat()}, before the exported history "
@@ -200,19 +210,4 @@ def export_history(
             )
     history["notes"] = notes
     return history
-
-
-def _years_of_history(metadata: str | Path | None) -> int | None:
-    """``exporter.years_of_history`` from a Synthea metadata file, when it is there."""
-    if metadata is None:
-        return None
-    try:
-        data = json.loads(Path(metadata).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return None  # the reference-date resolution already reported the file
-    value = data.get(YEARS_OF_HISTORY_KEY) if isinstance(data, dict) else None
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
 

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from synthea_quality import __version__
+from synthea_quality.export_history import ExportHistory
 from synthea_quality.incidence.models import ConditionIncidence, Window
 from synthea_quality.models import utc_now_iso
 from synthea_quality.medications.definitions import MedicationDefinition, load_medications
@@ -173,6 +174,8 @@ class ModuleValidationReport:
     cohort: dict[str, Any] = field(default_factory=dict)
     inputs: tuple[TableInput, ...] = ()
     notes: tuple[str, ...] = ()
+    #: The metadata file's exported history as read in one place (drives the top notice).
+    export_history: ExportHistory = field(default_factory=ExportHistory.no_metadata)
     generated_at: str = field(default_factory=utc_now_iso)
     tool_version: str = __version__
 
@@ -198,6 +201,7 @@ class ModuleValidationReport:
             "cohort": _sorted(self.cohort),
             "inputs": [item.to_dict() for item in self.inputs],
             "notes": list(self.notes),
+            "export_history": self.export_history.to_dict(),
             "population": [section.to_dict() for section in self.population],
             "conditions": [condition.to_dict() for condition in self.conditions],
             "observations": [item.to_dict() for item in self.observations],

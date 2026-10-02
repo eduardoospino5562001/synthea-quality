@@ -20,6 +20,7 @@ from synthea_quality.prevalence.models import (
     Rate,
     Stratum,
 )
+from synthea_quality.export_history import notice_lines
 from synthea_quality.profile.models import InputState, SectionStatus
 
 MARKDOWN_NAME = "synthea_prevalence.md"
@@ -52,6 +53,11 @@ def render_markdown(report: PrevalenceReport) -> str:
         "simulation have each condition. It states no verdict: a value given as expected is "
         "shown next to the observed one, inside or outside its 95% confidence interval, and "
         "nothing more. Incidence is not computed here.",
+    ]
+    notice = notice_lines(report.export_history)
+    if notice:
+        blocks.append("\n".join(notice))
+    blocks += [
         _scope(report),
         _reference(report),
         _definitions(),
