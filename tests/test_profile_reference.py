@@ -79,7 +79,7 @@ def test_timestamps_require_the_confirmed_iso_shape():
 
 
 def test_date_parsing_rejects_non_ascii_digits() -> None:
-    """``\\d`` matches Unicode digits; only ASCII ``[0-9]`` parses as a date."""
+    """Non-ASCII digits stay unparseable: strptime already rejected them, and the ASCII shape check now agrees."""
     assert parse_date_only(text("٢٠٢٠-٠١-٠١")).unparseable == 1
     assert parse_date_only(text("٢٠٢٠-٠١-٠١")).valid == 0
     assert parse_date_only(text("２０２０-０１-０１")).unparseable == 1
@@ -87,7 +87,7 @@ def test_date_parsing_rejects_non_ascii_digits() -> None:
 
 
 def test_timestamp_parsing_rejects_non_ascii_digits() -> None:
-    """Timestamps written with non-ASCII digits do not parse."""
+    """Non-ASCII timestamp digits stay unparseable: strptime rejected them; the ASCII check agrees."""
     assert parse_timestamps(text("٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z")).unparseable == 1
     assert parse_timestamps(text("٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z")).valid == 0
     assert parse_timestamps(text("２０２０-０１-０１T００:００:００Z")).unparseable == 1
