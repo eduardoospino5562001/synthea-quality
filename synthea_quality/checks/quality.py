@@ -50,7 +50,7 @@ from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table
 from synthea_quality.models import DEFAULT_SAMPLE_LIMIT, CheckResult, Severity, Status
 from synthea_quality.schema.keys import primary_key_for
-from synthea_quality.schema.quality import DateColumn, date_columns_for
+from synthea_quality.schema.quality import PATTERN_FLAGS, DateColumn, date_columns_for
 from synthea_quality.schema.tables import SYNTHEA_TABLES
 from synthea_quality.structure import StructureReport, gate_reason, validate_tables
 
@@ -309,7 +309,7 @@ def check_date_values(
         )
 
     text = target.astype(str)
-    matches = text.str.fullmatch(rule.format.pattern).fillna(False)
+    matches = text.str.fullmatch(rule.format.pattern, flags=PATTERN_FLAGS).fillna(False)
     invalid = int((~matches).sum())
     valid = total - invalid
     invalid_pct = round(100.0 * invalid / total, 6)

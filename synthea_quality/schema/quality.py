@@ -32,9 +32,16 @@ birth before death, events before birth) belongs to the temporal checks.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from synthea_quality.schema.tables import TableSpec, tables_by_name
+
+#: Flags for matching the date patterns: ASCII-only, so ``\d`` means ``[0-9]``.
+#: Without it ``\d`` also matches Unicode digits (e.g. "٢٠٢٠-٠١-٠١"), which
+#: Synthea never writes. The pattern text itself is unchanged: it appears in
+#: the documentation of the rules and in the reports.
+PATTERN_FLAGS = re.ASCII
 
 #: ``YYYY-MM-DD``: what the dictionary documents for these columns and what
 #: ``CSVExporter.dateFromTimestamp`` writes.
