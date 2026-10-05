@@ -546,3 +546,39 @@ def test_a_directory_named_like_a_table_is_reported_without_failing_the_dataset(
     assert "encounters" in report["dataset"]["missing_known_tables"]
     assert report["dataset"]["load_errors"] == []
     assert not [check for check in report["checks"] if check["status"] == "FAIL"]
+
+
+# --------------------------------------------------------------------------- #
+# A header that cannot be used is recorded, and the run is incomplete
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("Id,Id\n1,2\n", "duplicate column name"),
+        ("\n", "empty header line"),
+    ],
+)
+def test_an_unusable_header_is_recorded_and_the_run_fails(
+    tmp_path: Path, text: str, reason: str
+) -> None:
+    """A table whose columns cannot be named must not produce a verdict.
+
+    Measured before the fix: ``Id,Id`` reported a false ``pk.patients.Id`` PASS
+    with exit 0, and a blank header reported 155 SKIPPED with exit 0.
+    """
+    dataset = tmp_path / "dataset"
+    dataset.mkdir()
+    (dataset / "patients.csv").write_text(text, encoding="utf-8", newline="")
+    output = tmp_path / "out"
+
+    code = main([str(dataset), "--output-dir", str(output)])
+
+    assert code == EXIT_ERROR
+    report = json.loads((output / JSON_NAME).read_text(encoding="utf-8"))
+    assert [error["table"] for error in report["dataset"]["load_errors"]] == ["patients"]
+    assert reason in report["dataset"]["load_errors"][0]["reason"]
+    patients = [check for check in report["checks"] if check["table"] == "patients"]
+    assert patients
+    assert all(check["status"] != "PASS" for check in patients)

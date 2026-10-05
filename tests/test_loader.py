@@ -225,8 +225,34 @@ def test_unterminated_quote_is_rejected(tmp_path: Path) -> None:
 def test_duplicate_column_names_in_the_header_are_rejected(tmp_path: Path) -> None:
     path = write_text(tmp_path, "patients.csv", "Id,Id\n1,2\n")
 
-    with pytest.raises(TableLoadError, match="verbatim"):
+    with pytest.raises(TableLoadError, match="duplicate column name"):
         load_table(path)
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("Id,Id\n1,2\n", "duplicate column name"),
+        ("\n", "empty header line"),
+        (",\n", "empty header line"),
+        ("   \n", "empty header line"),
+        ("Id,\n1,2\n", "empty column name at position 2"),
+        ("Id, Id\n1,2\n", "duplicate column name"),
+    ],
+)
+def test_read_header_rejects_headers_that_cannot_be_used(
+    tmp_path: Path, text: str, reason: str
+) -> None:
+    """A header with no usable column names cannot be attributed to any column.
+
+    Measured before the fix: ``read_header`` returned these rows verbatim, so
+    ``patients.csv = Id,Id`` reported a false ``pk.patients.Id`` PASS and a
+    blank header reported 155 SKIPPED with exit 0 instead of an error.
+    """
+    path = write_text(tmp_path, "patients.csv", text)
+
+    with pytest.raises(TableLoadError, match=reason):
+        read_header(path)
 
 
 def test_requesting_a_column_that_does_not_exist_is_an_error(tmp_path: Path) -> None:
