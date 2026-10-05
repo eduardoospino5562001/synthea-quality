@@ -231,6 +231,21 @@ def test_conditions_of_only_deceased_patients_leave_an_empty_general_table(tmp_p
     assert condition["lifetime"]["numerator"] == 0
 
 
+def test_header_only_conditions_with_an_exclusion_file_writes_an_empty_general_table(tmp_path):
+    directory = dataset(tmp_path / "csv")
+    write_table(directory, "conditions", [])
+    exclude = tmp_path / "exclude.txt"
+    exclude.write_text("59621000\n", encoding="utf-8")
+    out = tmp_path / "out"
+    assert main(
+        [str(directory), "--exclude-codes", str(exclude), "--output-dir", str(out)]
+    ) == EXIT_OK
+    assert (out / MARKDOWN_NAME).is_file()
+    data = read(out)
+    assert data["general"]["status"] == "COMPUTED"
+    assert data["general"]["rows"] == []
+
+
 def test_version(capsys):
     with pytest.raises(SystemExit) as raised:
         main(["--version"])
