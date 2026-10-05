@@ -73,7 +73,7 @@ class LoadedTable:
 
     table: str
     path: Path
-    #: Header exactly as written in the file (BOM stripped, duplicates preserved).
+    #: Header exactly as written in the file (BOM stripped).
     header: tuple[str, ...]
     frame: pd.DataFrame
     #: Deviations worth reporting, e.g. a column subset was loaded.
@@ -92,11 +92,14 @@ def read_header(path: str | Path) -> tuple[str, ...]:
     """Return the header line of a CSV file, verbatim.
 
     Reads with the standard library rather than pandas so the result is exactly
-    what the file contains: a BOM is stripped, but duplicate column names and
-    unusual spacing are preserved for the caller to report.
+    what the file contains: a BOM is stripped, but unusual spacing is preserved.
+    A header that cannot be attributed to columns is rejected, so no caller can
+    mistake it for a usable table: one with no names at all, a blank name, or a
+    repeated name (compared after stripping surrounding whitespace).
 
     :raises TableLoadError: the file is missing, is not a regular file, is empty,
-        is not UTF-8, or its header cannot be parsed as CSV.
+        is not UTF-8, its header cannot be parsed as CSV, or its header has no
+        usable column names (empty line, blank or duplicate names).
     """
     file_path = _check_readable_file(path)
     try:
@@ -111,7 +114,33 @@ def read_header(path: str | Path) -> tuple[str, ...]:
 
     if row is None:
         raise TableLoadError(f"{file_path} is empty (no header line)")
-    return tuple(row)
+    header = tuple(row)
+    _validate_header(file_path, header)
+    return header
+
+
+def _validate_header(file_path: Path, header: tuple[str, ...]) -> None:
+    """Reject a header whose column names cannot be attributed to columns.
+
+    A blank line, a line of only commas or spaces, a blank name, or a repeated
+    name would let a check attribute values to the wrong column or report a false
+    verdict about a table that was never readable, so it is an error, not data.
+    """
+    stripped = [name.strip() for name in header]
+    if not stripped or all(name == "" for name in stripped):
+        raise TableLoadError(f"{file_path} has an empty header line")
+    for position, name in enumerate(stripped, start=1):
+        if name == "":
+            raise TableLoadError(f"{file_path} has an empty column name at position {position}")
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for name in stripped:
+        if name in seen:
+            duplicates.add(name)
+        else:
+            seen.add(name)
+    if duplicates:
+        raise TableLoadError(f"{file_path} has duplicate column name(s) {sorted(duplicates)}")
 
 
 def load_table(
