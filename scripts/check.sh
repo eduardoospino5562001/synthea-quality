@@ -62,15 +62,22 @@ else
 fi
 
 echo "== check.sh ($MODE): mypy against baseline =="
+RAW="$(mktemp)"
 ACTUAL="$(mktemp)"
-trap 'rm -f "$ACTUAL"' EXIT
-("$MYPY" 2>&1 || true) | grep ": error:" | sed -E 's/^([^:]+):[0-9]+: error:/\1: error:/' | LC_ALL=C sort > "$ACTUAL"
-if [ ! -f "$BASELINE" ]; then
+trap 'rm -f "$RAW" "$ACTUAL"' EXIT
+mypy_status=0
+"$MYPY" > "$RAW" 2>&1 || mypy_status=$?
+if [ "$mypy_status" -gt 1 ]; then
+  echo "mypy: FAILED (mypy could not run, exit $mypy_status)"
+  cat "$RAW"
+  failures=$((failures + 1))
+elif [ ! -f "$BASELINE" ]; then
   echo "mypy: FAILED (missing baseline $BASELINE)" >&2
   failures=$((failures + 1))
 else
+  { grep ": error:" "$RAW" || true; } | sed -E 's/^([^:]+):[0-9]+: error:/\1: error:/' | LC_ALL=C sort > "$ACTUAL"
   NEW_ERRORS="$(mktemp)"
-  trap 'rm -f "$ACTUAL" "$NEW_ERRORS"' EXIT
+  trap 'rm -f "$RAW" "$ACTUAL" "$NEW_ERRORS"' EXIT
   LC_ALL=C comm -13 "$BASELINE" "$ACTUAL" > "$NEW_ERRORS" || true
   if [ -s "$NEW_ERRORS" ]; then
     echo "mypy: FAILED (new errors not in baseline):"
@@ -80,7 +87,7 @@ else
     echo "mypy: clean (no new errors versus baseline)"
   fi
   SHRUNK="$(mktemp)"
-  trap 'rm -f "$ACTUAL" "$NEW_ERRORS" "$SHRUNK"' EXIT
+  trap 'rm -f "$RAW" "$ACTUAL" "$NEW_ERRORS" "$SHRUNK"' EXIT
   LC_ALL=C comm -23 "$BASELINE" "$ACTUAL" > "$SHRUNK" || true
   if [ -s "$SHRUNK" ]; then
     count="$(wc -l < "$SHRUNK" | tr -d ' ')"
@@ -99,21 +106,20 @@ if [ "$MODE" = "all" ]; then
   fi
 else
   PY_CHANGED="$(printf '%s\n' "$CHANGED" | grep -E '\.py$' || true)"
-  if [ -z "$PY_CHANGED" ]; then
+  if printf '%s\n' "$CHANGED" | grep -qx "pyproject.toml"; then
+    echo "pyproject.toml changed: running full fast suite"
+    if "$PYTEST" -q -m "not integration"; then
+      echo "tests: clean (full suite)"
+    else
+      echo "tests: FAILED (full suite)"
+      failures=$((failures + 1))
+    fi
+  elif [ -z "$PY_CHANGED" ]; then
     echo "tests: skipped (no Python files changed)"
   else
-    if printf '%s\n' "$CHANGED" | grep -qx "pyproject.toml"; then
-      echo "pyproject.toml changed: running full fast suite"
-      if "$PYTEST" -q -m "not integration"; then
-        echo "tests: clean (full suite)"
-      else
-        echo "tests: FAILED (full suite)"
-        failures=$((failures + 1))
-      fi
-    else
-      TESTS=""
-      NEED_FULL=0
-      while IFS= read -r f; do
+    TESTS=""
+    NEED_FULL=0
+    while IFS= read -r f; do
         [ -z "$f" ] && continue
         case "$f" in
           tests/*.py)
@@ -171,7 +177,6 @@ else
           failures=$((failures + 1))
         fi
       fi
-    fi
   fi
 fi
 
