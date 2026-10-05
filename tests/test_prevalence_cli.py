@@ -157,6 +157,80 @@ def test_an_unreadable_table_writes_an_incomplete_report_and_exits_two(tmp_path)
     assert "This report is incomplete" in (out / MARKDOWN_NAME).read_text("utf-8")
 
 
+def test_header_only_conditions_writes_a_report_with_an_empty_general_table(tmp_path):
+    directory = dataset(tmp_path / "csv")
+    write_table(directory, "conditions", [])
+    out = tmp_path / "out"
+    assert main(
+        [str(directory), "--condition", "Missing=999999", "--output-dir", str(out)]
+    ) == EXIT_OK
+    assert (out / MARKDOWN_NAME).is_file()
+    data = read(out)
+    assert data["general"]["status"] == "COMPUTED"
+    assert data["general"]["rows"] == []
+    assert isinstance(data["general"]["metrics"]["codes"], int)
+    (condition,) = data["conditions"]
+    assert condition["point"]["numerator"] == 0
+    assert condition["point"]["denominator"] == 2
+    assert isinstance(condition["point"]["numerator"], int)
+    assert isinstance(condition["lifetime"]["numerator"], int)
+    assert any("No record of" in note and "999999" in note for note in condition["notes"])
+
+
+def test_conditions_after_the_reference_leave_an_empty_general_table(tmp_path):
+    directory = dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "a1", "CODE": "59621000", "SYSTEM": SNOMED,
+             "START": "2027-01-01", "DESCRIPTION": "Essential hypertension (disorder)"},
+        ],
+    )
+    out = tmp_path / "out"
+    assert main(
+        [str(directory), "--condition", "Hypertension=59621000",
+         "--output-dir", str(out)]
+    ) == EXIT_OK
+    data = read(out)
+    assert data["general"]["status"] == "COMPUTED"
+    assert data["general"]["rows"] == []
+    (condition,) = data["conditions"]
+    assert (condition["point"]["numerator"], condition["lifetime"]["numerator"]) == (0, 0)
+
+
+def test_conditions_of_only_deceased_patients_leave_an_empty_general_table(tmp_path):
+    directory = tmp_path / "csv"
+    write_table(
+        directory,
+        "patients",
+        [
+            {"Id": "d1", "BIRTHDATE": "1950-01-01", "DEATHDATE": "2020-01-01",
+             "GENDER": "M"},
+        ],
+    )
+    write_table(directory, "encounters", [{"Id": "e1", "START": "2026-01-01T00:00:00Z"}])
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "d1", "CODE": "59621000", "SYSTEM": SNOMED, "START": "2010-01-01",
+             "DESCRIPTION": "Essential hypertension (disorder)"},
+        ],
+    )
+    out = tmp_path / "out"
+    assert main(
+        [str(directory), "--condition", "Hypertension=59621000",
+         "--output-dir", str(out)]
+    ) == EXIT_OK
+    data = read(out)
+    assert data["general"]["status"] == "COMPUTED"
+    assert data["general"]["rows"] == []
+    (condition,) = data["conditions"]
+    assert condition["point"]["numerator"] == 0
+    assert condition["lifetime"]["numerator"] == 0
+
+
 def test_version(capsys):
     with pytest.raises(SystemExit) as raised:
         main(["--version"])

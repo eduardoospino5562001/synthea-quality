@@ -17,6 +17,7 @@ from synthea_quality.prevalence.compute import (
 )
 from synthea_quality.prevalence.definitions import ConditionDefinition, parse_condition_option
 from synthea_quality.prevalence.models import SNOMED_CT, CodeRef, Expected
+from synthea_quality.profile.models import SectionStatus
 
 REF = date(2026, 8, 17)
 BANDS = (0, 18, 65)
@@ -339,3 +340,36 @@ def test_patients_with_is_the_numerator_of_each_measure():
     assert sorted(patients_with(definition, records)) == ["a1"]  # point by default
     with pytest.raises(ValueError):
         patients_with(definition, records, "incidence")
+
+
+# --------------------------------------------------------------------------- #
+# no condition records in range (header-only, after the reference, deceased)
+# --------------------------------------------------------------------------- #
+
+
+def test_general_table_with_no_condition_rows_is_computed_and_empty():
+    table = general([])
+    assert table.status is SectionStatus.COMPUTED
+    assert table.rows == ()
+    assert table.metrics["codes"] == 0
+
+
+def test_general_table_with_all_records_after_the_reference_is_empty():
+    table = general([{"PATIENT": "a1", "CODE": "100", "START": "2027-01-01"}])
+    assert table.status is SectionStatus.COMPUTED
+    assert table.rows == ()
+    assert table.metrics["codes"] == 0
+
+
+def test_general_table_with_only_deceased_records_is_empty():
+    table = general([{"PATIENT": "d1", "CODE": "100", "START": "2010-01-01"}])
+    assert table.status is SectionStatus.COMPUTED
+    assert table.rows == ()
+    assert table.metrics["codes"] == 0
+
+
+def test_a_requested_condition_with_no_records_in_range_reports_zero_with_absent_note():
+    result, _ = run([], "C=999")
+    assert (result.point.numerator, result.point.denominator) == (0, 4)
+    assert (result.lifetime.numerator, result.lifetime.denominator) == (0, 4)
+    assert any("No record of" in note and "999" in note for note in result.notes)
