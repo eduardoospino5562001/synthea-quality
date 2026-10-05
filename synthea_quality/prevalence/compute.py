@@ -413,12 +413,23 @@ def general_table(
         .reset_index()
     )
     if exclude is None:
-        grouped["social"] = [
-            is_social(system or None, code) for system, code in zip(grouped["SYSTEM"], grouped["CODE"])
-        ]
+        # dtype=bool: with no rows a plain list makes a non-boolean column, and
+        # filtering with a non-boolean mask drops every column instead of every row.
+        grouped["social"] = pd.Series(
+            [
+                is_social(system or None, code)
+                for system, code in zip(grouped["SYSTEM"], grouped["CODE"])
+            ],
+            dtype=bool,
+            index=grouped.index,
+        )
     else:
         excluded = set(exclude.codes)
-        grouped["social"] = [str(code) in excluded for code in grouped["CODE"]]
+        grouped["social"] = pd.Series(
+            [str(code) in excluded for code in grouped["CODE"]],
+            dtype=bool,
+            index=grouped.index,
+        )
     social_records = int(grouped.loc[grouped["social"], "records"].sum())
     social_codes = int(grouped["social"].sum())
     if exclude is not None or not include_social:
