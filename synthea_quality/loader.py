@@ -73,7 +73,7 @@ class LoadedTable:
 
     table: str
     path: Path
-    #: Header exactly as written in the file (BOM stripped, duplicates preserved).
+    #: Header exactly as written in the file (BOM stripped).
     header: tuple[str, ...]
     frame: pd.DataFrame
     #: Deviations worth reporting, e.g. a column subset was loaded.
