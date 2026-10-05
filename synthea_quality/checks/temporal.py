@@ -31,8 +31,9 @@ one at a time with just the columns its rules need, and released immediately aft
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Mapping, Sequence, cast
+from typing import cast
 
 import pandas as pd
 

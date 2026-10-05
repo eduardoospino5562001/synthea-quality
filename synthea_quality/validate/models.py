@@ -32,10 +32,10 @@ from typing import Any
 from synthea_quality import __version__
 from synthea_quality.export_history import ExportHistory
 from synthea_quality.incidence.models import ConditionIncidence, Window
-from synthea_quality.models import utc_now_iso
 from synthea_quality.medications.definitions import MedicationDefinition, load_medications
 from synthea_quality.medications.models import DEFINITIONS as MEDICATION_DEFINITIONS
 from synthea_quality.medications.models import MedicationResult
+from synthea_quality.models import utc_now_iso
 from synthea_quality.observations.definitions import (
     ObservationDefinition,
     load_module_observations,

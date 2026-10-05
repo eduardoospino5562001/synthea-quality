@@ -68,7 +68,12 @@ def hypertensive():
     return prepare_records(frame, population(), REF)
 
 
-def use(*rows, definition=LISINOPRIL, members=pd.Index(["a1", "a2", "a3"]), condition=HTN):
+def use(
+    *rows,
+    definition=LISINOPRIL,
+    members=pd.Index(["a1", "a2", "a3"]),  # noqa: B008 - shared read-only default for a test helper
+    condition=HTN,
+):
     return medication_use(
         definition, records(*rows), population(), members=members, condition=condition
     )

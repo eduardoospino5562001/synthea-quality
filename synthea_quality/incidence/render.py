@@ -9,16 +9,17 @@ strata and counts of who was left out.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
+from synthea_quality.export_history import notice_lines
 from synthea_quality.incidence.models import (
     ConditionIncidence,
     IncidenceRate,
     IncidenceReport,
     IncidenceStratum,
 )
-from synthea_quality.export_history import notice_lines
 from synthea_quality.profile.models import InputState, SectionStatus
 
 MARKDOWN_NAME = "synthea_incidence.md"

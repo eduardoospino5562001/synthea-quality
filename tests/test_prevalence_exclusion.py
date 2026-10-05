@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,6 @@ from synthea_quality.prevalence.exclusion import (
 )
 from synthea_quality.prevalence.render import JSON_NAME
 from synthea_quality.schema.tables import tables_by_name
-
-from datetime import date
 
 REF = date(2026, 8, 17)
 BANDS = (0, 18, 65)
@@ -124,7 +123,7 @@ PATIENT_COLUMNS = ("Id", "BIRTHDATE", "DEATHDATE", "GENDER")
 CONDITION_COLUMNS = ("PATIENT", "CODE", "START", "STOP", "SYSTEM", "DESCRIPTION")
 
 
-def text_frame(rows: list[dict[str, str]], columns) -> "object":
+def text_frame(rows: list[dict[str, str]], columns) -> object:
     import pandas as pd
 
     data = pd.DataFrame([[row.get(c, "") for c in columns] for row in rows], columns=list(columns))

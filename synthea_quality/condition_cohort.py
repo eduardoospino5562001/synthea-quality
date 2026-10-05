@@ -23,8 +23,9 @@ The rule is stated in every result that uses a cohort; it is never inferred.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any, Collection, Mapping
+from typing import Any
 
 import pandas as pd
 

@@ -25,10 +25,10 @@ from synthea_quality.checks.keys import run_key_checks
 from synthea_quality.checks.quality import run_quality_checks
 from synthea_quality.checks.temporal import run_temporal_checks
 from synthea_quality.cli import EXIT_FINDINGS, EXIT_OK, exit_code_for
+from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table
 from synthea_quality.models import Severity, Status
 from synthea_quality.reporting.build import build_report
-from synthea_quality.errors import TableLoadError
 from synthea_quality.structure import validate_structure, validate_tables
 
 HEADER = "Id,BIRTHDATE,GENDER\n"

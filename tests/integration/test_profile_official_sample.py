@@ -5,7 +5,8 @@ patient of the dataset Synthea recommends — the total matches the rows of
 ``patients.csv`` as the standard library's CSV reader counts them, and alive plus
 deceased equals the total — that the approximate reference date is attributed as
 such, and that the most common codes of ``conditions`` and ``observations`` (the largest
-table) match an independent count made with the standard library's CSV reader. It deliberately pins no demographic number: those describe the sample, and the
+table) match an independent count made with the standard library's CSV reader.
+It deliberately pins no demographic number: those describe the sample, and the
 acceptance baseline in ``docs/acceptance.md`` already pins the data itself.
 
 The dataset is fetched with ``python scripts/fetch_official_sample.py`` or pointed at

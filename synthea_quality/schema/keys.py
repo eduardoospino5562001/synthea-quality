@@ -36,8 +36,8 @@ defect, so it raises immediately instead of producing a wrong verdict later.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from synthea_quality.schema.tables import REFERENCE_DATASET, TableSpec, tables_by_name
 

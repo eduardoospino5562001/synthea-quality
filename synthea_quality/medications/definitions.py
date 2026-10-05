@@ -24,8 +24,9 @@ code, a ``SYSTEM|CODE`` code, an unknown key, a proportion outside ``[0, 1]``.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any, Collection, Mapping
+from typing import Any
 
 from synthea_quality.condition_cohort import CohortSpec, parse_cohort
 from synthea_quality.prevalence.definitions import DefinitionError

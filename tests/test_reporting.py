@@ -21,7 +21,6 @@ from synthea_quality.models import (
     Severity,
     Status,
     TableSummary,
-    UnresolvedRelation,
 )
 from synthea_quality.reporting import json_report
 from synthea_quality.reporting.build import build_report, unresolved_relations

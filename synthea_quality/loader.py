@@ -33,9 +33,10 @@ from __future__ import annotations
 
 import csv
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Sequence, cast
+from typing import IO, cast
 
 import pandas as pd
 

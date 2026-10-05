@@ -11,8 +11,9 @@ A reference range is shown next to the observed values, never as a verdict.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from synthea_quality.export_history import notice_lines
 from synthea_quality.observations.models import (

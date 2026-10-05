@@ -66,7 +66,7 @@ class ExportHistory:
     reason: str | None = None
 
     @classmethod
-    def no_metadata(cls) -> "ExportHistory":
+    def no_metadata(cls) -> ExportHistory:
         """No metadata file was given, so nothing is known from it."""
         return cls(years=None, status="no_metadata", metadata_file=None, cutoff=None)
 
@@ -80,7 +80,7 @@ class ExportHistory:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ExportHistory":
+    def from_dict(cls, data: dict[str, Any]) -> ExportHistory:
         raw = data.get("cutoff")
         return cls(
             years=data.get("years_of_history"),
@@ -218,8 +218,8 @@ def notice_lines(history: ExportHistory) -> list[str]:
             f"> Synthea leaves out most records from before the cut-off, {cutoff} "
             f"(365 × {history.years} days before the end of the simulation); conditions, "
             f"allergies, medications and care plans still active after it are kept. Statistics",
-            f"> that look back in time — lifetime prevalence, \"ever\" medication use, prior "
-            f"cases in incidence, the earliest records — may rest on incomplete data.",
+            "> that look back in time — lifetime prevalence, \"ever\" medication use, prior "
+            "cases in incidence, the earliest records — may rest on incomplete data.",
         ]
     if history.status in ("missing_key", "invalid"):
         return [

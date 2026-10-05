@@ -26,8 +26,8 @@ only the observations are; without ``medications.csv`` only the medications.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
@@ -35,7 +35,6 @@ from synthea_quality.export_history import read_export_history
 from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
-from synthea_quality.prevalence import compute as prevalence
 from synthea_quality.medications import compute as medications_compute
 from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.build import (
@@ -45,6 +44,7 @@ from synthea_quality.observations.build import (
 )
 from synthea_quality.observations.compute import prepare_values
 from synthea_quality.observations.definitions import ObservationDefinition
+from synthea_quality.prevalence import compute as prevalence
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import ConditionResult
 from synthea_quality.profile.demographics import PATIENT_COLUMNS as PROFILE_COLUMNS

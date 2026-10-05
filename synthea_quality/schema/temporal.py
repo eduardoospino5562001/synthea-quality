@@ -66,8 +66,8 @@ and a wrong rule would produce failures for legitimate data.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from synthea_quality.schema.quality import date_rule_for
 from synthea_quality.schema.tables import REFERENCE_DATASET, TableSpec, tables_by_name

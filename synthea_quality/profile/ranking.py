@@ -9,7 +9,7 @@ so.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def tie_at_cut(shown: Sequence[int], rest: Sequence[int]) -> dict[str, int] | None:

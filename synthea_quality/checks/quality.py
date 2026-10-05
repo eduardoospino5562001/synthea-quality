@@ -39,8 +39,9 @@ table is measured: see the Scalability section of the README.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping, cast
+from typing import cast
 
 import pandas as pd
 

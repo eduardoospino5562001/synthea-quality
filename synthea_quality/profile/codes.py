@@ -37,7 +37,8 @@ This module computes; it reads no file and renders nothing.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import pandas as pd
 
