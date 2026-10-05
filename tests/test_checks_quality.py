@@ -216,6 +216,28 @@ def test_timestamp_column_rejects_a_date_only_value() -> None:
     assert reported.metadata["accepted_format"] == "iso8601-utc"
 
 
+def test_date_values_reject_non_ascii_digits() -> None:
+    """``\\d`` matches Unicode digits; only ASCII ``[0-9]`` is a valid date."""
+    arabic = pd.Series(["٢٠٢٠-٠١-٠١"])
+
+    result = check_date_values(DATE_RULE, arabic)
+
+    assert result.status is Status.FAIL
+    assert result.metrics["invalid"] == 1
+    assert result.metrics["valid"] == 0
+
+
+def test_timestamp_values_reject_non_ascii_digits() -> None:
+    """Full-width and Arabic-Indic digits are not the ISO-8601 UTC shape."""
+    values = pd.Series(["２０２０-０１-０１T００:００:００Z", "٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z"])
+
+    result = check_date_values(TIMESTAMP_RULE, values)
+
+    assert result.status is Status.FAIL
+    assert result.metrics["invalid"] == 2
+    assert result.metrics["valid"] == 0
+
+
 def test_date_check_records_the_documentation_it_relies_on() -> None:
     result = check_date_values(DATE_RULE, pd.Series(["1980-01-01"]))
 

@@ -78,6 +78,22 @@ def test_timestamps_require_the_confirmed_iso_shape():
     assert parsed.empty == 1
 
 
+def test_date_parsing_rejects_non_ascii_digits() -> None:
+    """Non-ASCII digits stay unparseable: strptime already rejected them, and the ASCII shape check now agrees."""
+    assert parse_date_only(text("٢٠٢٠-٠١-٠١")).unparseable == 1
+    assert parse_date_only(text("٢٠٢٠-٠١-٠١")).valid == 0
+    assert parse_date_only(text("２０２０-０１-０１")).unparseable == 1
+    assert parse_date_only(text("2020-01-01")).valid == 1
+
+
+def test_timestamp_parsing_rejects_non_ascii_digits() -> None:
+    """Non-ASCII timestamp digits stay unparseable: strptime rejected them; the ASCII check agrees."""
+    assert parse_timestamps(text("٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z")).unparseable == 1
+    assert parse_timestamps(text("٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z")).valid == 0
+    assert parse_timestamps(text("２０２０-０１-０１T００:００:００Z")).unparseable == 1
+    assert parse_timestamps(text("2026-08-17T00:50:14Z")).valid == 1
+
+
 # --------------------------------------------------------------------------- #
 # explicit sources
 # --------------------------------------------------------------------------- #

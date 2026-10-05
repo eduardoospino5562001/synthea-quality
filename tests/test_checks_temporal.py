@@ -128,6 +128,29 @@ def test_unreadable_dates_are_excluded_rather_than_compared() -> None:
     assert result.status is Status.PASS
 
 
+def test_interval_rejects_non_ascii_digits_as_unusable() -> None:
+    """``\\d`` matches Unicode digits; only ASCII ``[0-9]`` is a usable timestamp."""
+    frame = interval_frame(
+        ["٢٠٢٠-٠١-٠١T٠٠:٠٠:٠٠Z", "２０２０-０１-０１T００:００:００Z"],
+        ["2020-01-01T09:00:00Z", "2020-01-01T09:00:00Z"],
+    )
+
+    result = check_interval(INTERVAL, frame)
+
+    assert result.metrics["unusable_start"] == 2
+    assert result.metrics["evaluated"] == 0
+    assert result.status is Status.NOT_APPLICABLE
+
+
+def test_life_span_rejects_non_ascii_digits_as_unusable() -> None:
+    """A birth date written with non-ASCII digits cannot be compared."""
+    result = check_life_span(LIFE_SPAN, life_frame(["٢٠٢٠-٠١-٠١"], ["2020-05-05"]))
+
+    assert result.metrics["unusable_birth"] == 1
+    assert result.metrics["evaluated"] == 0
+    assert result.status is Status.NOT_APPLICABLE
+
+
 def test_multiple_violations_are_counted_in_full_with_bounded_samples() -> None:
     frame = interval_frame(
         ["2020-01-01T10:00:00Z"] * 40,

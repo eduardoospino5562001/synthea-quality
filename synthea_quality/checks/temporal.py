@@ -41,7 +41,7 @@ from synthea_quality.discovery import DiscoveryResult, discover_dataset
 from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table, read_header
 from synthea_quality.models import DEFAULT_SAMPLE_LIMIT, CheckResult, Severity, Status
-from synthea_quality.schema.quality import date_rule_for
+from synthea_quality.schema.quality import PATTERN_FLAGS, date_rule_for
 from synthea_quality.schema.tables import SYNTHEA_TABLES
 from synthea_quality.schema.temporal import (
     EVENT_DATE_RULES,
@@ -514,7 +514,7 @@ def _usable(values: pd.Series, table: str, column: str) -> pd.Series:
     if rule is None:  # pragma: no cover - the catalogue refuses such a rule at import
         raise ValueError(f"no confirmed date format for {table}.{column}")
     text = values.astype(str)
-    return values.notna() & text.str.fullmatch(rule.format.pattern).fillna(False)
+    return values.notna() & text.str.fullmatch(rule.format.pattern, flags=PATTERN_FLAGS).fillna(False)
 
 
 def _samples(

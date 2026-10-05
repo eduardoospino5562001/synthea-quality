@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from synthea_quality.schema.quality import DATE_ONLY_PATTERN, ISO8601_UTC_PATTERN
+from synthea_quality.schema.quality import DATE_ONLY_PATTERN, ISO8601_UTC_PATTERN, PATTERN_FLAGS
 
 #: ``strptime`` equivalents of the confirmed patterns.
 DATE_ONLY_FORMAT = "%Y-%m-%d"
@@ -62,7 +62,7 @@ def parse_timestamps(values: pd.Series) -> ParsedDates:
 
 def _parse(values: pd.Series, pattern: str, fmt: str) -> ParsedDates:
     empty = values.isna()
-    well_shaped = values.str.fullmatch(pattern, na=False).astype(bool)
+    well_shaped = values.str.fullmatch(pattern, na=False, flags=PATTERN_FLAGS).astype(bool)
     parsed = pd.to_datetime(values.where(well_shaped), format=fmt, errors="coerce")
     unparseable = int((~empty & parsed.isna()).sum())
     return ParsedDates(values=parsed, empty=int(empty.sum()), unparseable=unparseable)
