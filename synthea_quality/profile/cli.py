@@ -22,8 +22,8 @@ from __future__ import annotations
 import argparse
 import sys
 import traceback
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from synthea_quality import __version__
 from synthea_quality.errors import SyntheaQualityError

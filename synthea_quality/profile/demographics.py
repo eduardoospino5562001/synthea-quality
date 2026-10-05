@@ -31,8 +31,9 @@ This module computes; it reads no file and renders nothing.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
-from typing import Any, Sequence
+from typing import Any
 
 import pandas as pd
 

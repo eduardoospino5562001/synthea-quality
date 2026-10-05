@@ -48,9 +48,9 @@ contents of the table cannot be trusted.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
 
 from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import open_readable
@@ -77,7 +77,7 @@ class _SourceLines:
         self._lines = iter(handle)
         self._span: list[str] = []
 
-    def __iter__(self) -> "_SourceLines":
+    def __iter__(self) -> _SourceLines:
         return self
 
     def __next__(self) -> str:

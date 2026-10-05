@@ -10,9 +10,11 @@ outside the observed rate's 95% CI — never as a pass or a match.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
+from synthea_quality.export_history import notice_lines
 from synthea_quality.prevalence.models import (
     ConditionResult,
     GeneralTable,
@@ -20,7 +22,6 @@ from synthea_quality.prevalence.models import (
     Rate,
     Stratum,
 )
-from synthea_quality.export_history import notice_lines
 from synthea_quality.profile.models import InputState, SectionStatus
 
 MARKDOWN_NAME = "synthea_prevalence.md"

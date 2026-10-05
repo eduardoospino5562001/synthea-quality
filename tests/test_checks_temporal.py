@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+
 from synthea_quality.checks.temporal import (
     check_event_after_birth,
     check_interval,

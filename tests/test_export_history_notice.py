@@ -13,9 +13,9 @@ from synthea_quality.observations.definitions import parse_observation_option
 from synthea_quality.prevalence.build import build_prevalence
 from synthea_quality.prevalence.definitions import assemble
 from synthea_quality.profile.build import build_profile
+from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.models import load_module
-from synthea_quality.schema.tables import tables_by_name
 
 GENERATED_AT = "2026-10-02T00:00:00+00:00"
 SNOMED = "http://snomed.info/sct"
@@ -121,10 +121,10 @@ def first_after_title(markdown: str) -> str:
 
 
 def test_the_notice_is_first_after_the_title_in_every_report(tmp_path):
-    from synthea_quality.profile.render import render_markdown as profile_md
-    from synthea_quality.prevalence.render import render_markdown as prevalence_md
     from synthea_quality.incidence.render import render_markdown as incidence_md
     from synthea_quality.observations.render import render_markdown as observations_md
+    from synthea_quality.prevalence.render import render_markdown as prevalence_md
+    from synthea_quality.profile.render import render_markdown as profile_md
     from synthea_quality.validate.render import render_markdown as validate_md
 
     reports = build_all(dataset(tmp_path / "csv"), metadata(tmp_path / "meta", "10"))

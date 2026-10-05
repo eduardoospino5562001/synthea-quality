@@ -26,8 +26,8 @@ profile still records what was found.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Mapping, Sequence
 
 import pandas as pd
 

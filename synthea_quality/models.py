@@ -23,10 +23,11 @@ Only the standard library is imported here: importing the models must stay cheap
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any
 
 from synthea_quality import __version__
 from synthea_quality.schema.contract import ContractStatus
@@ -40,7 +41,7 @@ REPORT_SCHEMA_VERSION = 1
 DEFAULT_SAMPLE_LIMIT = 5
 
 
-class Status(str, Enum):
+class Status(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """Outcome of a single check.
 
     ``PASS``            the dataset satisfies the check.
@@ -67,7 +68,7 @@ class Status(str, Enum):
         return self.value
 
 
-class Severity(str, Enum):
+class Severity(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """Impact a check would have if it failed.
 
     ``HIGH``    breaks the relational contract or the meaning of a whole table:
@@ -105,7 +106,7 @@ _SEVERITY_RANK: dict[Severity, int] = {
 
 def utc_now_iso() -> str:
     """Current UTC time as an ISO-8601 string with second precision."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 #: Categories a check belongs to, in the order a report should present them.
@@ -196,7 +197,7 @@ class CheckResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "CheckResult":
+    def from_dict(cls, data: Mapping[str, Any]) -> CheckResult:
         """Rebuild a result from :meth:`to_dict` output.
 
         Unknown keys are ignored so that a reader keeps working if optional keys
@@ -247,7 +248,7 @@ class TableSummary:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "TableSummary":
+    def from_dict(cls, data: Mapping[str, Any]) -> TableSummary:
         return cls(
             name=data["name"],
             file_name=data["file_name"],
@@ -279,7 +280,7 @@ class LoadError:
         return {"table": self.table, "reason": self.reason}
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "LoadError":
+    def from_dict(cls, data: Mapping[str, Any]) -> LoadError:
         return cls(table=data["table"], reason=data["reason"])
 
 
@@ -310,7 +311,7 @@ class AnomalousEntry:
         return {"file_name": self.file_name, "reason": self.reason}
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "AnomalousEntry":
+    def from_dict(cls, data: Mapping[str, Any]) -> AnomalousEntry:
         return cls(file_name=data["file_name"], reason=data["reason"])
 
 
@@ -370,7 +371,7 @@ class UnresolvedRelation:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "UnresolvedRelation":
+    def from_dict(cls, data: Mapping[str, Any]) -> UnresolvedRelation:
         return cls(
             kind=data["kind"],
             relation=data["relation"],
@@ -513,7 +514,7 @@ class DatasetReport:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "DatasetReport":
+    def from_dict(cls, data: Mapping[str, Any]) -> DatasetReport:
         """Rebuild a report from :meth:`to_dict` output.
 
         Keys added within the same report schema version are optional here, so a
@@ -555,6 +556,6 @@ class DatasetReport:
         )
 
     @classmethod
-    def from_json(cls, text: str) -> "DatasetReport":
+    def from_json(cls, text: str) -> DatasetReport:
         """Rebuild a report from its JSON representation."""
         return cls.from_dict(json.loads(text))

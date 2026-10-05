@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+
 from synthea_quality.checks.keys import (
     check_foreign_key,
     check_primary_key,
@@ -240,7 +241,14 @@ def test_runner_skips_rules_of_a_missing_child_table(tmp_path: Path) -> None:
 
 
 def test_runner_skips_rules_of_a_missing_parent_table(tmp_path: Path) -> None:
-    build(tmp_path, {"patients": PATIENTS_CSV, "encounters": "Id,PATIENT\ne1,p1\n", "conditions": "PATIENT,ENCOUNTER\np1,e1\n"})
+    build(
+        tmp_path,
+        {
+            "patients": PATIENTS_CSV,
+            "encounters": "Id,PATIENT\ne1,p1\n",
+            "conditions": "PATIENT,ENCOUNTER\np1,e1\n",
+        },
+    )
     (tmp_path / "encounters.csv").unlink()
 
     by_id = {result.check_id: result for result in run_key_checks(tmp_path)}

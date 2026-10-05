@@ -40,10 +40,10 @@ This module depends on neither the renderers nor the command line, so later anal
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Mapping
 
 import pandas as pd
 

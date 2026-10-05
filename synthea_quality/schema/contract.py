@@ -18,9 +18,9 @@ module testable without touching the file system.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping, Sequence
 
 from synthea_quality.schema.tables import (
     CONTRACT_ID,
@@ -32,7 +32,7 @@ from synthea_quality.schema.tables import (
 )
 
 
-class MatchKind(str, Enum):
+class MatchKind(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """How an actual CSV header relates to the contract."""
 
     EXACT = "EXACT"
@@ -42,7 +42,7 @@ class MatchKind(str, Enum):
     ORDER_DIFFERS = "ORDER_DIFFERS"
 
 
-class ContractStatus(str, Enum):
+class ContractStatus(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """How well a dataset agrees with a contract, given the tables observed.
 
     The evidence is deliberately asymmetric:

@@ -29,8 +29,8 @@ band and a patient who turns 5 on the reference date is in ``5-17``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
-from typing import Sequence
 
 import pandas as pd
 

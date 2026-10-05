@@ -17,9 +17,9 @@ was not observed; what changes is that the dataset now says why.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from synthea_quality.errors import DiscoveryError
 from synthea_quality.models import AnomalousEntry

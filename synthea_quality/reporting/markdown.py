@@ -17,8 +17,9 @@ of every check stays available in the JSON.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from synthea_quality.models import (
     CHECK_CATEGORIES,

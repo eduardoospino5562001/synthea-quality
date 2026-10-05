@@ -153,7 +153,7 @@ def test_crlf_line_endings_and_accents_are_preserved(tmp_path: Path) -> None:
     path = write_bytes(
         tmp_path,
         "patients.csv",
-        "Id,COUNTY\r\nabc,Middlesex\r\n".encode("utf-8") + "zzz,Mañana\r\n".encode("utf-8"),
+        b"Id,COUNTY\r\nabc,Middlesex\r\n" + "zzz,Mañana\r\n".encode(),
     )
 
     frame = load_table(path).frame

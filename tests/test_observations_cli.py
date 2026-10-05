@@ -13,7 +13,6 @@ import pytest
 from synthea_quality import __version__
 from synthea_quality.observations.cli import EXIT_ERROR, EXIT_OK, main
 from synthea_quality.observations.render import JSON_NAME, MARKDOWN_NAME
-
 from synthea_quality.schema.tables import tables_by_name
 
 REPOSITORY = Path(__file__).resolve().parents[1]

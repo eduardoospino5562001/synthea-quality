@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any
 
 from synthea_quality import __version__
 from synthea_quality.export_history import ExportHistory
@@ -43,7 +44,7 @@ from synthea_quality.models import utc_now_iso
 PROFILE_SCHEMA_VERSION = 1
 
 
-class SectionStatus(str, Enum):
+class SectionStatus(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """Whether a profile section could be computed.
 
     ``COMPUTED``  the numbers describe the dataset.
@@ -54,7 +55,7 @@ class SectionStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
-class ReferenceSource(str, Enum):
+class ReferenceSource(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """Where the reference date ("end of the simulation") came from."""
 
     #: Given explicitly by the person running the profile.
@@ -109,7 +110,7 @@ class ReferenceDate:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "ReferenceDate":
+    def from_dict(cls, data: Mapping[str, Any]) -> ReferenceDate:
         return cls(
             value=data["value"],
             source=ReferenceSource(data["source"]),
@@ -139,7 +140,7 @@ class CategoryCount:
         return {"value": self.value, "count": self.count, "percent": self.percent}
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "CategoryCount":
+    def from_dict(cls, data: Mapping[str, Any]) -> CategoryCount:
         return cls(value=data["value"], count=int(data["count"]), percent=float(data["percent"]))
 
 
@@ -182,7 +183,7 @@ class CodeCount:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "CodeCount":
+    def from_dict(cls, data: Mapping[str, Any]) -> CodeCount:
         return cls(
             system=data.get("system"),
             code=data["code"],
@@ -205,7 +206,7 @@ class DescriptionCount:
         return {"description": self.description, "records": self.records}
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "DescriptionCount":
+    def from_dict(cls, data: Mapping[str, Any]) -> DescriptionCount:
         return cls(description=data.get("description"), records=int(data["records"]))
 
 
@@ -234,7 +235,7 @@ class CodeDescriptions:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "CodeDescriptions":
+    def from_dict(cls, data: Mapping[str, Any]) -> CodeDescriptions:
         return cls(
             system=data.get("system"),
             code=data["code"],
@@ -288,7 +289,7 @@ class ProfileSection:
         object.__setattr__(self, "multi_description_codes", tuple(self.multi_description_codes))
 
     @classmethod
-    def skipped(cls, section_id: str, title: str, reason: str) -> "ProfileSection":
+    def skipped(cls, section_id: str, title: str, reason: str) -> ProfileSection:
         return cls(section_id=section_id, title=title, status=SectionStatus.SKIPPED, reason=reason)
 
     def to_dict(self) -> dict[str, Any]:
@@ -307,7 +308,7 @@ class ProfileSection:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "ProfileSection":
+    def from_dict(cls, data: Mapping[str, Any]) -> ProfileSection:
         return cls(
             section_id=data["section_id"],
             title=data["title"],
@@ -327,7 +328,7 @@ class ProfileSection:
         )
 
 
-class InputState(str, Enum):
+class InputState(str, Enum):  # noqa: UP042 - keep (str, Enum); StrEnum needs a separate decision
     """What happened to a table the profile needed."""
 
     #: Read; its numbers are in the profile.
@@ -370,7 +371,7 @@ class TableInput:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "TableInput":
+    def from_dict(cls, data: Mapping[str, Any]) -> TableInput:
         return cls(
             table=data["table"],
             used_for=data["used_for"],
@@ -445,7 +446,7 @@ class DatasetProfile:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any]) -> "DatasetProfile":
+    def from_dict(cls, data: Mapping[str, Any]) -> DatasetProfile:
         version = data.get("schema_version")
         if version != PROFILE_SCHEMA_VERSION:
             raise ValueError(
@@ -468,5 +469,5 @@ class DatasetProfile:
         )
 
     @classmethod
-    def from_json(cls, text: str) -> "DatasetProfile":
+    def from_json(cls, text: str) -> DatasetProfile:
         return cls.from_dict(json.loads(text))

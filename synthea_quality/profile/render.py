@@ -24,9 +24,11 @@ stays in its place with its reason, so a gap is never mistaken for a zero.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
+from synthea_quality.export_history import notice_lines
 from synthea_quality.profile.models import (
     CategoryCount,
     DatasetProfile,
@@ -34,7 +36,6 @@ from synthea_quality.profile.models import (
     ProfileSection,
     SectionStatus,
 )
-from synthea_quality.export_history import notice_lines
 
 #: Predictable report file names inside the output directory.
 MARKDOWN_NAME = "synthea_profile.md"

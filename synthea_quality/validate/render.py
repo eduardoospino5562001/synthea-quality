@@ -15,12 +15,13 @@ of reference values.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from synthea_quality.incidence.render import render_condition as render_incidence
 from synthea_quality.export_history import notice_lines
+from synthea_quality.incidence.render import render_condition as render_incidence
 from synthea_quality.medications.render import render_medications
 from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
 from synthea_quality.observations.render import render_definitions as render_value_rules

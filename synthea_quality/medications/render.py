@@ -9,7 +9,8 @@ left to the report's table of reference values, next to those of the conditions.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from synthea_quality.medications.models import MedicationResult
 from synthea_quality.prevalence.models import Rate

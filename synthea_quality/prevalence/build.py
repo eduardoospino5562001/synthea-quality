@@ -13,8 +13,8 @@ too. A table that is present but unreadable marks the report incomplete.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
@@ -30,7 +30,7 @@ from synthea_quality.prevalence.compute import (
     prepare_records,
 )
 from synthea_quality.prevalence.definitions import ConditionDefinition
-from synthea_quality.prevalence.exclusion import ExclusionList, codes_absent_from_data, read_exclusion_file
+from synthea_quality.prevalence.exclusion import codes_absent_from_data, read_exclusion_file
 from synthea_quality.prevalence.models import (
     ConditionResult,
     GeneralTable,
