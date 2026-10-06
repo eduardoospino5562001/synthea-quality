@@ -213,6 +213,26 @@ def prepare_records(conditions: pd.DataFrame, cohort: Cohort) -> Records:
     return Records(frame[usable], has_system, int((~usable).sum()), codes_in_table)
 
 
+#: Label of the total in the note for strata with events and no person-time.
+TOTAL_LABEL = "the total"
+
+
+def _stratum_label(dimension: str, value: str | None) -> str:
+    """How a stratum is named in the note for events with no person-time."""
+    if dimension == "age_band":
+        return f"age band {value}"
+    if value is None:
+        return f"{dimension} (empty)"
+    return f"{dimension} {value}"
+
+
+def _no_person_time_note(events: int, label: str) -> str:
+    return (
+        f"{events} event(s) with no person-time in {label} "
+        "(the event falls on the day of entry into it): the rate is not defined there."
+    )
+
+
 def condition_incidence(
     definition: ConditionDefinition, records: Records, cohort: Cohort
 ) -> ConditionIncidence:
@@ -274,6 +294,15 @@ def condition_incidence(
             f"were not counted: only first events are, so repeated episodes of this acute "
             f"condition are not included."
         )
+    if total.events > 0 and total.person_days == 0:
+        notes.append(_no_person_time_note(total.events, TOTAL_LABEL))
+    for stratum in strata:
+        if stratum.rate.events > 0 and stratum.rate.person_days == 0:
+            notes.append(
+                _no_person_time_note(
+                    stratum.rate.events, _stratum_label(stratum.dimension, stratum.value)
+                )
+            )
     by_measure = {"incidence": total}
     return ConditionIncidence(
         name=definition.name,
