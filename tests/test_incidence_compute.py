@@ -304,6 +304,43 @@ def test_only_the_absent_code_of_two_is_noted():
     )
 
 
+def test_a_table_without_a_system_column_matches_present_codes_by_code():
+    """A conditions table without SYSTEM matches requested codes by CODE only."""
+    cohort = build_cohort(patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), REF)
+    frame = text_frame(
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        ("PATIENT", "CODE", "START"),
+    )
+    records = prepare_records(frame, cohort)
+    assert not records.has_system
+    for definition in ("C=100", f"C={SNOMED}|100"):
+        result = condition_incidence(parse_condition_option(definition), records, cohort)
+        assert result.rate.events == 1
+        assert not any("No record of" in note for note in result.notes)
+
+
+def test_a_table_without_a_system_column_notes_absent_codes_like_prevalence():
+    """An absent code in a table without SYSTEM gets prevalence's exact note."""
+    from synthea_quality.prevalence.compute import missing_codes as prevalence_missing
+
+    cohort = build_cohort(patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), REF)
+    frame = text_frame(
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        ("PATIENT", "CODE", "START"),
+    )
+    records = prepare_records(frame, cohort)
+    assert not records.has_system
+    for definition_text in ("C=999", f"C={SNOMED}|999"):
+        definition = parse_condition_option(definition_text)
+        result = condition_incidence(definition, records, cohort)
+        (label,) = prevalence_missing(definition.codes, records.table_codes, records.has_system)
+        expected = f"No record of {label} in conditions.csv (any patient, any date)."
+        assert result.notes[0] == expected
+        assert expected == (
+            "No record of http://snomed.info/sct|999 in conditions.csv (any patient, any date)."
+        )
+
+
 # --------------------------------------------------------------------------- #
 # strata with events and no person-time (M5)
 # --------------------------------------------------------------------------- #
