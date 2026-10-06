@@ -332,3 +332,15 @@ def test_the_medication_cohort_is_the_prevalence_numerator(tmp_path):
     point, lifetime = report.medications
     assert point.ever.denominator == prevalence.point.numerator
     assert lifetime.ever.denominator == prevalence.lifetime.numerator
+
+
+def test_a_requested_code_with_no_record_is_noted_in_the_incidence(tmp_path):
+    definitions = assemble(("Ghost=999999999",), None, (), measures=ALL_MEASURES)
+    report = build_module_validation(
+        dataset(tmp_path / "csv"), module=ModuleInfo(), definitions=definitions,
+        module_file="m.json", generated_at=GENERATED_AT,
+    )
+    expected = (
+        "No record of http://snomed.info/sct|999999999 in conditions.csv (any patient, any date)."
+    )
+    assert expected in report.conditions[0].incidence.notes

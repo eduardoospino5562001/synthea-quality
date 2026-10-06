@@ -125,3 +125,18 @@ def test_the_console_script_runs_as_installed(tmp_path):
         capture_output=True, text=True, check=False,
     )
     assert completed.returncode == EXIT_OK, completed.stderr
+
+
+def test_a_requested_code_with_no_record_is_noted_in_json_and_markdown(tmp_path):
+    out = tmp_path / "out"
+    code = main(
+        [str(dataset(tmp_path / "csv")), "--condition", "Ghost=999999999",
+         "--output-dir", str(out)]
+    )
+    assert code == EXIT_OK
+    expected = (
+        "No record of http://snomed.info/sct|999999999 in conditions.csv (any patient, any date)."
+    )
+    data = read(out)
+    assert expected in data["conditions"][0]["notes"]
+    assert expected in (out / MARKDOWN_NAME).read_text(encoding="utf-8")

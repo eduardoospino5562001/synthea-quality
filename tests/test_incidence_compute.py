@@ -257,3 +257,48 @@ def test_a_same_day_record_is_the_same_episode_not_a_later_one():
     assert result.metrics["records_on_the_event_day"] == 1
     assert result.metrics["later_records_not_counted"] == 0
     assert not any("repeated episodes" in note for note in result.notes)
+
+
+# --------------------------------------------------------------------------- #
+# requested codes with no record in the table (M4)
+# --------------------------------------------------------------------------- #
+
+
+GHOST_NOTE = (
+    "No record of http://snomed.info/sct|999999999 in conditions.csv (any patient, any date)."
+)
+
+
+def test_a_requested_code_with_no_record_is_noted_before_the_prior_cases():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), [], "Ghost=999999999"
+    )
+    assert result.notes[0] == GHOST_NOTE
+    assert "prior cases" in result.notes[1]
+
+
+def test_a_code_present_only_in_unfollowed_patients_is_not_reported_as_absent():
+    from synthea_quality.prevalence.definitions import parse_condition_option as parse
+
+    people = patients(
+        {"Id": "ok", "BIRTHDATE": "1950-01-01"},
+        {"Id": "old", "BIRTHDATE": "1930-01-01", "DEATHDATE": "2019-01-01"},
+    )
+    cohort = build_cohort(people, REF)
+    records = prepare_records(
+        conditions({"PATIENT": "old", "CODE": "100", "START": "2018-01-01"}), cohort
+    )
+    result = condition_incidence(parse("C=100"), records, cohort)
+    assert (SNOMED, "100") in records.table_codes
+    assert not any("No record of" in note for note in result.notes)
+
+
+def test_only_the_absent_code_of_two_is_noted():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        "C=100,999",
+    )
+    assert result.notes[0] == (
+        "No record of http://snomed.info/sct|999 in conditions.csv (any patient, any date)."
+    )
