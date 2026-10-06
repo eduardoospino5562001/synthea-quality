@@ -18,6 +18,8 @@ For each condition, among those patients:
   entry and exit; the time at risk ends there;
 * **person-time** is the whole days between entry and exit (or the first event); it is
   converted to years (365.25 days) only when a rate is reported, so strata add up exactly;
+  an event on the day of entry counts there and leaves 0 days, so a total or stratum
+  with events and no person-time has no defined rate (the report says so);
 * other records of an at-risk patient are not events (first events only) and are
   counted: those starting on the day of the first event (the same episode written with
   another code, as Synthea does for myocardial infarction) apart from those starting on

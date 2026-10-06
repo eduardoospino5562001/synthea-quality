@@ -676,6 +676,9 @@ be completed.
   for myocardial infarction) and those on a later day, which for a condition declared
   `acute` the report describes as repeated episodes that are not counted. Counting episodes
   would need a rule for when two records are the same episode, and is left for later.
+- **An event on the day of entry counts and leaves 0 days there**: the total or stratum
+  then has events with no person-time, the rate is not defined (shown as "—"), and the
+  report says so in a note.
 
 ### The exported history
 
