@@ -302,3 +302,71 @@ def test_only_the_absent_code_of_two_is_noted():
     assert result.notes[0] == (
         "No record of http://snomed.info/sct|999 in conditions.csv (any patient, any date)."
     )
+
+
+# --------------------------------------------------------------------------- #
+# strata with events and no person-time (M5)
+# --------------------------------------------------------------------------- #
+
+
+NO_TIME_PHRASE = "(the event falls on the day of entry into it)"
+
+
+def test_a_sex_stratum_with_an_event_on_entry_day_is_noted_and_has_no_rate():
+    result, _ = run(
+        patients(
+            {"Id": "f1", "BIRTHDATE": "1950-01-01", "GENDER": "F"},
+            {"Id": "m1", "BIRTHDATE": "1950-01-01", "GENDER": "M"},
+        ),
+        [{"PATIENT": "f1", "CODE": "100", "START": "2021-01-01"}],
+    )
+    sex = {s.value: s for s in result.strata if s.dimension == "GENDER"}
+    assert (sex["F"].rate.events, sex["F"].rate.person_days) == (1, 0)
+    assert sex["F"].rate.value is None
+    assert (
+        f"1 event(s) with no person-time in GENDER F {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+    assert not any("in GENDER M" in note for note in result.notes)
+    assert not any("in the total" in note for note in result.notes)
+
+
+def test_no_note_when_events_have_person_time():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2023-01-01"}],
+    )
+    assert result.rate.person_days == days("2021-01-01", "2023-01-01")
+    assert not any("with no person-time" in note for note in result.notes)
+
+
+def test_the_total_with_events_and_no_person_time_is_noted():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2021-01-01"}],
+    )
+    assert (result.rate.events, result.rate.person_days) == (1, 0)
+    assert result.rate.value is None
+    assert (
+        f"1 event(s) with no person-time in the total {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+
+
+def test_an_event_on_the_birthday_opening_a_band_is_noted_in_that_band():
+    result, _ = run(
+        patients({"Id": "kid", "BIRTHDATE": "2020-03-10"}),
+        [{"PATIENT": "kid", "CODE": "100", "START": "2025-03-10"}],
+        age_bands=(0, 5),
+    )
+    ages = {s.value: s.rate for s in result.strata if s.dimension == "age_band"}
+    assert list(ages) == ["0-4", "5+"]
+    assert (ages["5+"].events, ages["5+"].person_days) == (1, 0)
+    assert ages["5+"].value is None
+    assert ages["0-4"].person_days == days("2021-01-01", "2025-03-10")
+    assert (
+        f"1 event(s) with no person-time in age band 5+ {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+    assert not any("in age band 0-4" in note for note in result.notes)
+    assert not any("in the total" in note for note in result.notes)
