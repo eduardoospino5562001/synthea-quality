@@ -257,3 +257,153 @@ def test_a_same_day_record_is_the_same_episode_not_a_later_one():
     assert result.metrics["records_on_the_event_day"] == 1
     assert result.metrics["later_records_not_counted"] == 0
     assert not any("repeated episodes" in note for note in result.notes)
+
+
+# --------------------------------------------------------------------------- #
+# requested codes with no record in the table (M4)
+# --------------------------------------------------------------------------- #
+
+
+GHOST_NOTE = (
+    "No record of http://snomed.info/sct|999999999 in conditions.csv (any patient, any date)."
+)
+
+
+def test_a_requested_code_with_no_record_is_noted_before_the_prior_cases():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), [], "Ghost=999999999"
+    )
+    assert result.notes[0] == GHOST_NOTE
+    assert "prior cases" in result.notes[1]
+
+
+def test_a_code_present_only_in_unfollowed_patients_is_not_reported_as_absent():
+    from synthea_quality.prevalence.definitions import parse_condition_option as parse
+
+    people = patients(
+        {"Id": "ok", "BIRTHDATE": "1950-01-01"},
+        {"Id": "old", "BIRTHDATE": "1930-01-01", "DEATHDATE": "2019-01-01"},
+    )
+    cohort = build_cohort(people, REF)
+    records = prepare_records(
+        conditions({"PATIENT": "old", "CODE": "100", "START": "2018-01-01"}), cohort
+    )
+    result = condition_incidence(parse("C=100"), records, cohort)
+    assert (SNOMED, "100") in records.table_codes
+    assert not any("No record of" in note for note in result.notes)
+
+
+def test_only_the_absent_code_of_two_is_noted():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        "C=100,999",
+    )
+    assert result.notes[0] == (
+        "No record of http://snomed.info/sct|999 in conditions.csv (any patient, any date)."
+    )
+
+
+def test_a_table_without_a_system_column_matches_present_codes_by_code():
+    """A conditions table without SYSTEM matches requested codes by CODE only."""
+    cohort = build_cohort(patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), REF)
+    frame = text_frame(
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        ("PATIENT", "CODE", "START"),
+    )
+    records = prepare_records(frame, cohort)
+    assert not records.has_system
+    for definition in ("C=100", f"C={SNOMED}|100"):
+        result = condition_incidence(parse_condition_option(definition), records, cohort)
+        assert result.rate.events == 1
+        assert not any("No record of" in note for note in result.notes)
+
+
+def test_a_table_without_a_system_column_notes_absent_codes_like_prevalence():
+    """An absent code in a table without SYSTEM gets prevalence's exact note."""
+    from synthea_quality.prevalence.compute import missing_codes as prevalence_missing
+
+    cohort = build_cohort(patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}), REF)
+    frame = text_frame(
+        [{"PATIENT": "p1", "CODE": "100", "START": "2022-01-01"}],
+        ("PATIENT", "CODE", "START"),
+    )
+    records = prepare_records(frame, cohort)
+    assert not records.has_system
+    for definition_text in ("C=999", f"C={SNOMED}|999"):
+        definition = parse_condition_option(definition_text)
+        result = condition_incidence(definition, records, cohort)
+        (label,) = prevalence_missing(definition.codes, records.table_codes, records.has_system)
+        expected = f"No record of {label} in conditions.csv (any patient, any date)."
+        assert result.notes[0] == expected
+        assert expected == (
+            "No record of http://snomed.info/sct|999 in conditions.csv (any patient, any date)."
+        )
+
+
+# --------------------------------------------------------------------------- #
+# strata with events and no person-time (M5)
+# --------------------------------------------------------------------------- #
+
+
+NO_TIME_PHRASE = "(the event falls on the day of entry into it)"
+
+
+def test_a_sex_stratum_with_an_event_on_entry_day_is_noted_and_has_no_rate():
+    result, _ = run(
+        patients(
+            {"Id": "f1", "BIRTHDATE": "1950-01-01", "GENDER": "F"},
+            {"Id": "m1", "BIRTHDATE": "1950-01-01", "GENDER": "M"},
+        ),
+        [{"PATIENT": "f1", "CODE": "100", "START": "2021-01-01"}],
+    )
+    sex = {s.value: s for s in result.strata if s.dimension == "GENDER"}
+    assert (sex["F"].rate.events, sex["F"].rate.person_days) == (1, 0)
+    assert sex["F"].rate.value is None
+    assert (
+        f"1 event(s) with no person-time in GENDER F {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+    assert not any("in GENDER M" in note for note in result.notes)
+    assert not any("in the total" in note for note in result.notes)
+
+
+def test_no_note_when_events_have_person_time():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2023-01-01"}],
+    )
+    assert result.rate.person_days == days("2021-01-01", "2023-01-01")
+    assert not any("with no person-time" in note for note in result.notes)
+
+
+def test_the_total_with_events_and_no_person_time_is_noted():
+    result, _ = run(
+        patients({"Id": "p1", "BIRTHDATE": "1950-01-01"}),
+        [{"PATIENT": "p1", "CODE": "100", "START": "2021-01-01"}],
+    )
+    assert (result.rate.events, result.rate.person_days) == (1, 0)
+    assert result.rate.value is None
+    assert (
+        f"1 event(s) with no person-time in the total {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+
+
+def test_an_event_on_the_birthday_opening_a_band_is_noted_in_that_band():
+    result, _ = run(
+        patients({"Id": "kid", "BIRTHDATE": "2020-03-10"}),
+        [{"PATIENT": "kid", "CODE": "100", "START": "2025-03-10"}],
+        age_bands=(0, 5),
+    )
+    ages = {s.value: s.rate for s in result.strata if s.dimension == "age_band"}
+    assert list(ages) == ["0-4", "5+"]
+    assert (ages["5+"].events, ages["5+"].person_days) == (1, 0)
+    assert ages["5+"].value is None
+    assert ages["0-4"].person_days == days("2021-01-01", "2025-03-10")
+    assert (
+        f"1 event(s) with no person-time in age band 5+ {NO_TIME_PHRASE}: "
+        "the rate is not defined there."
+    ) in result.notes
+    assert not any("in age band 0-4" in note for note in result.notes)
+    assert not any("in the total" in note for note in result.notes)

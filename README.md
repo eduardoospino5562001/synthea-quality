@@ -105,7 +105,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.9.0
+synthea-quality 0.9.1
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -257,7 +257,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.9.0",
+    "tool_version": "0.9.1",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -456,7 +456,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.9.0)
+synthea-profile (synthea-quality 0.9.1)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -676,6 +676,9 @@ be completed.
   for myocardial infarction) and those on a later day, which for a condition declared
   `acute` the report describes as repeated episodes that are not counted. Counting episodes
   would need a rule for when two records are the same episode, and is left for later.
+- **An event on the day of entry counts and leaves 0 days there**: the total or stratum
+  then has events with no person-time, the rate is not defined (shown as "—"), and the
+  report says so in a note.
 
 ### The exported history
 

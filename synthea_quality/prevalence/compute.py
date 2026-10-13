@@ -47,6 +47,7 @@ from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.exclusion import ExclusionList, codes_absent_from_data
 from synthea_quality.prevalence.models import (
     MEASURES,
+    CodeRef,
     ConditionResult,
     ExpectedComparison,
     GeneralRow,
@@ -161,14 +162,10 @@ class Records:
 def prepare_records(conditions: pd.DataFrame, cohort: Cohort, reference: date) -> Records:
     """Place every condition row in time relative to ``reference`` and count what is left out."""
     has_system = "SYSTEM" in conditions.columns
-    system = (
-        conditions["SYSTEM"].map(normalise_system, na_action="ignore").fillna("")
-        if has_system
-        else pd.Series("", index=conditions.index)
-    )
+    system = _normalised_systems(conditions, has_system)
     coded = conditions["CODE"].notna()
     descriptions = most_frequent_descriptions(conditions, system, coded)
-    table_codes = frozenset(zip(system[coded], conditions.loc[coded, "CODE"]))
+    codes_in_table = table_codes(conditions)
 
     alive = conditions["PATIENT"].isin(cohort.alive_ids)
     known = conditions["PATIENT"].isin(cohort.patient_ids)
@@ -204,7 +201,48 @@ def prepare_records(conditions: pd.DataFrame, cohort: Cohort, reference: date) -
         "rows_stop_unparseable": int((lifetime & stop_bad).sum()),
         "rows_used": int(lifetime.sum()),
     }
-    return Records(frame, descriptions, table_codes, has_system, metrics)
+    return Records(frame, descriptions, codes_in_table, has_system, metrics)
+
+
+def _normalised_systems(conditions: pd.DataFrame, has_system: bool) -> pd.Series:
+    """The ``SYSTEM`` column normalised ("" when absent), one value per row."""
+    if has_system:
+        return conditions["SYSTEM"].map(normalise_system, na_action="ignore").fillna("")
+    return pd.Series("", index=conditions.index)
+
+
+def table_codes(conditions: pd.DataFrame) -> frozenset[tuple[str, str]]:
+    """Every (SYSTEM, CODE) of the whole ``conditions`` table, any patient and any date.
+
+    The table-wide view is what tells a requested code with no record apart from a
+    code that is merely absent from the patients under study: computing it after
+    filtering to a cohort would report a code present only outside that cohort as
+    absent. The incidence report reuses this function so both reports agree.
+    """
+    has_system = "SYSTEM" in conditions.columns
+    system = _normalised_systems(conditions, has_system)
+    coded = conditions["CODE"].notna()
+    return frozenset(zip(system[coded], conditions.loc[coded, "CODE"]))
+
+
+def missing_codes(
+    codes: Sequence[CodeRef], table: frozenset[tuple[str, str]], has_system: bool
+) -> list[str]:
+    """The requested ``codes`` absent from ``table``, in definition order, labelled.
+
+    A code with no system matches in any system; otherwise the system must match when
+    the table has a ``SYSTEM`` column. Labels come from :func:`_label`, as elsewhere.
+    """
+    missing: list[str] = []
+    for ref in codes:
+        in_table = any(
+            code == ref.code
+            and (ref.system is None or not has_system or system == ref.system)
+            for system, code in table
+        )
+        if not in_table:
+            missing.append(_label(ref.system, ref.code))
+    return missing
 
 
 def most_frequent_descriptions(
@@ -345,21 +383,14 @@ def _match(
     frame = records.frame
     match = pd.Series(False, index=frame.index)
     per_code: dict[str, int] = {}
-    missing_codes: list[str] = []
     for ref in definition.codes:
         this = frame["CODE"] == ref.code
         if ref.system is not None and records.has_system:
             this &= frame["SYSTEM"] == ref.system
         match |= this
         per_code[_label(ref.system, ref.code)] = int(this.sum())
-        in_table = any(
-            code == ref.code
-            and (ref.system is None or not records.has_system or system == ref.system)
-            for system, code in records.table_codes
-        )
-        if not in_table:
-            missing_codes.append(_label(ref.system, ref.code))
-    return match, per_code, missing_codes
+    absent = missing_codes(definition.codes, records.table_codes, records.has_system)
+    return match, per_code, absent
 
 
 def _stratum(

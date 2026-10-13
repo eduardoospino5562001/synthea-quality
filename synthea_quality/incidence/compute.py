@@ -18,6 +18,8 @@ For each condition, among those patients:
   entry and exit; the time at risk ends there;
 * **person-time** is the whole days between entry and exit (or the first event); it is
   converted to years (365.25 days) only when a rate is reported, so strata add up exactly;
+  an event on the day of entry counts there and leaves 0 days, so a total or stratum
+  with events and no person-time has no defined rate (the report says so);
 * other records of an at-risk patient are not events (first events only) and are
   counted: those starting on the day of the first event (the same episode written with
   another code, as Synthea does for myocardial infarction) apart from those starting on
@@ -51,6 +53,7 @@ from synthea_quality.incidence.models import (
     IncidenceStratum,
     Window,
 )
+from synthea_quality.prevalence import compute as prevalence_compute
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import ExpectedComparison, normalise_system
 from synthea_quality.profile.dates import parse_date_only
@@ -184,11 +187,15 @@ class Records:
     frame: pd.DataFrame
     has_system: bool
     start_unusable: int
+    #: Every (SYSTEM, CODE) of the whole table, before filtering to the followed
+    #: patients: a code present only outside the cohort is still in the data.
+    table_codes: frozenset[tuple[str, str]]
 
 
 def prepare_records(conditions: pd.DataFrame, cohort: Cohort) -> Records:
     """Keep the records of the followed patients that have a code, and parse their start."""
     has_system = "SYSTEM" in conditions.columns
+    codes_in_table = prevalence_compute.table_codes(conditions)
     followed = conditions["PATIENT"].isin(list(cohort.people)) & conditions["CODE"].notna()
     rows = conditions[followed]
     starts = parse_date_only(rows["START"]).values
@@ -205,7 +212,27 @@ def prepare_records(conditions: pd.DataFrame, cohort: Cohort) -> Records:
         }
     )
     usable = frame["start"].notna()
-    return Records(frame[usable], has_system, int((~usable).sum()))
+    return Records(frame[usable], has_system, int((~usable).sum()), codes_in_table)
+
+
+#: Label of the total in the note for strata with events and no person-time.
+TOTAL_LABEL = "the total"
+
+
+def _stratum_label(dimension: str, value: str | None) -> str:
+    """How a stratum is named in the note for events with no person-time."""
+    if dimension == "age_band":
+        return f"age band {value}"
+    if value is None:
+        return f"{dimension} (empty)"
+    return f"{dimension} {value}"
+
+
+def _no_person_time_note(events: int, label: str) -> str:
+    return (
+        f"{events} event(s) with no person-time in {label} "
+        "(the event falls on the day of entry into it): the rate is not defined there."
+    )
 
 
 def condition_incidence(
@@ -251,16 +278,33 @@ def condition_incidence(
         "records_after_exit": records_after_exit,
         "records_start_unusable": records.start_unusable,
     }
-    notes = [
+    notes: list[str] = []
+    absent = prevalence_compute.missing_codes(
+        definition.codes, records.table_codes, records.has_system
+    )
+    if absent:
+        notes.append(
+            f"No record of {', '.join(absent)} in conditions.csv (any patient, any date)."
+        )
+    notes.append(
         f"{prior_cases} patient(s) with a record of the condition before entering the window "
         f"are prior cases and are not at risk."
-    ]
+    )
     if definition.acute and later_records:
         notes.append(
             f"{later_records} record(s) starting after a patient's first event, within the window, "
             f"were not counted: only first events are, so repeated episodes of this acute "
             f"condition are not included."
         )
+    if total.events > 0 and total.person_days == 0:
+        notes.append(_no_person_time_note(total.events, TOTAL_LABEL))
+    for stratum in strata:
+        if stratum.rate.events > 0 and stratum.rate.person_days == 0:
+            notes.append(
+                _no_person_time_note(
+                    stratum.rate.events, _stratum_label(stratum.dimension, stratum.value)
+                )
+            )
     by_measure = {"incidence": total}
     return ConditionIncidence(
         name=definition.name,
