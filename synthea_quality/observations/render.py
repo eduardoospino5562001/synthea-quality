@@ -30,6 +30,7 @@ from synthea_quality.observations.models import (
     ValueSummary,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
+from synthea_quality.table_format import table_cell
 
 MARKDOWN_NAME = "synthea_observations.md"
 JSON_NAME = "synthea_observations.json"
@@ -286,7 +287,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
         rows = [
             (
                 f"`{item['code']}`",
-                _cell(item["description"] or "—"),
+                table_cell(item["description"] or "—"),
                 ", ".join(
                     f"`{u}` {n}" if u else f"*(empty)* {n}"
                     for u, n in sorted(item["units"].items())
@@ -305,7 +306,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
         rows = [
             (
                 f"`{item['code']}`",
-                _cell(item["description"] or "—"),
+                table_cell(item["description"] or "—"),
                 ", ".join(f"{t or '*(empty)*'} {n}" for t, n in sorted(item["types"].items())),
             )
             for item in table.mixed_types
@@ -324,7 +325,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
                 *(["several units"] if row.mixed_units else []),
                 *(["several TYPE"] if row.other_types else []),
             ]
-            description = _cell(row.description or "—")
+            description = table_cell(row.description or "—")
             if flags:
                 description += f" *({', '.join(flags)})*"
             s = row.summary
@@ -389,10 +390,6 @@ def _share(count: int, total: int) -> str:
 
 def _value(value: Any) -> str:
     return "—" if value is None else str(value)
-
-
-def _cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
 
 
 def _table(

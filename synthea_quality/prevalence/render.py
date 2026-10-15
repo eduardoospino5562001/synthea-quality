@@ -23,6 +23,7 @@ from synthea_quality.prevalence.models import (
     Stratum,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
+from synthea_quality.table_format import table_cell
 
 MARKDOWN_NAME = "synthea_prevalence.md"
 JSON_NAME = "synthea_prevalence.json"
@@ -236,7 +237,7 @@ def _general(table: GeneralTable, alive: int | None) -> str:
     align = ["r", *([""] if with_system else []), "", "", "r", "r", "r", "r"]
     rows = []
     for rank, row in enumerate(shown, start=1):
-        description = "—" if row.description is None else _cell(row.description)
+        description = "—" if row.description is None else table_cell(row.description)
         if row.social:
             description += " *(social/administrative)*"
         rows.append(
@@ -287,10 +288,6 @@ def _ci(rate: Rate) -> str:
 
 def _pct(value: float | None) -> str:
     return "—" if value is None else f"{value * 100:.2f}%"
-
-
-def _cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
 
 
 def _table(
