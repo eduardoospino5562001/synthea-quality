@@ -294,3 +294,39 @@ def test_observations_escape_names_and_populations():
         wanted = _unescaped_pipes(table[0])
         assert all(_unescaped_pipes(line) == wanted for line in table)
         assert all("\r" not in line for line in table)
+
+
+def test_tiny_median_is_never_shown_as_zero():
+    from synthea_quality.observations.models import ObservationResult, UnitGroup, ValueSummary
+    from synthea_quality.profile.models import SectionStatus
+    from synthea_quality.validate.render import _observations
+
+    tiny_summary = ValueSummary(3, minimum=3e-05, median=3e-05, maximum=3e-05)
+    tiny = ObservationResult(
+        "Tiny", "9999-9", None, SectionStatus.COMPUTED, population=3,
+        groups=(UnitGroup("mm[Hg]", tiny_summary),),
+    )
+    text = "\n\n".join(_observations((tiny,)))
+    assert "3e-05" in text
+    assert "| 0 |" not in text
+
+
+def test_tiny_rates_are_never_shown_as_zero_in_summary_and_references(report):
+    from dataclasses import replace
+
+    from synthea_quality.incidence.models import IncidenceRate
+    from synthea_quality.prevalence.models import Rate
+
+    tiny_rate = Rate(1, 1_000_000)
+    tiny_incidence = IncidenceRate(1, 100_000_000)
+    conditions = []
+    for condition in report.conditions:
+        prevalence = replace(
+            condition.prevalence, point=tiny_rate, lifetime=tiny_rate, strata=(),
+        )
+        incidence = replace(condition.incidence, rate=tiny_incidence, strata=())
+        conditions.append(replace(condition, prevalence=prevalence, incidence=incidence))
+    bad = replace(report, conditions=tuple(conditions))
+    text = render_markdown(bad)
+    assert "0.0001%" in text
+    assert "0.0037" in text

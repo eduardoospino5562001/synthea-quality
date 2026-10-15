@@ -215,3 +215,26 @@ def test_expected_source_with_pipes_and_line_breaks_stays_in_its_cell():
     for table in tables:
         wanted = _unescaped_pipes(table[0])
         assert all(_unescaped_pipes(line) == wanted for line in table)
+
+
+def test_tiny_proportions_are_never_shown_as_zero():
+    tiny = Rate(1, 1_000_000)
+    cond = condition(
+        point=tiny,
+        lifetime=tiny,
+        strata=(),
+        expected=(
+            ExpectedComparison(Expected("lifetime", 0.0, "CDC"), tiny),
+        ),
+        metrics={"records": 1, "records_without_stop": 0, "records_by_code": {"1": 1}},
+        notes=(),
+    )
+    text = render_condition(cond)
+    assert "| Point | 1 | 1000000 | 0.0001% |" in text
+    assert "| Lifetime | 1 | 1000000 | 0.0001% |" in text
+    assert "+0.0001 pp" in text
+
+
+def test_a_real_zero_is_still_shown_as_zero():
+    text = render_condition(condition())
+    assert "| Point | 0 | 99 | 0.00% | 0.00–3.74% |" in text

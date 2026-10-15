@@ -103,3 +103,15 @@ def test_names_and_population_with_pipes_and_line_breaks_stay_in_their_cells():
         wanted = _unescaped_pipes(table[0])
         assert all(_unescaped_pipes(line) == wanted for line in table)
         assert all("\r" not in line for line in table)
+
+
+def test_tiny_shares_are_never_shown_as_zero():
+    tiny = computed(active=(1, 1_000_000), ever=(1, 1_000_000))
+    text = render_medications((tiny,))
+    assert "1 (0.0001%;" in text
+    assert "1 (0.00%;" not in text
+
+
+def test_a_real_zero_share_is_still_shown_as_zero():
+    text = render_medications((computed(active=(0, 17), ever=(0, 17)),))
+    assert "0 (0.00%;" in text

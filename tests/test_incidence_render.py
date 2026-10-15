@@ -165,3 +165,35 @@ def test_expected_source_with_pipes_and_line_breaks_stays_in_its_cell():
     for table in tables:
         wanted = _unescaped_pipes(table[0])
         assert all(_unescaped_pipes(line) == wanted for line in table)
+
+
+def test_tiny_rates_and_person_years_are_never_shown_as_zero():
+    from synthea_quality.incidence.models import IncidenceRate
+
+    tiny = IncidenceRate(1, 100_000_000)
+    cond = mi(rate=tiny, strata=(), expected=(), metrics={})
+    text = render_condition(cond)
+    assert "| 1 | 273785.08 | 0.0037 | 9.2e-05–0.02 |" in text
+
+
+def test_one_day_of_follow_up_is_not_shown_as_zero_person_years():
+    from synthea_quality.incidence.models import IncidenceRate
+
+    one_day = IncidenceRate(0, 1)
+    cond = mi(rate=one_day, strata=(), expected=(), metrics={})
+    text = render_condition(cond)
+    assert "| 0 | 0.0027 | 0.00 |" in text
+
+
+def test_a_tiny_difference_is_never_shown_as_zero():
+    from synthea_quality.incidence.models import IncidenceRate
+
+    rate = IncidenceRate(1, 100_000_000)
+    cond = mi(
+        rate=rate,
+        strata=(),
+        expected=(ExpectedComparison(Expected("incidence", 0.0, "CDC"), rate),),
+        metrics={},
+    )
+    text = render_condition(cond)
+    assert "| 0.00 | 0.0037 | +0.0037 | outside the 95% CI | CDC |" in text

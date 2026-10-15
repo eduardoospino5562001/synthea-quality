@@ -16,7 +16,6 @@ from synthea_quality.observations.definitions import (
     ReferenceRange,
 )
 from synthea_quality.observations.render import (
-    _num,
     dumps,
     render_markdown,
     write_json,
@@ -24,6 +23,7 @@ from synthea_quality.observations.render import (
 )
 from synthea_quality.prevalence.definitions import parse_condition_option
 from synthea_quality.schema.tables import tables_by_name
+from synthea_quality.table_format import trimmed
 
 SNOMED = "http://snomed.info/sct"
 SBP = "8480-6"
@@ -139,9 +139,38 @@ def test_the_json_and_the_files(report, tmp_path):
 
 
 def test_numbers_are_shown_without_trailing_zeros():
-    assert [_num(v) for v in (120.0, 1.015, 93.9, 0.00001, None)] == [
-        "120", "1.015", "93.9", "0", "—",
+    assert [trimmed(v) if v is not None else "—" for v in (120.0, 1.015, 93.9, None)] == [
+        "120", "1.015", "93.9", "—",
     ]
+
+
+def test_small_non_zero_values_are_never_shown_as_zero():
+    assert trimmed(0.00001) == "1e-05"
+    assert trimmed(3e-05) == "3e-05"
+
+
+def test_a_tiny_median_and_range_limit_are_never_shown_as_zero():
+    from synthea_quality.observations.models import (
+        ObservationResult,
+        RangeComparison,
+        UnitGroup,
+        ValueSummary,
+    )
+    from synthea_quality.observations.render import _range, render_observation
+    from synthea_quality.profile.models import SectionStatus
+
+    tiny_summary = ValueSummary(3, minimum=3e-05, median=3e-05, maximum=3e-05)
+    result = ObservationResult(
+        "Tiny", "9999-9", None, SectionStatus.COMPUTED, population=3,
+        groups=(UnitGroup("mm[Hg]", tiny_summary),),
+    )
+    text = render_observation(result)
+    assert "3e-05" in text
+    assert "| 3 | 3e-05 | — | — | 3e-05 | — | — | 3e-05 |" in text
+
+    tiny_range = ReferenceRange("mm[Hg]", 3e-05, 139, "CDC", "external")
+    comparison = RangeComparison(tiny_range, SectionStatus.COMPUTED, below=0, within=3, above=0)
+    assert "3e-05" in _range(comparison)
 
 
 def _unescaped_pipes(line: str) -> int:
