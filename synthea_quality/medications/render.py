@@ -15,6 +15,7 @@ from typing import Any
 from synthea_quality.medications.models import MedicationResult
 from synthea_quality.prevalence.models import Rate
 from synthea_quality.profile.models import SectionStatus
+from synthea_quality.table_format import table_cell
 
 
 def render_medications(results: tuple[MedicationResult, ...], *, level: int = 2) -> str:
@@ -24,15 +25,15 @@ def render_medications(results: tuple[MedicationResult, ...], *, level: int = 2)
     notes = []
     for result in results:
         codes = ", ".join(f"`{code}`" for code in result.codes)
-        population = result.cohort.condition if result.cohort else "alive"
+        population = table_cell(result.cohort.condition) if result.cohort else "alive"
         if result.status is SectionStatus.SKIPPED:
-            rows.append((result.name, codes, population, *("—",) * 5))
+            rows.append((table_cell(result.name), codes, population, *("—",) * 5))
             notes.append(f"**{result.name}**: `SKIPPED` — {result.reason}")
             continue
         assert result.active is not None and result.ever is not None
         rows.append(
             (
-                result.name,
+                table_cell(result.name),
                 codes,
                 population,
                 result.active.denominator,
@@ -47,7 +48,7 @@ def render_medications(results: tuple[MedicationResult, ...], *, level: int = 2)
         )
         records.append(
             (
-                result.name,
+                table_cell(result.name),
                 result.metrics.get("records", 0),
                 result.metrics.get("records_without_stop", 0),
                 by_code,

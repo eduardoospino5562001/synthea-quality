@@ -30,6 +30,7 @@ from synthea_quality.prevalence.models import INCIDENCE
 from synthea_quality.prevalence.render import render_condition as render_prevalence
 from synthea_quality.profile.models import InputState, SectionStatus
 from synthea_quality.profile.render import render_section
+from synthea_quality.table_format import table_cell
 from synthea_quality.validate.models import ConditionValidation, ModuleValidationReport
 
 MARKDOWN_NAME = "synthea_module_validation.md"
@@ -154,7 +155,8 @@ def _population(report: ModuleValidationReport) -> str:
 def _summary(report: ModuleValidationReport) -> str:
     rows = []
     for condition in report.conditions:
-        name = f"{condition.name} (acute)" if condition.acute else condition.name
+        safe_name = table_cell(condition.name)
+        name = f"{safe_name} (acute)" if condition.acute else safe_name
         p = condition.prevalence
         i = condition.incidence
         computed_p = p.status is SectionStatus.COMPUTED
@@ -210,13 +212,13 @@ def _reference_row(name: str, label: str, item: Any, *, is_rate: bool = False) -
     ci = "—" if interval is None else f"{show(interval[0])}–{show(interval[1])}"
     position = f"{item.position} the 95% CI" if item.position else "no interval"
     return (
-        name,
+        table_cell(name),
         label,
         show(item.expected.value),
         show(item.observed.value),
         ci,
         position,
-        item.expected.source or "—",
+        table_cell(item.expected.source) if item.expected.source else "—",
     )
 
 
@@ -240,9 +242,9 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
         return []
     rows = []
     for item in observations:
-        population = item.cohort.condition if item.cohort else "alive"
+        population = table_cell(item.cohort.condition) if item.cohort else "alive"
         if item.status is SectionStatus.SKIPPED:
-            rows.append((item.name, f"`{item.code}`", population, *("—",) * 5))
+            rows.append((table_cell(item.name), f"`{item.code}`", population, *("—",) * 5))
             continue
         for group in item.groups:
             s = group.summary
@@ -255,7 +257,7 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
                 in_range = f"{comparison.below} / {comparison.within} / {comparison.above}"
             rows.append(
                 (
-                    item.name,
+                    table_cell(item.name),
                     f"`{item.code}`",
                     population,
                     f"`{group.units}`" if group.units else "—",

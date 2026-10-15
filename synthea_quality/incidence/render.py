@@ -21,6 +21,7 @@ from synthea_quality.incidence.models import (
     IncidenceStratum,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
+from synthea_quality.table_format import table_cell
 
 MARKDOWN_NAME = "synthea_incidence.md"
 JSON_NAME = "synthea_incidence.json"
@@ -180,7 +181,7 @@ def render_condition(
                     _num(item.observed.value),
                     difference,
                     position,
-                    item.expected.source or "—",
+                    table_cell(item.expected.source) if item.expected.source else "—",
                 )
             )
         blocks.append(

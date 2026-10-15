@@ -227,7 +227,7 @@ def _range(comparison: RangeComparison) -> str:
                     _share(comparison.below, total),
                     _share(comparison.within, total),
                     _share(comparison.above, total),
-                    rng.source or "—",
+                    table_cell(rng.source) if rng.source else "—",
                 )
             ],
             align=("r", "r", "", "r", "r", "r", ""),

@@ -173,7 +173,7 @@ def render_condition(
                     _pct(item.observed.value),
                     difference,
                     position,
-                    item.expected.source or "—",
+                    table_cell(item.expected.source) if item.expected.source else "—",
                 )
             )
         blocks.append(
