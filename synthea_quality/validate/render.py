@@ -30,7 +30,7 @@ from synthea_quality.prevalence.models import INCIDENCE
 from synthea_quality.prevalence.render import render_condition as render_prevalence
 from synthea_quality.profile.models import InputState, SectionStatus
 from synthea_quality.profile.render import render_section
-from synthea_quality.table_format import table_cell
+from synthea_quality.table_format import fixed, table_cell, trimmed
 from synthea_quality.validate.models import ConditionValidation, ModuleValidationReport
 
 MARKDOWN_NAME = "synthea_module_validation.md"
@@ -262,8 +262,12 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
                     population,
                     f"`{group.units}`" if group.units else "—",
                     s.n,
-                    _value(s.median),
-                    f"{_value(s.p25)}–{_value(s.p75)}" if s.p25 is not None else "—",
+                    trimmed(s.median) if s.median is not None else "—",
+                    (
+                        f"{trimmed(s.p25)}–{trimmed(s.p75)}"
+                        if s.p25 is not None and s.p75 is not None
+                        else "—"
+                    ),
                     in_range,
                 )
             )
@@ -292,13 +296,6 @@ def _observations(observations: tuple[ObservationResult, ...]) -> list[str]:
     return [summary, *(render_observation(item, level=2) for item in observations)]
 
 
-def _value(value: float | None) -> str:
-    if value is None:
-        return "—"
-    text = f"{value:.4f}".rstrip("0").rstrip(".")
-    return "0" if text == "-0" else text
-
-
 def _proportion(rate: Any) -> str:
     interval = rate.interval
     if rate.value is None or interval is None:
@@ -314,11 +311,11 @@ def _incidence(rate: Any) -> str:
 
 
 def _percent(value: float | None) -> str:
-    return "—" if value is None else f"{value * 100:.2f}%"
+    return "—" if value is None else f"{fixed(value * 100, 2)}%"
 
 
 def _rate_number(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+    return "—" if value is None else fixed(value, 2)
 
 
 def _table(

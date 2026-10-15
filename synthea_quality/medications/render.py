@@ -15,7 +15,7 @@ from typing import Any
 from synthea_quality.medications.models import MedicationResult
 from synthea_quality.prevalence.models import Rate
 from synthea_quality.profile.models import SectionStatus
-from synthea_quality.table_format import table_cell
+from synthea_quality.table_format import fixed, table_cell
 
 
 def render_medications(results: tuple[MedicationResult, ...], *, level: int = 2) -> str:
@@ -103,8 +103,8 @@ def _share(rate: Rate) -> str:
     if rate.value is None or interval is None:
         return f"{rate.numerator} (—)"
     return (
-        f"{rate.numerator} ({rate.value * 100:.2f}%; "
-        f"{interval[0] * 100:.2f}–{interval[1] * 100:.2f}%)"
+        f"{rate.numerator} ({fixed(rate.value * 100, 2)}%; "
+        f"{fixed(interval[0] * 100, 2)}–{fixed(interval[1] * 100, 2)}%)"
     )
 
 

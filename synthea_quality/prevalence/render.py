@@ -23,7 +23,7 @@ from synthea_quality.prevalence.models import (
     Stratum,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
-from synthea_quality.table_format import table_cell
+from synthea_quality.table_format import fixed, table_cell
 
 MARKDOWN_NAME = "synthea_prevalence.md"
 JSON_NAME = "synthea_prevalence.json"
@@ -164,7 +164,7 @@ def render_condition(
                 f"{item.position} the 95% CI" if item.position is not None else "no interval"
             )
             difference = (
-                "—" if item.difference is None else f"{item.difference * 100:+.2f} pp"
+                "—" if item.difference is None else f"{fixed(item.difference * 100, 2, sign=True)} pp"
             )
             rows.append(
                 (
@@ -283,11 +283,11 @@ def _ci(rate: Rate) -> str:
     interval = rate.interval
     if interval is None:
         return "—"
-    return f"{interval[0] * 100:.2f}–{interval[1] * 100:.2f}%"
+    return f"{fixed(interval[0] * 100, 2)}–{fixed(interval[1] * 100, 2)}%"
 
 
 def _pct(value: float | None) -> str:
-    return "—" if value is None else f"{value * 100:.2f}%"
+    return "—" if value is None else f"{fixed(value * 100, 2)}%"
 
 
 def _table(
