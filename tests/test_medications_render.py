@@ -66,3 +66,40 @@ def test_the_section():
     assert "- **Lisinopril**: 14 of 299 records have no STOP." in text
     for word in ("PASS", "FAIL", "match"):
         assert word not in text
+
+
+def _unescaped_pipes(line: str) -> int:
+    return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
+
+
+def test_names_and_population_with_pipes_and_line_breaks_stay_in_their_cells():
+    nasty_name = "Medi|cation\nnew\rline"
+    nasty_population = CohortSpec("Hyper|tension\nnew\rcohort")
+    nasty_computed = MedicationResult(
+        nasty_name, ("314076",), SectionStatus.COMPUTED, cohort=nasty_population,
+        active=Rate(14, 17), ever=Rate(14, 17), active_with_reason=14, ever_with_reason=14,
+        metrics={"records": 299, "records_without_stop": 14,
+                 "records_by_code": {"314076": 299}},
+    )
+    nasty_skipped = MedicationResult(
+        nasty_name, ("979485",), SectionStatus.SKIPPED, reason="no records",
+        cohort=nasty_population,
+    )
+    text = render_medications((nasty_computed, nasty_skipped))
+    assert "Medi\\|cation new line" in text
+    assert "Hyper\\|tension new cohort" in text
+    tables: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("| "):
+            current.append(line)
+        elif current:
+            tables.append(current)
+            current = []
+    if current:
+        tables.append(current)
+    assert len(tables) == 2
+    for table in tables:
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
+        assert all("\r" not in line for line in table)

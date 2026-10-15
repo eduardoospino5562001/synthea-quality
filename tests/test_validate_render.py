@@ -190,3 +190,107 @@ def test_medications_and_their_reference_values(tmp_path):
     assert "| Condition or medication | Measure |" in text
     assert "| Lisinopril | active share | 90.00% | 100.00% |" in text
     assert "| Lisinopril | `314076` | Hypertension | 1 | 1 (100.00%; 20.65–100.00%) |" in text
+
+
+def _unescaped_pipes(line: str) -> int:
+    return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
+
+
+def _tables(text: str) -> list[list[str]]:
+    tables: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("| "):
+            current.append(line)
+        elif current:
+            tables.append(current)
+            current = []
+    if current:
+        tables.append(current)
+    return tables
+
+
+def test_reference_row_escapes_name_and_source():
+    from synthea_quality.prevalence.models import Expected, ExpectedComparison, Rate
+    from synthea_quality.validate.render import _reference_row
+
+    nasty_name = "Condi|tion\nnew\rname"
+    nasty_source = "CDC | line\nbreak\rreturn"
+    item = ExpectedComparison(Expected("lifetime", 0.05, nasty_source), Rate(1, 2))
+    row = _reference_row(nasty_name, "lifetime prevalence", item)
+    assert row[0] == "Condi\\|tion new name"
+    assert row[6] == "CDC \\| line break return"
+
+
+def test_summary_escapes_condition_names(report):
+    from dataclasses import replace
+
+    nasty = "Myo|cardial\nnew\rinfarction"
+    renamed = tuple(replace(condition, name=nasty) for condition in report.conditions)
+    bad = replace(report, conditions=renamed)
+    text = render_markdown(bad)
+    assert "Myo\\|cardial new infarction" in text
+    summary_start = text.index("## Summary")
+    references_start = text.index("## Reference values")
+    summary_text = text[summary_start:references_start]
+    for table in _tables(summary_text):
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
+        assert all("\r" not in line for line in table)
+
+
+def test_references_escape_sources(report):
+    from dataclasses import replace
+
+    from synthea_quality.prevalence.models import Expected, ExpectedComparison
+
+    conditions = []
+    for condition in report.conditions:
+        expected = tuple(
+            ExpectedComparison(
+                Expected(item.expected.measure, item.expected.value, "Src | A\nB\rC"),
+                item.observed,
+            )
+            for item in condition.references
+        )
+        prevalence = replace(condition.prevalence, expected=tuple(
+            e for e in expected if e.expected.measure != "incidence"
+        ) or condition.prevalence.expected)
+        incidence = replace(condition.incidence, expected=tuple(
+            e for e in expected if e.expected.measure == "incidence"
+        ) or condition.incidence.expected)
+        conditions.append(replace(condition, prevalence=prevalence, incidence=incidence))
+    bad = replace(report, conditions=tuple(conditions))
+    text = render_markdown(bad)
+    assert "Src \\| A B C" in text
+    references_text = text[text.index("## Reference values"):]
+    for table in _tables(references_text):
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
+        assert all("\r" not in line for line in table)
+
+
+def test_observations_escape_names_and_populations():
+    from synthea_quality.condition_cohort import CohortSpec
+    from synthea_quality.observations.models import ObservationResult, UnitGroup, ValueSummary
+    from synthea_quality.profile.models import SectionStatus
+    from synthea_quality.validate.render import _observations
+
+    nasty_name = "Obser|vation\nnew\rname"
+    nasty_population = CohortSpec("Hyper|tension\nnew\rcohort")
+    summary = ValueSummary(3, minimum=1.0, median=2.0, maximum=3.0)
+    computed = ObservationResult(
+        nasty_name, "8480-6", "desc", SectionStatus.COMPUTED, cohort=nasty_population,
+        population=1, groups=(UnitGroup("mm[Hg]", summary),),
+    )
+    skipped = ObservationResult(
+        nasty_name, "8462-4", None, SectionStatus.SKIPPED, reason="no rows",
+        cohort=nasty_population,
+    )
+    text = "\n\n".join(_observations((computed, skipped)))
+    assert "Obser\\|vation new name" in text
+    assert "Hyper\\|tension new cohort" in text
+    for table in _tables(text):
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
+        assert all("\r" not in line for line in table)

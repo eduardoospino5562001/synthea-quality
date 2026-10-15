@@ -142,3 +142,24 @@ def test_numbers_are_shown_without_trailing_zeros():
     assert [_num(v) for v in (120.0, 1.015, 93.9, 0.00001, None)] == [
         "120", "1.015", "93.9", "0", "—",
     ]
+
+
+def _unescaped_pipes(line: str) -> int:
+    return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
+
+
+def test_range_source_with_pipes_and_line_breaks_stays_in_its_cell():
+    from synthea_quality.observations.models import RangeComparison
+    from synthea_quality.observations.render import _range
+    from synthea_quality.profile.models import SectionStatus
+
+    nasty = "CDC | line\nbreak\rreturn"
+    bad_range = ReferenceRange("mm[Hg]", 100, 139, nasty, "external")
+    comparison = RangeComparison(bad_range, SectionStatus.COMPUTED, below=0, within=1, above=1)
+    text = _range(comparison)
+    assert "CDC \\| line break return" in text
+    assert "\r" not in text
+    lines = [line for line in text.splitlines() if line.startswith("| ")]
+    assert lines
+    wanted = _unescaped_pipes(lines[0])
+    assert all(_unescaped_pipes(line) == wanted for line in lines)

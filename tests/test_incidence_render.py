@@ -131,3 +131,37 @@ def test_a_condition_renders_under_any_heading_level():
     assert text.startswith("### Incidence: Myocardial infarction (declared acute)\n\nCodes:")
     assert "#### By age band (person-years split between bands)" in text
     assert render_condition(mi()) in render_markdown(report())
+
+
+def _unescaped_pipes(line: str) -> int:
+    return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
+
+
+def _tables(text: str) -> list[list[str]]:
+    tables: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("| "):
+            current.append(line)
+        elif current:
+            tables.append(current)
+            current = []
+    if current:
+        tables.append(current)
+    return tables
+
+
+def test_expected_source_with_pipes_and_line_breaks_stays_in_its_cell():
+    from synthea_quality.incidence.models import IncidenceRate
+
+    nasty = "CDC | line\nbreak\rreturn"
+    rate = IncidenceRate(1, 169_266)
+    bad = mi(expected=(ExpectedComparison(Expected("incidence", 3.0, nasty), rate),))
+    text = render_condition(bad)
+    assert "CDC \\| line break return" in text
+    assert "\r" not in text
+    tables = _tables(text)
+    assert tables
+    for table in tables:
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
