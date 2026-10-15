@@ -278,6 +278,13 @@ class GeneralTable:
     metrics: dict[str, Any] = field(default_factory=dict)
     notes: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.status is SectionStatus.SKIPPED:
+            if not self.reason or self.rows:
+                raise ValueError("a skipped general table needs a reason and no rows")
+        elif self.reason is not None:
+            raise ValueError("a computed general table needs no reason")
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status.value,
