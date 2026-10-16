@@ -182,3 +182,59 @@ def test_a_condition_renders_under_any_heading_level():
     assert text.startswith("### Prevalence: Myocardial infarction\n\nCodes:")
     assert "#### By age band at the reference date" in text
     assert render_condition(condition()) in render_markdown(report())
+
+
+def _unescaped_pipes(line: str) -> int:
+    return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
+
+
+def _tables(text: str) -> list[list[str]]:
+    tables: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("| "):
+            current.append(line)
+        elif current:
+            tables.append(current)
+            current = []
+    if current:
+        tables.append(current)
+    return tables
+
+
+def test_expected_source_with_pipes_and_line_breaks_stays_in_its_cell():
+    nasty = "CDC | line\nbreak\rreturn"
+    cond = condition(
+        expected=(ExpectedComparison(Expected("lifetime", 0.05, nasty), Rate(7, 99)),)
+    )
+    text = render_condition(cond)
+    assert "CDC \\| line break return" in text
+    assert "\r" not in text
+    tables = _tables(text)
+    assert tables
+    for table in tables:
+        wanted = _unescaped_pipes(table[0])
+        assert all(_unescaped_pipes(line) == wanted for line in table)
+
+
+def test_tiny_proportions_are_never_shown_as_zero():
+    tiny = Rate(1, 1_000_000)
+    cond = condition(
+        point=tiny,
+        lifetime=tiny,
+        strata=(),
+        expected=(
+            ExpectedComparison(Expected("lifetime", 0.0, "CDC"), tiny),
+        ),
+        metrics={"records": 1, "records_without_stop": 0, "records_by_code": {"1": 1}},
+        notes=(),
+    )
+    text = render_condition(cond)
+    assert "| Point | 1 | 1000000 | 0.0001% |" in text
+    assert "| Lifetime | 1 | 1000000 | 0.0001% |" in text
+    assert "+0.0001 pp" in text
+
+
+def test_a_real_zero_is_still_shown_as_zero():
+    text = render_condition(condition())
+    assert "| Point | 0 | 99 | 0.00% | 0.00–3.74% |" in text

@@ -21,6 +21,7 @@ from synthea_quality.incidence.models import (
     IncidenceStratum,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
+from synthea_quality.table_format import fixed, table_cell
 
 MARKDOWN_NAME = "synthea_incidence.md"
 JSON_NAME = "synthea_incidence.json"
@@ -173,14 +174,14 @@ def render_condition(
             position = (
                 f"{item.position} the 95% CI" if item.position is not None else "no interval"
             )
-            difference = "—" if item.difference is None else f"{item.difference:+.2f}"
+            difference = "—" if item.difference is None else fixed(item.difference, 2, sign=True)
             rows.append(
                 (
                     _num(item.expected.value),
                     _num(item.observed.value),
                     difference,
                     position,
-                    item.expected.source or "—",
+                    table_cell(item.expected.source) if item.expected.source else "—",
                 )
             )
         blocks.append(
@@ -227,11 +228,11 @@ def _strata(strata: list[IncidenceStratum], label: str) -> list[str]:
 def _rate_cells(rate: IncidenceRate) -> tuple[Any, ...]:
     interval = rate.interval
     ci = "—" if interval is None else f"{_num(interval[0])}–{_num(interval[1])}"
-    return rate.events, f"{rate.person_years:.2f}", _num(rate.value), ci
+    return rate.events, fixed(rate.person_years, 2), _num(rate.value), ci
 
 
 def _num(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+    return "—" if value is None else fixed(value, 2)
 
 
 def _table(

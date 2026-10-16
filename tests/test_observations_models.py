@@ -86,3 +86,20 @@ def test_the_report_is_deterministic_json():
     assert "type 7" in data["definitions"]["percentiles"]
     assert report.to_json() == report.to_json()
     assert not report.incomplete
+
+
+def test_skipped_general_tables_need_a_reason_and_no_rows():
+    from synthea_quality.observations.models import GeneralRow
+
+    row = GeneralRow("1", "mg", None, summary())
+    with pytest.raises(ValueError):
+        GeneralTable(SectionStatus.SKIPPED)
+    with pytest.raises(ValueError):
+        GeneralTable(SectionStatus.SKIPPED, reason="")
+    with pytest.raises(ValueError):
+        GeneralTable(SectionStatus.SKIPPED, reason="no reference", rows=(row,))
+    with pytest.raises(ValueError):
+        GeneralTable(SectionStatus.COMPUTED, reason="why")
+    assert GeneralTable(SectionStatus.SKIPPED, reason="no reference").status is SectionStatus.SKIPPED
+    assert GeneralTable(SectionStatus.COMPUTED).status is SectionStatus.COMPUTED
+    assert GeneralTable(SectionStatus.COMPUTED, rows=(row,)).rows == (row,)

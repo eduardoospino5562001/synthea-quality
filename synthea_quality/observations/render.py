@@ -30,6 +30,7 @@ from synthea_quality.observations.models import (
     ValueSummary,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
+from synthea_quality.table_format import table_cell, trimmed
 
 MARKDOWN_NAME = "synthea_observations.md"
 JSON_NAME = "synthea_observations.json"
@@ -190,7 +191,7 @@ def _group(group: UnitGroup, level: int) -> str:
     age = metrics.get("latest_value_age_days_median")
     if age is not None:
         blocks.append(
-            f"Age of the latest values: median **{_num(age)}** days before the reference date; "
+            f"Age of the latest values: median **{trimmed(age)}** days before the reference date; "
             f"{metrics.get('patients_latest_older_than_1y', 0)} older than 1 year, "
             f"{metrics.get('patients_latest_older_than_3y', 0)} older than 3 years."
         )
@@ -206,8 +207,8 @@ def _group(group: UnitGroup, level: int) -> str:
 
 def _range(comparison: RangeComparison) -> str:
     rng = comparison.range
-    low = "—" if rng.low is None else _num(rng.low)
-    high = "—" if rng.high is None else _num(rng.high)
+    low = "—" if rng.low is None else trimmed(rng.low)
+    high = "—" if rng.high is None else trimmed(rng.high)
     lines = ["Reference range (shown for comparison, not as a verdict):", ""]
     if comparison.status is SectionStatus.SKIPPED:
         lines.append(
@@ -226,7 +227,7 @@ def _range(comparison: RangeComparison) -> str:
                     _share(comparison.below, total),
                     _share(comparison.within, total),
                     _share(comparison.above, total),
-                    rng.source or "—",
+                    table_cell(rng.source) if rng.source else "—",
                 )
             ],
             align=("r", "r", "", "r", "r", "r", ""),
@@ -286,7 +287,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
         rows = [
             (
                 f"`{item['code']}`",
-                _cell(item["description"] or "—"),
+                table_cell(item["description"] or "—"),
                 ", ".join(
                     f"`{u}` {n}" if u else f"*(empty)* {n}"
                     for u, n in sorted(item["units"].items())
@@ -305,7 +306,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
         rows = [
             (
                 f"`{item['code']}`",
-                _cell(item["description"] or "—"),
+                table_cell(item["description"] or "—"),
                 ", ".join(f"{t or '*(empty)*'} {n}" for t, n in sorted(item["types"].items())),
             )
             for item in table.mixed_types
@@ -324,7 +325,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
                 *(["several units"] if row.mixed_units else []),
                 *(["several TYPE"] if row.other_types else []),
             ]
-            description = _cell(row.description or "—")
+            description = table_cell(row.description or "—")
             if flags:
                 description += f" *({', '.join(flags)})*"
             s = row.summary
@@ -335,9 +336,9 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
                     description,
                     f"`{row.units}`" if row.units else "—",
                     s.n,
-                    _num(s.minimum),
-                    _num(s.median),
-                    _num(s.maximum),
+                    trimmed(s.minimum) if s.minimum is not None else "—",
+                    trimmed(s.median) if s.median is not None else "—",
+                    trimmed(s.maximum) if s.maximum is not None else "—",
                 )
             )
         blocks.append(
@@ -360,7 +361,7 @@ def render_general(table: GeneralTable, alive: int | None, *, level: int = 2) ->
 
 def _stats(summary: ValueSummary) -> tuple[str, ...]:
     return tuple(
-        _num(v)
+        trimmed(v) if v is not None else "—"
         for v in (
             summary.minimum,
             summary.p5,
@@ -373,14 +374,6 @@ def _stats(summary: ValueSummary) -> tuple[str, ...]:
     )
 
 
-def _num(value: float | None) -> str:
-    """Up to four decimals, without trailing zeros (``120``, ``1.015``, ``93.9``)."""
-    if value is None:
-        return "—"
-    text = f"{value:.4f}".rstrip("0").rstrip(".")
-    return "0" if text == "-0" else text
-
-
 def _share(count: int, total: int) -> str:
     if total == 0:
         return str(count)
@@ -389,10 +382,6 @@ def _share(count: int, total: int) -> str:
 
 def _value(value: Any) -> str:
     return "—" if value is None else str(value)
-
-
-def _cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
 
 
 def _table(
