@@ -151,6 +151,7 @@ def test_no_notice_with_a_whole_history_or_without_metadata(tmp_path):
     data = dataset(tmp_path / "csv")
     for meta in (metadata(tmp_path / "meta", "0"), None):
         reports = build_all(data, meta)
+        assert set(reports) == set(renderers)
         for name, report in reports.items():
             dumped = report.to_json()
             assert '"export_history"' in dumped, name
