@@ -141,12 +141,26 @@ def test_the_hypertension_example_with_observations(tmp_path, capsys):
 def test_the_hypertension_example_with_medications(tmp_path, capsys):
     example = REPOSITORY / "examples" / "hypertension.json"
     directory = dataset(tmp_path / "csv")
+    # Hypertension active at the 2026-01-01 reference date for a1 and a2, so the
+    # cohort has 2 patients. Lisinopril is active for both, Losartan only for a1:
+    # Lisinopril 2/2 active and ever, Losartan 1/2 active and ever.
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "a1", "CODE": "401314000", "SYSTEM": SNOMED, "START": "2023-01-01"},
+            {"PATIENT": "a1", "CODE": "59621000", "SYSTEM": SNOMED, "START": "2015-01-01"},
+            {"PATIENT": "a2", "CODE": "59621000", "SYSTEM": SNOMED, "START": "2015-01-01"},
+        ],
+    )
     with (directory / "medications.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=tables_by_name()["medications"].columns)
         writer.writeheader()
         writer.writerow({"START": "2020-01-01T00:00:00Z", "PATIENT": "a1", "CODE": "314076"})
+        writer.writerow({"START": "2020-01-01T00:00:00Z", "PATIENT": "a2", "CODE": "314076"})
+        writer.writerow({"START": "2020-01-01T00:00:00Z", "PATIENT": "a1", "CODE": "979485"})
     code = main([str(directory), "--module", str(example), "--output-dir", str(tmp_path / "o")])
     assert code == EXIT_OK
     printed = capsys.readouterr().out
-    assert "Medication: Lisinopril: active 0/0, ever 0/0" in printed
-    assert "Medication: Losartan: active 0/0, ever 0/0" in printed
+    assert "Medication: Lisinopril: active 2/2, ever 2/2" in printed
+    assert "Medication: Losartan: active 1/2, ever 1/2" in printed
