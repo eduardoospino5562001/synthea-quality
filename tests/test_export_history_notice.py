@@ -145,8 +145,19 @@ def test_the_notice_is_first_after_the_title_in_every_report(tmp_path):
 
 
 def test_no_notice_with_a_whole_history_or_without_metadata(tmp_path):
+    from synthea_quality.incidence.render import render_markdown as incidence_md
+    from synthea_quality.observations.render import render_markdown as observations_md
     from synthea_quality.prevalence.render import render_markdown as prevalence_md
+    from synthea_quality.profile.render import render_markdown as profile_md
+    from synthea_quality.validate.render import render_markdown as validate_md
 
+    renderers = {
+        "profile": profile_md,
+        "prevalence": prevalence_md,
+        "incidence": incidence_md,
+        "observations": observations_md,
+        "validate": validate_md,
+    }
     data = dataset(tmp_path / "csv")
     for meta in (metadata(tmp_path / "meta", "0"), None):
         reports = build_all(data, meta)
@@ -155,11 +166,9 @@ def test_no_notice_with_a_whole_history_or_without_metadata(tmp_path):
             assert '"export_history"' in dumped, name
             status = report.to_dict()["export_history"]["status"]
             assert status == ("read" if meta is not None else "no_metadata"), name
-    text = prevalence_md(build_prevalence(data, metadata=metadata(tmp_path / "m", 0)))
-    assert "Time-filtered dataset" not in text
-    assert "Exported history unknown" not in text
-    text = prevalence_md(build_prevalence(data))
-    assert "Time-filtered dataset" not in text
+            text = renderers[name](report)
+            assert "Time-filtered dataset" not in text, name
+            assert "Exported history unknown" not in text, name
 
 
 def test_an_unusable_value_is_announced_once_at_the_top(tmp_path):
