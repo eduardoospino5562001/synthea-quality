@@ -153,22 +153,22 @@ def test_discovery_does_not_read_file_contents(tmp_path: Path, monkeypatch) -> N
 
     original_builtin_open = builtins.open
 
-    def forbidden_open(path, *args, **kwargs):
+    def forbidden_open(path: object, *args: object, **kwargs: object) -> object:
         if is_dataset_file(path) or (isinstance(path, Path) and tmp_path in path.parents):
             raise AssertionError("discovery must not open a dataset file")
         return original_open(path, *args, **kwargs)
 
-    def forbidden_read_bytes(path, *args, **kwargs):
+    def forbidden_read_bytes(path: Path, *args: object, **kwargs: object) -> bytes:
         if tmp_path in path.parents or path.parent == tmp_path:
             raise AssertionError("discovery must not read a dataset file")
         return original_read_bytes(path, *args, **kwargs)
 
-    def forbidden_read_text(path, *args, **kwargs):
+    def forbidden_read_text(path: Path, *args: object, **kwargs: object) -> str:
         if tmp_path in path.parents or path.parent == tmp_path:
             raise AssertionError("discovery must not read a dataset file")
         return original_read_text(path, *args, **kwargs)
 
-    def forbidden_builtin_open(file, *args, **kwargs):
+    def forbidden_builtin_open(file: object, *args: object, **kwargs: object) -> object:
         if isinstance(file, (str, Path)) and is_dataset_file(file):
             raise AssertionError("discovery must not open a dataset file")
         return original_builtin_open(file, *args, **kwargs)
