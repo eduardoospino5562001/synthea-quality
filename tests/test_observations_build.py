@@ -2,30 +2,20 @@
 
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.condition_cohort import CohortSpec
 from synthea_quality.observations.build import build_observations
 from synthea_quality.observations.definitions import ObservationDefinition
 from synthea_quality.prevalence.definitions import parse_condition_option
 from synthea_quality.profile.models import InputState, SectionStatus
-from synthea_quality.schema.tables import tables_by_name
 
 SNOMED = "http://snomed.info/sct"
 SBP = "8480-6"
 
-
-def write_table(directory: Path, name: str, rows, columns=None) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns or tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def reading(patient, value, day="2026-01-01T00:00:00Z"):

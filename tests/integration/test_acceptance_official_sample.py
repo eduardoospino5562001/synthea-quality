@@ -6,7 +6,7 @@ That somebody outside the project can point the tool at the dataset Synthea
 recommends and get the documented result, using only the public command line: every
 run here starts a real process (the ``synthea-quality`` console script), never an
 internal function. It covers the whole product on one dataset: discovery, the contract
-comparison, all 155 checks, both reports, the exit codes, determinism, the untouched
+comparison, every check, both reports, the exit codes, determinism, the untouched
 source files and the reference-evidence attribution.
 
 The data
@@ -220,7 +220,7 @@ def test_a_full_run_from_the_command_line(sample: Path, tmp_path: Path) -> None:
     assert "synthea-quality" in result.stdout
     assert f"Tables:   {BASELINE_TABLES_OBSERVED} of {BASELINE_CONTRACT_TABLES}" in result.stdout
     assert f"Contract: {BASELINE_CONTRACT}" in result.stdout
-    assert "Checks:   155 total" in result.stdout
+    assert f"Checks:   {BASELINE_TOTAL_CHECKS} total" in result.stdout
     assert str(output / "synthea_quality_report.md") in result.stdout
     assert str(output / "synthea_quality_report.json") in result.stdout
 
@@ -262,7 +262,7 @@ def test_a_full_run_from_the_command_line(sample: Path, tmp_path: Path) -> None:
     # 8. the Markdown is a report a person can read, and it does not over-claim
     assert markdown.startswith("# Synthea dataset quality report")
     assert "Verdict: no check failed" in markdown
-    assert "| **total** | **155** |" in markdown
+    assert f"| **total** | **{BASELINE_TOTAL_CHECKS}** |" in markdown
     assert "not proof that the dataset was produced by one exact" in markdown
     assert "confirmed version" not in markdown.lower()
 

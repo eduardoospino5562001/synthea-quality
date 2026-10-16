@@ -136,9 +136,47 @@ def test_two_files_for_the_same_table_are_rejected(tmp_path: Path) -> None:
         discover_dataset(tmp_path)
 
 
-def test_discovery_does_not_read_file_contents(tmp_path: Path) -> None:
+def test_discovery_does_not_read_file_contents(tmp_path: Path, monkeypatch) -> None:
     """A file is discovered by name; its content is the loader's problem."""
     (tmp_path / "patients.csv").write_bytes(b"\x00not,a,csv\n\xff")
+
+    def is_dataset_file(path: object) -> bool:
+        try:
+            return Path(path).is_absolute() and tmp_path in Path(path).parents
+        except (TypeError, ValueError):
+            return False
+
+    original_open = Path.open
+    original_read_bytes = Path.read_bytes
+    original_read_text = Path.read_text
+    import builtins
+
+    original_builtin_open = builtins.open
+
+    def forbidden_open(path: object, *args: object, **kwargs: object) -> object:
+        if is_dataset_file(path) or (isinstance(path, Path) and tmp_path in path.parents):
+            raise AssertionError("discovery must not open a dataset file")
+        return original_open(path, *args, **kwargs)
+
+    def forbidden_read_bytes(path: Path, *args: object, **kwargs: object) -> bytes:
+        if tmp_path in path.parents or path.parent == tmp_path:
+            raise AssertionError("discovery must not read a dataset file")
+        return original_read_bytes(path, *args, **kwargs)
+
+    def forbidden_read_text(path: Path, *args: object, **kwargs: object) -> str:
+        if tmp_path in path.parents or path.parent == tmp_path:
+            raise AssertionError("discovery must not read a dataset file")
+        return original_read_text(path, *args, **kwargs)
+
+    def forbidden_builtin_open(file: object, *args: object, **kwargs: object) -> object:
+        if isinstance(file, (str, Path)) and is_dataset_file(file):
+            raise AssertionError("discovery must not open a dataset file")
+        return original_builtin_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", forbidden_open)
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read_bytes)
+    monkeypatch.setattr(Path, "read_text", forbidden_read_text)
+    monkeypatch.setattr(builtins, "open", forbidden_builtin_open)
 
     result = discover_dataset(tmp_path)
 

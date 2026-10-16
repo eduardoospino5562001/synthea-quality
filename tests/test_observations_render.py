@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.condition_cohort import CohortSpec
 from synthea_quality.observations.build import build_observations
@@ -22,21 +23,11 @@ from synthea_quality.observations.render import (
     write_markdown,
 )
 from synthea_quality.prevalence.definitions import parse_condition_option
-from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.table_format import trimmed
 
 SNOMED = "http://snomed.info/sct"
 SBP = "8480-6"
 
-
-def write_table(directory: Path, name: str, rows, columns=None) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns or tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def reading(patient, value, day="2026-01-01T00:00:00Z"):
@@ -122,8 +113,7 @@ def test_the_markdown(report):
     assert "`mL/min` 1, `mL/min/{1.73_m2}` 1" in text
     assert "numeric 1, text 1" in text
     assert "several units" in text and "several TYPE" in text
-    for word in ("PASS", "FAIL", "match"):
-        assert word not in text
+    assert not re.search(r"\b(pass(ed|es)?|fail(ed|s)?|ok|match(ed|es)?)\b", text, re.I)
 
 
 def test_none_asked_for(tmp_path):

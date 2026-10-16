@@ -143,20 +143,26 @@ def test_null_references_are_allowed_and_not_counted_as_orphans() -> None:
     assert result.metrics["invalid"] == 0
 
 
-def test_missing_values_are_exactly_what_the_loader_produces() -> None:
+def test_missing_values_are_exactly_what_the_loader_produces(tmp_path: Path) -> None:
     """The loader maps only the empty field to a missing value, and a value keeps its text.
 
     So a reference of ``"NA"`` is a value to resolve, not an absent one: the two
     modules must agree, otherwise a real reference could be skipped as null.
     """
+    from synthea_quality.loader import load_table
+
+    write(tmp_path, "refs.csv", 'PATIENT\n""\nNA\n')
+    column = load_table(tmp_path / "refs.csv", table="conditions", columns=["PATIENT"]).frame[
+        "PATIENT"
+    ]
     parents = frozenset({"p1"})
 
-    result = check_foreign_key(CONDITION_PATIENT_FK, pd.Series(["NA", "p1"]), parents)
+    result = check_foreign_key(CONDITION_PATIENT_FK, column, parents)
 
     assert result.status is Status.FAIL
-    assert result.metrics["null_references"] == 0
+    assert result.metrics["null_references"] == 1
     assert result.metrics["invalid"] == 1
-    assert result.samples == ({"value": "NA", "row": 1},)
+    assert result.samples == ({"value": "NA", "row": 2},)
 
 
 def test_a_column_with_no_reference_at_all_is_not_applicable() -> None:

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from datetime import date
 from pathlib import Path
+
+from csv_tables import write_table
 
 from synthea_quality.incidence.build import build_incidence
 from synthea_quality.observations.build import build_observations
@@ -13,7 +14,6 @@ from synthea_quality.observations.definitions import parse_observation_option
 from synthea_quality.prevalence.build import build_prevalence
 from synthea_quality.prevalence.definitions import assemble
 from synthea_quality.profile.build import build_profile
-from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.models import load_module
 
@@ -21,16 +21,6 @@ GENERATED_AT = "2026-10-02T00:00:00+00:00"
 SNOMED = "http://snomed.info/sct"
 CUTOFF = (date(2026, 1, 1).toordinal() - 365 * 10)
 CUTOFF_ISO = date.fromordinal(CUTOFF).isoformat()
-
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def dataset(directory: Path) -> Path:
@@ -145,21 +135,31 @@ def test_the_notice_is_first_after_the_title_in_every_report(tmp_path):
 
 
 def test_no_notice_with_a_whole_history_or_without_metadata(tmp_path):
+    from synthea_quality.incidence.render import render_markdown as incidence_md
+    from synthea_quality.observations.render import render_markdown as observations_md
     from synthea_quality.prevalence.render import render_markdown as prevalence_md
+    from synthea_quality.profile.render import render_markdown as profile_md
+    from synthea_quality.validate.render import render_markdown as validate_md
 
+    renderers = {
+        "profile": profile_md,
+        "prevalence": prevalence_md,
+        "incidence": incidence_md,
+        "observations": observations_md,
+        "validate": validate_md,
+    }
     data = dataset(tmp_path / "csv")
     for meta in (metadata(tmp_path / "meta", "0"), None):
         reports = build_all(data, meta)
+        assert set(reports) == set(renderers)
         for name, report in reports.items():
             dumped = report.to_json()
             assert '"export_history"' in dumped, name
             status = report.to_dict()["export_history"]["status"]
             assert status == ("read" if meta is not None else "no_metadata"), name
-    text = prevalence_md(build_prevalence(data, metadata=metadata(tmp_path / "m", 0)))
-    assert "Time-filtered dataset" not in text
-    assert "Exported history unknown" not in text
-    text = prevalence_md(build_prevalence(data))
-    assert "Time-filtered dataset" not in text
+            text = renderers[name](report)
+            assert "Time-filtered dataset" not in text, name
+            assert "Exported history unknown" not in text, name
 
 
 def test_an_unusable_value_is_announced_once_at_the_top(tmp_path):

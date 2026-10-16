@@ -122,8 +122,22 @@ else
     while IFS= read -r f; do
         [ -z "$f" ] && continue
         case "$f" in
+          tests/integration/*|*/conftest.py)
+            # Integration tests and shared fixtures affect many tests:
+            # run the whole fast suite (cheap).
+            NEED_FULL=1
+            ;;
           tests/*.py)
-            TESTS="$(printf '%s\n%s\n' "$TESTS" "$f")"
+            base="${f##*/}"
+            case "$base" in
+              test_*.py)
+                TESTS="$(printf '%s\n%s\n' "$TESTS" "$f")"
+                ;;
+              *)
+                # Helpers such as tests/csv_tables.py: same as above.
+                NEED_FULL=1
+                ;;
+            esac
             ;;
           synthea_quality/*)
             rest="${f#synthea_quality/}"
@@ -170,8 +184,12 @@ else
         echo "running tests for the touched area:"
         printf '%s\n' "$TESTS"
         # shellcheck disable=SC2086
-        if "$PYTEST" -q -m "not integration" $TESTS; then
+        pytest_status=0
+        "$PYTEST" -q -m "not integration" $TESTS || pytest_status=$?
+        if [ "$pytest_status" -eq 0 ]; then
           echo "tests: clean (touched area)"
+        elif [ "$pytest_status" -eq 5 ]; then
+          echo "tests: no fast tests selected"
         else
           echo "tests: FAILED (touched area)"
           failures=$((failures + 1))

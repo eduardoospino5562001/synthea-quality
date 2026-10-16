@@ -7,12 +7,12 @@ a report usable: deterministic output and a lossless JSON round-trip.
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.models import (
@@ -26,24 +26,9 @@ from synthea_quality.reporting import json_report
 from synthea_quality.reporting.build import build_report, unresolved_relations
 from synthea_quality.reporting.markdown import render_markdown
 from synthea_quality.schema.contract import ContractStatus
-from synthea_quality.schema.tables import tables_by_name
 
 FIXED_TIME = "2026-01-01T00:00:00+00:00"
 
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    """Write a table with the header the contract expects and only the given values.
-
-    Using the real header keeps the fixture contract-compatible, which is what the
-    scenarios about the contract need; the columns left out end up empty, as they
-    would in a dataset where a module does not populate them.
-    """
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def write_raw(directory: Path, name: str, text: str) -> Path:
@@ -115,10 +100,31 @@ def test_build_report_aggregates_every_check_family(tmp_path: Path) -> None:
     assert any(name.startswith("temporal.") for name in identifiers)
 
 
-def test_build_report_fills_the_table_inventory_without_reloading(tmp_path: Path) -> None:
+def test_build_report_fills_the_table_inventory_without_reloading(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import pandas as pd
+
+    import synthea_quality.loader as loader_module
+
+    loads: dict[str, int] = {}
+    original = loader_module._read_frame
+
+    def tracking(file_path: Path, *, usecols: list[str] | None) -> pd.DataFrame:
+        if usecols is None:
+            name = Path(file_path).name
+            loads[name] = loads.get(name, 0) + 1
+        return original(file_path, usecols=usecols)
+
+    monkeypatch.setattr(loader_module, "_read_frame", tracking)
     report = build_report(clean_dataset(tmp_path), generated_at=FIXED_TIME)
     by_name = {table.name: table for table in report.tables}
 
+    # The 3 present tables are each read whole once by the quality checks; the
+    # inventory reuses those frames instead of reading the files again. Reads
+    # with a column subset (keys/temporal) go through the same function but do
+    # not count here.
+    assert loads == {"patients.csv": 1, "encounters.csv": 1, "conditions.csv": 1}
     assert by_name["patients"].rows == 2
     assert by_name["encounters"].rows == 1
     assert by_name["patients"].columns[:2] == ("Id", "BIRTHDATE")

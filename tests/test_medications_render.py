@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -64,8 +65,7 @@ def test_the_section():
     assert "| Lisinopril | 299 | 14 | `314076` 299 |" in text
     assert "- **Losartan**: `SKIPPED` — no medication records" in text
     assert "- **Lisinopril**: 14 of 299 records have no STOP." in text
-    for word in ("PASS", "FAIL", "match"):
-        assert word not in text
+    assert not re.search(r"\b(pass(ed|es)?|fail(ed|s)?|ok|match(ed|es)?)\b", text, re.I)
 
 
 def _unescaped_pipes(line: str) -> int:
