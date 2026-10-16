@@ -6,7 +6,7 @@ That somebody outside the project can point the tool at the dataset Synthea
 recommends and get the documented result, using only the public command line: every
 run here starts a real process (the ``synthea-quality`` console script), never an
 internal function. It covers the whole product on one dataset: discovery, the contract
-comparison, all 155 checks, both reports, the exit codes, determinism, the untouched
+comparison, every check, both reports, the exit codes, determinism, the untouched
 source files and the reference-evidence attribution.
 
 The data
