@@ -13,7 +13,6 @@ with ``SYNTHEA_QUALITY_SAMPLE``; without it these tests skip.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,19 +23,7 @@ pytestmark = pytest.mark.integration
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 EXAMPLE = REPOSITORY / "examples" / "myocardial_infarction.json"
-DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 BIN = Path(sys.executable).parent
-
-
-@pytest.fixture(scope="module")
-def sample() -> Path:
-    candidate = Path(os.environ.get("SYNTHEA_QUALITY_SAMPLE", DEFAULT_SAMPLE_DIR))
-    if not (candidate / "conditions.csv").is_file():
-        pytest.skip(
-            "official sample not available; run `python scripts/fetch_official_sample.py` "
-            "or set SYNTHEA_QUALITY_SAMPLE to an extracted csv-latest directory"
-        )
-    return candidate
 
 
 def run(command: str, module: str, *arguments: str) -> None:

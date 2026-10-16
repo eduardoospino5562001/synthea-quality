@@ -7,7 +7,6 @@ the paragraph or list above), and no table repeats its header or separator row.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,7 +18,6 @@ pytestmark = pytest.mark.integration
 REPOSITORY = Path(__file__).resolve().parents[2]
 EXAMPLE = REPOSITORY / "examples" / "myocardial_infarction.json"
 HYPERTENSION = REPOSITORY / "examples" / "hypertension.json"
-DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 BIN = Path(sys.executable).parent
 MI = "Myocardial infarction=22298006,401303003,401314000;acute"
 
@@ -47,17 +45,6 @@ COMMANDS = {
         ("--module", str(HYPERTENSION)),
     ),
 }
-
-
-@pytest.fixture(scope="module")
-def sample() -> Path:
-    candidate = Path(os.environ.get("SYNTHEA_QUALITY_SAMPLE", DEFAULT_SAMPLE_DIR))
-    if not (candidate / "conditions.csv").is_file():
-        pytest.skip(
-            "official sample not available; run `python scripts/fetch_official_sample.py` "
-            "or set SYNTHEA_QUALITY_SAMPLE to an extracted csv-latest directory"
-        )
-    return candidate
 
 
 @pytest.fixture(scope="module", params=sorted(COMMANDS))

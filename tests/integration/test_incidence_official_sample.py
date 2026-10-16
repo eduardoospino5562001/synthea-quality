@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import subprocess
 import sys
 from datetime import date
@@ -26,22 +25,10 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-incidence")
 MI_CODES = ("22298006", "401303003", "401314000")
 HYPERTENSION_CODES = ("59621000",)
 BANDS = (0, 5, 18, 45, 65)
-
-
-@pytest.fixture(scope="module")
-def sample() -> Path:
-    candidate = Path(os.environ.get("SYNTHEA_QUALITY_SAMPLE", DEFAULT_SAMPLE_DIR))
-    if not (candidate / "conditions.csv").is_file():
-        pytest.skip(
-            "official sample not available; run `python scripts/fetch_official_sample.py` "
-            "or set SYNTHEA_QUALITY_SAMPLE to an extracted csv-latest directory"
-        )
-    return candidate
 
 
 def command() -> list[str]:

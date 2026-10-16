@@ -13,7 +13,6 @@ with ``SYNTHEA_QUALITY_SAMPLE``; without it these tests skip.
 from __future__ import annotations
 
 import json
-import os
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -21,7 +20,6 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 EXAMPLES = Path(__file__).resolve().parent.parent.parent / "examples"
 
 REFERENCE_ISO = "2026-08-17"
@@ -53,17 +51,6 @@ VOLATILE = {
     "history",
     "export_history",
 }
-
-
-@pytest.fixture(scope="module")
-def sample() -> Path:
-    candidate = Path(os.environ.get("SYNTHEA_QUALITY_SAMPLE", DEFAULT_SAMPLE_DIR))
-    if not (candidate / "conditions.csv").is_file():
-        pytest.skip(
-            "official sample not available; run `python scripts/fetch_official_sample.py` "
-            "or set SYNTHEA_QUALITY_SAMPLE to an extracted csv-latest directory"
-        )
-    return candidate
 
 
 def run(command: str, sample: Path, out: Path, metadata: Path | None) -> int:

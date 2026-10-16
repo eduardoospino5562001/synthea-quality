@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,7 +32,6 @@ import pytest
 
 pytestmark = pytest.mark.integration
 
-DEFAULT_SAMPLE_DIR = Path.home() / "synthea-sample-data" / "csv-latest"
 CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-prevalence")
 
 #: The three acute myocardial infarction codes the sample contains.
@@ -50,17 +48,6 @@ MIXED_CODES = (
     "10939881000119105",
     "999999999",
 )
-
-
-@pytest.fixture(scope="module")
-def sample() -> Path:
-    candidate = Path(os.environ.get("SYNTHEA_QUALITY_SAMPLE", DEFAULT_SAMPLE_DIR))
-    if not (candidate / "conditions.csv").is_file():
-        pytest.skip(
-            "official sample not available; run `python scripts/fetch_official_sample.py` "
-            "or set SYNTHEA_QUALITY_SAMPLE to an extracted csv-latest directory"
-        )
-    return candidate
 
 
 def command() -> list[str]:
