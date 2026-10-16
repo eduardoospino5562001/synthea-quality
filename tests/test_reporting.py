@@ -103,21 +103,27 @@ def test_build_report_aggregates_every_check_family(tmp_path: Path) -> None:
 def test_build_report_fills_the_table_inventory_without_reloading(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import synthea_quality.checks.quality as quality_module
+    import pandas as pd
+
+    import synthea_quality.loader as loader_module
 
     loads: dict[str, int] = {}
-    original = quality_module.load_table
+    original = loader_module._read_frame
 
-    def tracking(file_path, **kwargs):
-        loads[Path(file_path).name] = loads.get(Path(file_path).name, 0) + 1
-        return original(file_path, **kwargs)
+    def tracking(file_path: Path, *, usecols: list[str] | None) -> pd.DataFrame:
+        if usecols is None:
+            name = Path(file_path).name
+            loads[name] = loads.get(name, 0) + 1
+        return original(file_path, usecols=usecols)
 
-    monkeypatch.setattr(quality_module, "load_table", tracking)
+    monkeypatch.setattr(loader_module, "_read_frame", tracking)
     report = build_report(clean_dataset(tmp_path), generated_at=FIXED_TIME)
     by_name = {table.name: table for table in report.tables}
 
-    # The 3 present tables are each loaded once by the quality checks; the
-    # inventory reuses those frames instead of reading the files again.
+    # The 3 present tables are each read whole once by the quality checks; the
+    # inventory reuses those frames instead of reading the files again. Reads
+    # with a column subset (keys/temporal) go through the same function but do
+    # not count here.
     assert loads == {"patients.csv": 1, "encounters.csv": 1, "conditions.csv": 1}
     assert by_name["patients"].rows == 2
     assert by_name["encounters"].rows == 1
