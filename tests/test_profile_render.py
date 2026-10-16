@@ -207,6 +207,7 @@ def test_markdown_lists_absent_tables_and_flags_an_incomplete_profile():
 def test_markdown_has_no_verdict_vocabulary():
     text = render_markdown(profile())
     assert not re.search(r"\b(pass(ed|es)?|fail(ed|s)?|ok|match(ed|es)?)\b", text, re.I)
+    assert not re.search(r"\b(warning|severity)\b", text, re.I)
 
 
 @pytest.mark.parametrize("writer, suffix", [(write_json, ".json"), (write_markdown, ".md")])
