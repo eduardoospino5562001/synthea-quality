@@ -113,6 +113,8 @@ def test_invalid_age_bands_are_rejected_before_reading(tmp_path):
 def test_missing_patients_skips_every_section_with_the_reason(tmp_path):
     write_table(tmp_path, "encounters", [{"Id": "e1", "START": "2020-01-01T00:00:00Z"}])
     profile = build_profile(tmp_path)
+    # 16 sections: 9 patient sections plus 7 clinical code sections.
+    assert len(profile.sections) == 16
     assert all(s.status is SectionStatus.SKIPPED for s in profile.sections)
     assert all("patients.csv is not in the dataset" in s.reason for s in profile.sections)
     assert profile.inputs[0].state is InputState.ABSENT
@@ -137,6 +139,8 @@ def test_structurally_broken_patients_is_skipped_and_marks_the_profile_incomplet
     profile = build_profile(directory)
     assert profile.inputs[0].state is InputState.UNREADABLE
     assert "field count" in profile.inputs[0].reason
+    # Same 16 sections as above: an unreadable patients table skips everything.
+    assert len(profile.sections) == 16
     assert all(s.status is SectionStatus.SKIPPED for s in profile.sections)
     assert profile.incomplete
 

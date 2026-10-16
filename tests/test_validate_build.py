@@ -137,6 +137,9 @@ def test_a_missing_input_skips_everything_with_the_reason(tmp_path, remove):
     directory = dataset(tmp_path)
     (directory / remove).unlink()
     report = validate(directory)
+    # 2 conditions in DEFINITIONS, 3 sections in the population summary.
+    assert len(report.conditions) == 2
+    assert len(report.population) == 3
     for condition in report.conditions:
         assert condition.prevalence.status is SectionStatus.SKIPPED
         assert condition.incidence.status is SectionStatus.SKIPPED
@@ -147,6 +150,9 @@ def test_missing_conditions_skip_the_conditions_but_not_the_population(tmp_path)
     directory = dataset(tmp_path)
     (directory / "conditions.csv").unlink()
     report = validate(directory)
+    # Same 2 conditions and 3 population sections as above.
+    assert len(report.conditions) == 2
+    assert len(report.population) == 3
     for condition in report.conditions:
         assert condition.prevalence.status is SectionStatus.SKIPPED
         assert "conditions.csv" in condition.prevalence.reason

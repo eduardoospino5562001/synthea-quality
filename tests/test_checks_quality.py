@@ -397,6 +397,11 @@ def test_quality_checks_do_not_duplicate_the_key_checks(tmp_path: Path) -> None:
 
     results = run_quality_checks(tmp_path)
 
+    assert results
+    assert any(
+        result.check_id.startswith(("duplicates.", "nulls.", "empty_columns.", "dates."))
+        for result in results
+    )
     assert all(not result.check_id.startswith(("pk.", "fk.")) for result in results)
 
 
