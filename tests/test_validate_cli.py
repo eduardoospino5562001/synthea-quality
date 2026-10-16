@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality import __version__
 from synthea_quality.schema.tables import tables_by_name
@@ -21,13 +22,6 @@ EXAMPLE = REPOSITORY / "examples" / "myocardial_infarction.json"
 CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-validate-module")
 SNOMED = "http://snomed.info/sct"
 
-
-def write_table(directory: Path, name: str, rows) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / f"{name}.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def dataset(directory: Path) -> Path:

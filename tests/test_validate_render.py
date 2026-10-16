@@ -2,29 +2,21 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.prevalence.definitions import assemble
 from synthea_quality.prevalence.models import ALL_MEASURES
-from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.models import ModuleInfo
 from synthea_quality.validate.render import dumps, render_markdown, write_json, write_markdown
 
 SNOMED = "http://snomed.info/sct"
 
-
-def write_table(directory: Path, name: str, rows) -> None:
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / f"{name}.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 @pytest.fixture

@@ -7,7 +7,6 @@ a real subprocess to prove the installed entry point works the way a user runs i
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import subprocess
@@ -15,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality import __version__
 from synthea_quality.cli import (
@@ -25,18 +25,6 @@ from synthea_quality.cli import (
     MARKDOWN_NAME,
     main,
 )
-from synthea_quality.schema.tables import tables_by_name
-
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    """Write a table with the contract's header so the dataset stays compatible."""
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 @pytest.fixture

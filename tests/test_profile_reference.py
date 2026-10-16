@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.discovery import discover_dataset
 from synthea_quality.loader import DatasetLoader
@@ -22,18 +22,7 @@ from synthea_quality.profile.reference import (
     reference_from_user,
     resolve_reference_date,
 )
-from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.structure import validate_tables
-
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def text(*values: str | None) -> pd.Series:

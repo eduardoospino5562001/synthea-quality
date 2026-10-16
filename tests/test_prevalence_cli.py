@@ -2,31 +2,21 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality import __version__
 from synthea_quality.prevalence.cli import EXIT_ERROR, EXIT_OK, main
 from synthea_quality.prevalence.render import JSON_NAME, MARKDOWN_NAME
-from synthea_quality.schema.tables import tables_by_name
 
 CONSOLE_SCRIPT = Path(sys.executable).with_name("synthea-prevalence")
 SNOMED = "http://snomed.info/sct"
 
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def dataset(directory: Path) -> Path:

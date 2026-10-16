@@ -7,12 +7,12 @@ a report usable: deterministic output and a lossless JSON round-trip.
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.models import (
@@ -26,24 +26,9 @@ from synthea_quality.reporting import json_report
 from synthea_quality.reporting.build import build_report, unresolved_relations
 from synthea_quality.reporting.markdown import render_markdown
 from synthea_quality.schema.contract import ContractStatus
-from synthea_quality.schema.tables import tables_by_name
 
 FIXED_TIME = "2026-01-01T00:00:00+00:00"
 
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    """Write a table with the header the contract expects and only the given values.
-
-    Using the real header keeps the fixture contract-compatible, which is what the
-    scenarios about the contract need; the columns left out end up empty, as they
-    would in a dataset where a module does not populate them.
-    """
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def write_raw(directory: Path, name: str, text: str) -> Path:

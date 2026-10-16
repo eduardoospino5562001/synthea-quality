@@ -2,30 +2,19 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 
 import pytest
+from csv_tables import write_table
 
 from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.profile.build import build_profile
 from synthea_quality.profile.codes import CLINICAL_TABLES
 from synthea_quality.profile.models import InputState, ReferenceSource, SectionStatus
 from synthea_quality.profile.reference import ReferenceDateError
-from synthea_quality.schema.tables import tables_by_name
 
 GENERATED_AT = "2026-09-28T00:00:00+00:00"
-
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]], columns=None) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=columns or tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def dataset(directory: Path) -> Path:

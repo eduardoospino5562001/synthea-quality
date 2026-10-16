@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from datetime import date
 from pathlib import Path
+
+from csv_tables import write_table
 
 from synthea_quality.incidence.build import build_incidence
 from synthea_quality.observations.build import build_observations
@@ -13,7 +14,6 @@ from synthea_quality.observations.definitions import parse_observation_option
 from synthea_quality.prevalence.build import build_prevalence
 from synthea_quality.prevalence.definitions import assemble
 from synthea_quality.profile.build import build_profile
-from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.models import load_module
 
@@ -21,16 +21,6 @@ GENERATED_AT = "2026-10-02T00:00:00+00:00"
 SNOMED = "http://snomed.info/sct"
 CUTOFF = (date(2026, 1, 1).toordinal() - 365 * 10)
 CUTOFF_ISO = date.fromordinal(CUTOFF).isoformat()
-
-
-def write_table(directory: Path, name: str, rows: list[dict[str, str]]) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{name}.csv"
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=tables_by_name()[name].columns)
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
 
 
 def dataset(directory: Path) -> Path:
