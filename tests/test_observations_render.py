@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -122,8 +123,7 @@ def test_the_markdown(report):
     assert "`mL/min` 1, `mL/min/{1.73_m2}` 1" in text
     assert "numeric 1, text 1" in text
     assert "several units" in text and "several TYPE" in text
-    for word in ("PASS", "FAIL", "match"):
-        assert word not in text
+    assert not re.search(r"\b(pass(ed|es)?|fail(ed|s)?|ok|match(ed|es)?)\b", text, re.I)
 
 
 def test_none_asked_for(tmp_path):
