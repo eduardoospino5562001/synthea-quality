@@ -33,7 +33,7 @@ MARKDOWN = {
     "prevalence": "synthea_prevalence.md",
     "incidence": "synthea_incidence.md",
     "observations": "synthea_observations.md",
-    "validate": "synthea_module_validation.json",
+    "validate": "synthea_module_validation.md",
 }
 JSON = {
     "profile": "synthea_profile.json",
@@ -114,8 +114,7 @@ def read_json(reports, command: str, label: str) -> dict:
 
 
 def read_markdown(reports, command: str, label: str) -> str:
-    name = MARKDOWN[command] if command != "validate" else "synthea_module_validation.md"
-    return (reports[(command, label)] / name).read_text(encoding="utf-8")
+    return (reports[(command, label)] / MARKDOWN[command]).read_text(encoding="utf-8")
 
 
 def test_the_notice_is_first_after_the_title_in_every_report(reports):
