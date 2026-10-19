@@ -36,6 +36,7 @@ from synthea_quality.profile.models import (
     ProfileSection,
     SectionStatus,
 )
+from synthea_quality.table_format import fixed, table_cell
 
 #: Predictable report file names inside the output directory.
 MARKDOWN_NAME = "synthea_profile.md"
@@ -268,7 +269,7 @@ def _codes(section: ProfileSection) -> str:
     align = ["r", *([""] if with_system else []), "", "", "r", "r", "r"]
     rows = []
     for rank, row in enumerate(section.codes, start=1):
-        description = "—" if row.description is None else _cell(row.description)
+        description = "—" if row.description is None else table_cell(row.description)
         if row.description_variants > 1:
             description += f" *({row.description_variants} descriptions)*"
         rows.append(
@@ -295,7 +296,7 @@ def _codes(section: ProfileSection) -> str:
         for item in section.multi_description_codes:
             code = f"`{item.code}`" if item.system is None else f"`{item.system}` `{item.code}`"
             for index, variant in enumerate(item.descriptions):
-                text = "—" if variant.description is None else _cell(variant.description)
+                text = "—" if variant.description is None else table_cell(variant.description)
                 variant_rows.append((code if index == 0 else "", text, variant.records))
         blocks.append(
             "\n".join(_table(("CODE", "DESCRIPTION", "Records"), variant_rows, align=("", "", "r")))
@@ -323,15 +324,11 @@ _RENDERERS = {
 
 
 def _label(row: CategoryCount) -> str:
-    return EMPTY_LABEL if row.value is None else _cell(row.value)
-
-
-def _cell(value: str) -> str:
-    return value.replace("|", "\\|").replace("\n", " ")
+    return EMPTY_LABEL if row.value is None else table_cell(row.value)
 
 
 def _pct(value: float) -> str:
-    return f"{value:.2f}"
+    return fixed(value, 2)
 
 
 def _num(value: Any) -> str:

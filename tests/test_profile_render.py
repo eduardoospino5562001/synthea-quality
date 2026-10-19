@@ -270,6 +270,25 @@ def test_code_section_lists_every_description_variant():
     assert "|  | peanut | 1 |" in body
 
 
+def test_a_percentage_below_the_shown_precision_is_not_zero():
+    from synthea_quality.profile.render import _pct
+
+    assert _pct(0.001) != "0.00"
+    assert _pct(0.0) == "0.00"
+    assert _pct(12.345) == "12.35"
+
+
+def test_a_carriage_return_in_a_description_does_not_split_the_row():
+    section = code_section(
+        codes=(CodeCount("SNOMED-CT", "123", "Peanut\rnut", 3, 75.0, 4),),
+        multi_description_codes=(),
+    )
+    body = render_markdown(profile(sections=(section,)))
+    row = next(line for line in body.splitlines() if "`123`" in line)
+    assert "Peanut nut" in row
+    assert "\r" not in body
+
+
 def test_code_section_without_system_has_no_system_column():
     section = code_section(
         section_id="codes.medications",
