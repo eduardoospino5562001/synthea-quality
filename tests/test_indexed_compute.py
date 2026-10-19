@@ -6,11 +6,15 @@ from datetime import date
 
 import pandas as pd
 
-from synthea_quality.indexed import compute as indexed_compute
-from synthea_quality.indexed import definitions as indexed_definitions
-from synthea_quality.indexed import models as indexed_models
-from synthea_quality.indexed.compute import UNKNOWN_AGE, build_indexed_cohort, measure_event
-from synthea_quality.indexed.definitions import EventOutcome, Window
+from synthea_quality.indexed.compute import (
+    UNKNOWN_AGE,
+    build_indexed_cohort,
+    measure_death,
+    measure_event,
+    measure_value,
+)
+from synthea_quality.indexed.definitions import DeathOutcome, EventOutcome, ValueOutcome, Window
+from synthea_quality.indexed.models import ValueShare
 from synthea_quality.prevalence.compute import CONDITION_COLUMNS, PATIENT_COLUMNS
 from synthea_quality.prevalence.definitions import parse_condition_option
 
@@ -412,20 +416,20 @@ def observations(*rows) -> pd.DataFrame:
     return text_frame(list(rows), OBSERVATION_COLUMNS)
 
 
-def value_outcome(pick="first", window=None) -> indexed_definitions.ValueOutcome:
-    return indexed_definitions.ValueOutcome(
+def value_outcome(pick="first", window=None) -> ValueOutcome:
+    return ValueOutcome(
         "Stage group", STAGE, pick, Window() if window is None else window
     )
 
 
-def death_outcome(cause_values=(), window=None) -> indexed_definitions.DeathOutcome:
-    return indexed_definitions.DeathOutcome(
+def death_outcome(cause_values=(), window=None) -> DeathOutcome:
+    return DeathOutcome(
         "Death", tuple(cause_values), Window() if window is None else window
     )
 
 
 def test_v1_pick_first_takes_the_value_of_the_earliest_date():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-01"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z", "VALUE": "A"},
@@ -435,11 +439,11 @@ def test_v1_pick_first_takes_the_value_of_the_earliest_date():
         REF,
         BANDS,
     )
-    assert result.values == (indexed_models.ValueShare("A", 1),)
+    assert result.values == (ValueShare("A", 1),)
 
 
 def test_v2_pick_last_takes_the_value_of_the_latest_date():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-01"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z", "VALUE": "A"},
@@ -449,11 +453,11 @@ def test_v2_pick_last_takes_the_value_of_the_latest_date():
         REF,
         BANDS,
     )
-    assert result.values == (indexed_models.ValueShare("B", 1),)
+    assert result.values == (ValueShare("B", 1),)
 
 
 def test_v3_two_values_on_the_picked_day_count_the_patient_in_both():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-01"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
@@ -466,15 +470,15 @@ def test_v3_two_values_on_the_picked_day_count_the_patient_in_both():
         BANDS,
     )
     assert result.values == (
-        indexed_models.ValueShare("Stage 2", 1),
-        indexed_models.ValueShare("stage IIA", 1),
+        ValueShare("Stage 2", 1),
+        ValueShare("stage IIA", 1),
     )
     assert result.patients_with_several_values == 1
     assert result.breakdown.total.patients == 1
 
 
 def test_v4_the_same_value_in_three_rows_is_one_patient():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-01"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
@@ -488,11 +492,11 @@ def test_v4_the_same_value_in_three_rows_is_one_patient():
         REF,
         BANDS,
     )
-    assert result.values == (indexed_models.ValueShare("Stage 2", 1),)
+    assert result.values == (ValueShare("Stage 2", 1),)
 
 
 def test_v5_an_empty_value_in_the_window_does_not_count():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-01"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z", "VALUE": ""}
@@ -507,7 +511,7 @@ def test_v5_an_empty_value_in_the_window_does_not_count():
 
 
 def test_v6_a_value_before_the_index_is_outside_the_default_window():
-    result = indexed_compute.measure_value(
+    result = measure_value(
         single_patient_cohort("2020-01-11"),
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-01T10:00:00Z", "VALUE": "A"}
@@ -535,7 +539,7 @@ def test_v7_values_are_ordered_by_patients_then_text():
             {"PATIENT": "a4", "CODE": "840539006", "START": "2020-01-01"},
         ),
     )
-    result = indexed_compute.measure_value(
+    result = measure_value(
         cohort,
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z", "VALUE": "X"},
@@ -548,9 +552,9 @@ def test_v7_values_are_ordered_by_patients_then_text():
         BANDS,
     )
     assert result.values == (
-        indexed_models.ValueShare("X", 2),
-        indexed_models.ValueShare("A", 1),
-        indexed_models.ValueShare("B", 1),
+        ValueShare("X", 2),
+        ValueShare("A", 1),
+        ValueShare("B", 1),
     )
 
 
@@ -567,7 +571,7 @@ def test_v8_a_patient_without_a_value_stays_in_the_denominator():
             {"PATIENT": "a3", "CODE": "840539006", "START": "2020-01-01"},
         ),
     )
-    result = indexed_compute.measure_value(
+    result = measure_value(
         cohort,
         observations(
             {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z", "VALUE": "A"}
@@ -593,7 +597,7 @@ def test_d1_one_death_in_a_cohort_of_three():
             {"PATIENT": "a3", "CODE": "840539006", "START": "2020-01-01"},
         ),
     )
-    result = indexed_compute.measure_death(cohort, people, None, death_outcome(), REF, BANDS)
+    result = measure_death(cohort, people, None, death_outcome(), REF, BANDS)
     assert (result.breakdown.total.patients, result.breakdown.total.cohort) == (1, 3)
     assert result.days.n == 1
 
@@ -603,7 +607,7 @@ def test_d2_a_death_on_the_index_date_counts_as_day_zero():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-03-01", "GENDER": "M"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-03-01"}))
-    result = indexed_compute.measure_death(cohort, people, None, death_outcome(), REF, BANDS)
+    result = measure_death(cohort, people, None, death_outcome(), REF, BANDS)
     assert result.breakdown.total.patients == 1
     assert result.days.minimum == 0.0
 
@@ -613,7 +617,7 @@ def test_d3_a_death_after_the_reference_date_does_not_count():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2026-06-01", "GENDER": "M"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
-    result = indexed_compute.measure_death(cohort, people, None, death_outcome(), REF, BANDS)
+    result = measure_death(cohort, people, None, death_outcome(), REF, BANDS)
     assert result.breakdown.total.patients == 0
     assert result.deaths_after_reference == 1
 
@@ -623,7 +627,7 @@ def test_d4_an_unparseable_deathdate_does_not_count():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-02-30", "GENDER": "M"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
-    result = indexed_compute.measure_death(cohort, people, None, death_outcome(), REF, BANDS)
+    result = measure_death(cohort, people, None, death_outcome(), REF, BANDS)
     assert result.breakdown.total.patients == 0
     assert result.deathdate_unusable == 1
 
@@ -633,7 +637,7 @@ def test_d5_a_death_after_to_days_is_outside_the_window():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-02-15", "GENDER": "M"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
-    result = indexed_compute.measure_death(
+    result = measure_death(
         cohort, people, None, death_outcome(window=Window(0, 30)), REF, BANDS
     )
     assert result.breakdown.total.patients == 0
@@ -654,7 +658,7 @@ def test_d6_the_cause_of_death_is_the_value_of_69453_9():
             {"PATIENT": "a3", "CODE": "840539006", "START": "2020-01-01"},
         ),
     )
-    result = indexed_compute.measure_death(
+    result = measure_death(
         cohort,
         people,
         observations(
@@ -679,7 +683,7 @@ def test_d7_without_cause_values_the_three_cause_counts_are_none():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
-    result = indexed_compute.measure_death(
+    result = measure_death(
         cohort,
         people,
         observations(
@@ -698,7 +702,7 @@ def test_d8_two_cause_rows_of_one_patient_count_one_patient():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
     )
     cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
-    result = indexed_compute.measure_death(
+    result = measure_death(
         cohort,
         people,
         observations(
@@ -721,7 +725,7 @@ def test_d9_the_death_breakdown_is_by_sex_and_age_at_the_index_date():
     cohort = run(
         people, conditions({"PATIENT": "f70", "CODE": "840539006", "START": "2020-01-01"})
     )
-    result = indexed_compute.measure_death(cohort, people, None, death_outcome(), REF, BANDS)
+    result = measure_death(cohort, people, None, death_outcome(), REF, BANDS)
     assert [(s.label, s.patients, s.cohort) for s in result.breakdown.by_sex] == [("F", 1, 1)]
     assert [(s.label, s.patients, s.cohort) for s in result.breakdown.by_age] == [
         ("0-17", 0, 0),
