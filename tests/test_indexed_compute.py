@@ -269,6 +269,8 @@ def test_e4_to_days_includes_day_thirty_and_excludes_day_thirty_one():
     )
     assert result.breakdown.total.patients == 1
     assert result.rows_outside_window == 1
+    assert result.days.n == 1
+    assert result.days.minimum == 30
 
 
 def test_e5_a_record_after_the_reference_date_does_not_count():
@@ -350,7 +352,7 @@ def test_e9_a_timestamp_and_a_date_only_table_both_count_day_zero():
 def test_e10_the_breakdown_is_by_sex_and_age_at_the_index_date():
     cohort = run(
         patients(
-            {"Id": "f10", "BIRTHDATE": "2010-01-01", "GENDER": "F"},
+            {"Id": "f10", "BIRTHDATE": "2007-06-01", "GENDER": "F"},
             {"Id": "f40", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
             {"Id": "m40", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
         ),
@@ -728,7 +730,7 @@ def test_d8_two_cause_rows_of_one_patient_count_one_patient():
 
 def test_d9_the_death_breakdown_is_by_sex_and_age_at_the_index_date():
     people = patients(
-        {"Id": "f70", "BIRTHDATE": "1950-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
+        {"Id": "f70", "BIRTHDATE": "1956-06-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
     )
     cohort = run(
         people, conditions({"PATIENT": "f70", "CODE": "840539006", "START": "2020-01-01"})
@@ -737,8 +739,8 @@ def test_d9_the_death_breakdown_is_by_sex_and_age_at_the_index_date():
     assert [(s.label, s.patients, s.cohort) for s in result.breakdown.by_sex] == [("F", 1, 1)]
     assert [(s.label, s.patients, s.cohort) for s in result.breakdown.by_age] == [
         ("0-17", 0, 0),
-        ("18-64", 0, 0),
-        ("65+", 1, 1),
+        ("18-64", 1, 1),
+        ("65+", 0, 0),
     ]
 
 
