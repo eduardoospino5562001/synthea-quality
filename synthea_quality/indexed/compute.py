@@ -28,12 +28,20 @@ from datetime import date
 import pandas as pd
 
 from synthea_quality.incidence.compute import age_on, band_of
-from synthea_quality.indexed.definitions import EventOutcome
+from synthea_quality.indexed.definitions import (
+    DeathOutcome,
+    EventOutcome,
+    ValueOutcome,
+    Window,
+)
 from synthea_quality.indexed.models import (
     UNKNOWN_SEX,
     Breakdown,
+    DeathResult,
     EventResult,
     Stratum,
+    ValueResult,
+    ValueShare,
 )
 from synthea_quality.observations.compute import summarise
 from synthea_quality.prevalence.compute import condition_rows
@@ -47,6 +55,8 @@ UNKNOWN_AGE = "unknown age"
 DATE_COLUMNS = {"observations": "DATE", "immunizations": "DATE"}
 #: Tables whose record date is a day (``YYYY-MM-DD``); the rest are UTC timestamps.
 DATE_ONLY_TABLES = ("conditions", "careplans")
+#: The observation of the cause of death; its VALUE is the cause's description, not a code.
+CAUSE_OF_DEATH_CODE = "69453-9"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -189,6 +199,25 @@ def _stratum(label: str, members: pd.Index, hits: pd.Index) -> Stratum:
     return Stratum(label, int(members.isin(hits).sum()), len(members))
 
 
+def _window_masks(
+    cohort: IndexedCohort,
+    matched: pd.DataFrame,
+    days: pd.Series,
+    window: Window,
+    reference: date,
+) -> tuple[pd.Series, pd.Series]:
+    """(in_window, after_reference) for the records ``matched``, one flag per row."""
+    if matched.empty:
+        after = pd.Series(False, index=matched.index)
+    else:
+        index_dates = matched["PATIENT"].map(cohort.frame["INDEX_DATE"])
+        after = days > (pd.Timestamp(reference) - index_dates).dt.days
+    in_window = days.notna() & ~after & (days >= window.from_days)
+    if window.to_days is not None:
+        in_window &= days <= window.to_days
+    return in_window, after
+
+
 def measure_event(
     cohort: IndexedCohort,
     table: pd.DataFrame,
@@ -206,14 +235,7 @@ def measure_event(
     selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(outcome.codes)
     matched = table[selected]
     days = record_days(cohort, matched, outcome.table)
-    if matched.empty:
-        after = pd.Series(False, index=matched.index)
-    else:
-        index_dates = matched["PATIENT"].map(cohort.frame["INDEX_DATE"])
-        after = days > (pd.Timestamp(reference) - index_dates).dt.days
-    in_window = days.notna() & ~after & (days >= outcome.window.from_days)
-    if outcome.window.to_days is not None:
-        in_window &= days <= outcome.window.to_days
+    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
     first = days[in_window].groupby(matched.loc[in_window, "PATIENT"]).min()
     return EventResult(
         name=outcome.name,
@@ -227,3 +249,130 @@ def measure_event(
         rows_after_reference=int(after.sum()),
         rows_outside_window=int((days.notna() & ~after & ~in_window).sum()),
     )
+
+
+def measure_value(
+    cohort: IndexedCohort,
+    observations: pd.DataFrame,
+    outcome: ValueOutcome,
+    reference: date,
+    age_bands: Sequence[int],
+) -> ValueResult:
+    """The values of ``outcome.code`` on the first or last date of its window.
+
+    A patient picks one date, so ``pick`` decides which of their in-window values is
+    kept; every row of that patient on that date contributes its VALUE. Distinct values
+    on the same date (the sample has two stage rows on one date) put the patient in
+    every one of them: the shares may add up to more than the patients of the breakdown,
+    and ``patients_with_several_values`` says how many patients do. An empty VALUE is
+    not a value, so it is counted and left out; a patient without a value stays in the
+    denominator.
+    """
+    matched = observations[
+        observations["PATIENT"].isin(cohort.frame.index)
+        & (observations["CODE"] == outcome.code)
+    ]
+    days = record_days(cohort, matched, "observations")
+    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
+    valued = in_window & matched["VALUE"].notna()
+    on_picked_date = pd.Series(False, index=matched.index)
+    if valued.any():
+        pick = "min" if outcome.pick == "first" else "max"
+        picked_day = days.where(valued).groupby(matched["PATIENT"]).transform(pick)
+        on_picked_date = valued & (days == picked_day)
+    values_by_patient: dict[str, set[str]] = {
+        str(patient): {str(value) for value in values}
+        for patient, values in matched[on_picked_date].groupby("PATIENT")["VALUE"]
+    }
+    counts: dict[str, int] = {}
+    for values in values_by_patient.values():
+        for value in values:
+            counts[value] = counts.get(value, 0) + 1
+    shares = tuple(
+        ValueShare(value, patients)
+        for value, patients in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    )
+    return ValueResult(
+        name=outcome.name,
+        code=outcome.code,
+        pick=outcome.pick,
+        window=outcome.window,
+        breakdown=breakdown(cohort, pd.Index(list(values_by_patient)), age_bands),
+        values=shares,
+        patients_with_several_values=sum(
+            1 for values in values_by_patient.values() if len(values) > 1
+        ),
+        rows_matched=len(matched),
+        rows_date_unusable=int(days.isna().sum()),
+        rows_after_reference=int(after.sum()),
+        rows_outside_window=int((days.notna() & ~after & ~in_window).sum()),
+        rows_value_empty=int((in_window & matched["VALUE"].isna()).sum()),
+    )
+
+
+def measure_death(
+    cohort: IndexedCohort,
+    patients: pd.DataFrame,
+    observations: pd.DataFrame | None,
+    outcome: DeathOutcome,
+    reference: date,
+    age_bands: Sequence[int],
+) -> DeathResult:
+    """Deaths of the cohort within the window and, optionally, their recorded cause.
+
+    ``DEATHDATE`` is a day, not a timestamp. A present but unparseable date leaves the
+    patient without a death date and is counted: it is never silently read as alive. The
+    cause of death is the VALUE text of observation :data:`CAUSE_OF_DEATH_CODE`, a
+    description rather than a code, so ``cause_values`` match the exact texts of the
+    module file. Every count is a patient, never a row.
+    """
+    frame = cohort.frame
+    death_dates = frame["DEATH_DATE"]
+    days = (death_dates - frame["INDEX_DATE"]).dt.days.astype("float")
+    after = death_dates > pd.Timestamp(reference)
+    in_window = days.notna() & ~after & (days >= outcome.window.from_days)
+    if outcome.window.to_days is not None:
+        in_window &= days <= outcome.window.to_days
+    dead = frame.index[in_window]
+    unusable = parse_date_only(patients.set_index("Id")["DEATHDATE"].reindex(frame.index))
+    with_cause, other_cause, no_cause_record = _cause_counts(
+        observations, dead, outcome.cause_values
+    )
+    return DeathResult(
+        name=outcome.name,
+        cause_values=outcome.cause_values,
+        window=outcome.window,
+        breakdown=breakdown(cohort, dead, age_bands),
+        days=summarise(days[in_window]),
+        deaths_after_reference=int(after.sum()),
+        deaths_outside_window=int((death_dates.notna() & ~after & ~in_window).sum()),
+        deathdate_unusable=unusable.unparseable,
+        with_cause=with_cause,
+        other_cause=other_cause,
+        no_cause_record=no_cause_record,
+    )
+
+
+def _cause_counts(
+    observations: pd.DataFrame | None,
+    dead: pd.Index,
+    cause_values: tuple[str, ...],
+) -> tuple[int | None, int | None, int | None]:
+    """(with_cause, other_cause, no_cause_record) of the deceased ``dead``.
+
+    All three are ``None`` without ``cause_values`` or without an observations table:
+    the outcome then measures deaths only.
+    """
+    if not cause_values or observations is None:
+        return None, None, None
+    recorded = observations[
+        observations["PATIENT"].isin(dead)
+        & (observations["CODE"] == CAUSE_OF_DEATH_CODE)
+    ]
+    by_patient = {
+        patient: {str(value) for value in values if pd.notna(value)}
+        for patient, values in recorded.groupby("PATIENT")["VALUE"]
+    }
+    wanted = set(cause_values)
+    with_cause = sum(1 for values in by_patient.values() if values & wanted)
+    return with_cause, len(by_patient) - with_cause, len(dead) - len(by_patient)

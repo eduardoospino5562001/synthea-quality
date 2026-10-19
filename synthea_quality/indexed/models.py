@@ -56,3 +56,77 @@ class EventResult:
     #: Of those, records with a usable date, not after the reference date and outside
     #: the window.
     rows_outside_window: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValueShare:
+    """The patients of one VALUE text on the date the outcome picks."""
+
+    #: The ``VALUE`` text of the observation, as recorded.
+    value: str
+    #: Distinct patients with that VALUE on the picked date, never rows.
+    patients: int
+
+
+@dataclass(frozen=True, slots=True)
+class ValueResult:
+    """The values of a code on the first or last date of the window.
+
+    A patient picks one date; every row of that patient on that date contributes its
+    VALUE. Two distinct values on the same date (the sample's two stage rows) put the
+    patient in both shares, so :attr:`values` may add up to more than
+    :attr:`breakdown`; :attr:`patients_with_several_values` says how many do. The
+    ``rows_*`` counts are observations, not patients: they say what was left out on the
+    way to the distinct patients.
+    """
+
+    name: str
+    code: str
+    pick: str
+    window: Window
+    breakdown: Breakdown
+    #: Most patients first; ties by the VALUE text.
+    values: tuple[ValueShare, ...]
+    #: Patients with more than one distinct VALUE on the picked date.
+    patients_with_several_values: int
+    #: Observations of the code of patients of the cohort, any date.
+    rows_matched: int
+    #: Of those, observations whose date is empty or unparseable.
+    rows_date_unusable: int
+    #: Of those, observations dated after the reference date.
+    rows_after_reference: int
+    #: Of those, observations with a usable date, not after the reference date and
+    #: outside the window.
+    rows_outside_window: int
+    #: Of those in the window, observations with an empty VALUE; they do not count.
+    rows_value_empty: int
+
+
+@dataclass(frozen=True, slots=True)
+class DeathResult:
+    """Deaths of the cohort within the window and, optionally, their recorded cause.
+
+    The cause is the ``VALUE`` text of observation ``69453-9``, a description rather
+    than a code. When the outcome names ``cause_values``, the three cause counts always
+    come together and add up to :attr:`breakdown`'s patients: a death with the cause, a
+    death with another cause and a death with no cause record. All counts are patients,
+    never rows; ``days`` is one value per deceased patient.
+    """
+
+    name: str
+    cause_values: tuple[str, ...]
+    window: Window
+    breakdown: Breakdown
+    days: ValueSummary
+    #: Patients whose ``DEATHDATE`` is after the reference date; they do not count.
+    deaths_after_reference: int
+    #: Patients with a usable ``DEATHDATE`` outside the window, not after the reference.
+    deaths_outside_window: int
+    #: Patients whose ``DEATHDATE`` is present but unparseable; they do not count.
+    deathdate_unusable: int
+    #: Deaths with a ``69453-9`` VALUE in ``cause_values``; ``None`` without a cause.
+    with_cause: int | None
+    #: Deaths with a ``69453-9`` VALUE, none of them in ``cause_values``.
+    other_cause: int | None
+    #: Deaths without any ``69453-9`` record.
+    no_cause_record: int | None
