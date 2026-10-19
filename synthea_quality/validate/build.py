@@ -28,10 +28,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, NotRequired, TypedDict
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
-from synthea_quality.export_history import read_export_history
+from synthea_quality.export_history import ExportHistory, read_export_history
 from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
@@ -49,7 +50,7 @@ from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.prevalence.models import ConditionResult
 from synthea_quality.profile.demographics import PATIENT_COLUMNS as PROFILE_COLUMNS
 from synthea_quality.profile.demographics import profile_patients, skipped_patient_sections
-from synthea_quality.profile.models import SectionStatus
+from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
 from synthea_quality.validate.models import (
     ConditionValidation,
@@ -69,6 +70,23 @@ PATIENT_COLUMNS = tuple(dict.fromkeys(("Id", *PROFILE_COLUMNS, *incidence.PATIEN
 CONDITION_COLUMNS = tuple(
     dict.fromkeys((*prevalence.CONDITION_COLUMNS, *incidence.CONDITION_COLUMNS))
 )
+
+
+class _CommonFields(TypedDict):
+    """The report fields every return path of :func:`build_module_validation` fills
+    the same way."""
+
+    data_dir: str
+    module_file: str
+    module: ModuleInfo
+    reference_date: ReferenceDate | None
+    reference_reason: str | None
+    age_bands: tuple[int, ...]
+    history: dict[str, Any]
+    inputs: tuple[TableInput, ...]
+    notes: tuple[str, ...]
+    export_history: ExportHistory
+    generated_at: NotRequired[str]
 
 
 def build_module_validation(
@@ -133,19 +151,20 @@ def build_module_validation(
 
     history = export_history(metadata, conditions, reference, window_years)
     notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
-    common = dict(
-        data_dir=str(context.data_dir),
-        module_file=str(module_file),
-        module=module,
-        reference_date=resolution.reference,
-        reference_reason=resolution.reason,
-        age_bands=bands,
-        history=history,
-        inputs=tuple(inputs),
-        notes=tuple(notes),
-        export_history=read_export_history(metadata, reference),
-        **({"generated_at": generated_at} if generated_at is not None else {}),
-    )
+    common: _CommonFields = {
+        "data_dir": str(context.data_dir),
+        "module_file": str(module_file),
+        "module": module,
+        "reference_date": resolution.reference,
+        "reference_reason": resolution.reason,
+        "age_bands": bands,
+        "history": history,
+        "inputs": tuple(inputs),
+        "notes": tuple(notes),
+        "export_history": read_export_history(metadata, reference),
+    }
+    if generated_at is not None:
+        common["generated_at"] = generated_at
 
     reason = None
     if reference is None:

@@ -15,10 +15,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, NotRequired, TypedDict
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
-from synthea_quality.export_history import read_export_history
+from synthea_quality.export_history import ExportHistory, read_export_history
 from synthea_quality.prevalence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_TOP,
@@ -37,12 +38,25 @@ from synthea_quality.prevalence.models import (
     PrevalenceReport,
 )
 from synthea_quality.prevalence.social import describe_list
-from synthea_quality.profile.models import SectionStatus
+from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
 
 PREVALENCE_TABLES = ("patients", "encounters", "conditions")
 PATIENTS_USED_FOR = "the alive cohort, ages and sex"
 CONDITIONS_USED_FOR = "condition records"
+
+
+class _CommonFields(TypedDict):
+    """The report fields every return path of :func:`build_prevalence` fills the same way."""
+
+    data_dir: str
+    reference_date: ReferenceDate | None
+    reference_reason: str | None
+    age_bands: tuple[int, ...]
+    social_list: dict[str, Any]
+    inputs: tuple[TableInput, ...]
+    export_history: ExportHistory
+    generated_at: NotRequired[str]
 
 
 def build_prevalence(
@@ -108,16 +122,17 @@ def build_prevalence(
             )
         social_list = described
 
-    common = dict(
-        data_dir=str(context.data_dir),
-        reference_date=resolution.reference,
-        reference_reason=resolution.reason,
-        age_bands=bands,
-        social_list=social_list,
-        inputs=tuple(inputs),
-        export_history=read_export_history(metadata, context.reference),
-        **({"generated_at": generated_at} if generated_at is not None else {}),
-    )
+    common: _CommonFields = {
+        "data_dir": str(context.data_dir),
+        "reference_date": resolution.reference,
+        "reference_reason": resolution.reason,
+        "age_bands": bands,
+        "social_list": social_list,
+        "inputs": tuple(inputs),
+        "export_history": read_export_history(metadata, context.reference),
+    }
+    if generated_at is not None:
+        common["generated_at"] = generated_at
 
     reason = None
     if resolution.reference is None:
@@ -155,6 +170,7 @@ def build_prevalence(
             **exclusion.describe(),
             "listed_absent_from_data": list(codes_absent_from_data(exclusion, present)),
         }
+    common["social_list"] = social_list
     return PrevalenceReport(
         alive=cohort.size,
         conditions=tuple(condition_prevalence(d, records, cohort) for d in definitions),
@@ -162,6 +178,6 @@ def build_prevalence(
             records, cohort, include_social=include_social, top=top, exclude=exclusion
         ),
         notes=(*resolution.notes, *cohort.notes),
-        **{**common, "social_list": social_list},
+        **common,
     )
 
