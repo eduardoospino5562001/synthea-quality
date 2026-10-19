@@ -316,9 +316,9 @@ def run_key_checks(
                     )
                 )
                 continue
-            if frame is None or rule.column not in present:  # defensive; see present/absent
-                results.append(_skipped(rule, f"column '{rule.column}' is not available"))
-                continue
+            # Every rule column is in ``wanted[table]``, so it is either absent (skipped
+            # just above) or present; a present column means the frame was loaded.
+            assert frame is not None
             values = cast(pd.Series, frame[rule.column])
             if isinstance(rule, PrimaryKeyRule):
                 results.append(check_primary_key(rule, values, sample_limit=sample_limit))
