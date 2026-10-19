@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 from synthea_quality.indexed.definitions import Window
 from synthea_quality.indexed.models import (
@@ -134,3 +135,15 @@ def test_r9_the_same_result_renders_the_same_text():
 
 def test_r10_a_small_share_is_not_shown_as_zero():
     assert "(0.00%" not in render_indexed(result())
+
+
+def test_r11_a_cohort_that_could_not_be_built_shows_its_reason_only():
+    text = render_indexed(replace(result(), reason="x"))
+    assert "`SKIPPED` — x" in text
+    assert "| Outcome |" not in text
+
+
+def test_r12_few_values_say_the_percentiles_are_not_shown():
+    few = replace(event(), days=ValueSummary(3, 0, None, None, 1, None, None, 2))
+    text = render_indexed(replace(result(), outcomes=(few,)))
+    assert "P25–P75 not shown below 10 patients" in text

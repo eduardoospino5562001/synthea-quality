@@ -263,9 +263,12 @@ class IndexedCohortResult:
     #: Of those, records with a ``START`` after the reference date.
     rows_after_reference: int
     outcomes: tuple[EventResult | ValueResult | DeathResult | SkippedOutcome, ...]
+    #: Why the whole cohort could not be built; ``None`` when it was.
+    reason: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The cohort and every outcome as JSON, in the order the module file gives."""
+        status = SectionStatus.SKIPPED if self.reason is not None else SectionStatus.COMPUTED
         return {
             "index_condition": self.index_condition,
             "reference_date": self.reference_date,
@@ -275,4 +278,6 @@ class IndexedCohortResult:
             "rows_start_unusable": self.rows_start_unusable,
             "rows_after_reference": self.rows_after_reference,
             "outcomes": [outcome.to_dict() for outcome in self.outcomes],
+            "status": status.value,
+            "reason": self.reason,
         }

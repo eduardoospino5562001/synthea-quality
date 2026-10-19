@@ -26,7 +26,7 @@ from synthea_quality.indexed.models import (
     ValueResult,
 )
 from synthea_quality.medications.render import _share, _table
-from synthea_quality.observations.models import ValueSummary
+from synthea_quality.observations.models import MIN_PATIENTS_FOR_PERCENTILES, ValueSummary
 from synthea_quality.prevalence.models import Rate
 from synthea_quality.table_format import table_cell, trimmed
 
@@ -46,9 +46,14 @@ DEFINITIONS = (
 
 def render_indexed(result: IndexedCohortResult, *, level: int = 2) -> str:
     """The indexed cohort section; ``level`` is the Markdown level of its heading."""
-    blocks = [
+    heading = [
         f"{'#' * level} Indexed cohort",
         "\n".join(DEFINITIONS),
+    ]
+    if result.reason is not None:
+        return "\n\n".join([*heading, f"`SKIPPED` — {result.reason}"])
+    blocks = [
+        *heading,
         (
             f"Index condition: **{result.index_condition}** · reference date "
             f"{result.reference_date} · {result.patients} patients."
@@ -193,9 +198,12 @@ def _stratum_rows(strata: tuple[Stratum, ...]) -> list[tuple[str, str]]:
 
 def _days_line(prefix: str, days: ValueSummary) -> str:
     """``prefix`` followed by the distribution of one value per patient."""
+    if days.n > 0 and (days.p25 is None or days.p75 is None):
+        percentiles = f"(P25–P75 not shown below {MIN_PATIENTS_FOR_PERCENTILES} patients)"
+    else:
+        percentiles = f"(P25–P75 {_number(days.p25)}–{_number(days.p75)})"
     return (
-        f"{prefix}: n {days.n}, median {_number(days.median)} "
-        f"(P25–P75 {_number(days.p25)}–{_number(days.p75)}), "
+        f"{prefix}: n {days.n}, median {_number(days.median)} {percentiles}, "
         f"min {_number(days.minimum)}, max {_number(days.maximum)}."
     )
 
