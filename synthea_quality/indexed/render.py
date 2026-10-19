@@ -56,13 +56,13 @@ def render_indexed(result: IndexedCohortResult, *, level: int = 2) -> str:
         *heading,
         (
             f"Index condition: **{result.index_condition}** · reference date "
-            f"{result.reference_date} · {result.patients} patients."
+            f"{result.reference_date} · {_count(result.patients, 'patient')}."
         ),
         (
             f"Condition records left out: {result.rows_unknown_patient} of a patient not "
             f"in `patients`, {result.rows_start_unusable} with an unusable `START`, "
             f"{result.rows_after_reference} after the reference date (of "
-            f"{result.rows_matched} records of the condition)."
+            f"{_count(result.rows_matched, 'record')} of the condition)."
         ),
         "\n".join(
             _table(
@@ -122,8 +122,8 @@ def _outcome_blocks(
         blocks.append(
             f"Records left out: {outcome.rows_date_unusable} with an unusable date, "
             f"{outcome.rows_after_reference} after the reference date, "
-            f"{outcome.rows_outside_window} outside the window (of {outcome.rows_matched} "
-            f"records of the codes)."
+            f"{outcome.rows_outside_window} outside the window "
+            f"(of {_count(outcome.rows_matched, 'record')} of the codes)."
         )
         return blocks
     if isinstance(outcome, ValueResult):
@@ -140,16 +140,18 @@ def _outcome_blocks(
             )
         )
         if outcome.patients_with_several_values > 0:
+            several = outcome.patients_with_several_values
+            verb = "has" if several == 1 else "have"
             blocks.append(
-                f"{outcome.patients_with_several_values} patients have more than one "
-                f"value on the picked date and count under each."
+                f"{_count(several, 'patient')} {verb} more than one value on the "
+                f"picked date and count under each."
             )
         blocks.append(
             f"Records left out: {outcome.rows_date_unusable} with an unusable date, "
             f"{outcome.rows_after_reference} after the reference date, "
             f"{outcome.rows_outside_window} outside the window, "
-            f"{outcome.rows_value_empty} with an empty `VALUE` (of {outcome.rows_matched} "
-            f"observations of the code)."
+            f"{outcome.rows_value_empty} with an empty `VALUE` "
+            f"(of {_count(outcome.rows_matched, 'observation')} of the code)."
         )
         return blocks
     blocks.append(_days_line("Days from the index date to death", outcome.days))
@@ -198,6 +200,11 @@ def _stratum_rows(strata: tuple[Stratum, ...]) -> list[tuple[str, int, str]]:
         )
         for stratum in strata
     ]
+
+
+def _count(n: int, noun: str) -> str:
+    """``n`` followed by ``noun``, in the plural unless ``n`` is 1."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
 
 
 def _days_line(prefix: str, days: ValueSummary) -> str:

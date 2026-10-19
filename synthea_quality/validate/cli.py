@@ -23,6 +23,7 @@ from synthea_quality import __version__
 from synthea_quality.errors import SyntheaQualityError
 from synthea_quality.incidence.compute import DEFAULT_WINDOW_YEARS
 from synthea_quality.indexed.models import SkippedOutcome
+from synthea_quality.indexed.render import _count
 from synthea_quality.profile.cli import (
     _age_bands,
     _dataset_directory,
@@ -233,7 +234,7 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
         if indexed.reason is not None:
             print(f"Indexed:    {indexed.index_condition}: not computed — {indexed.reason}")
         else:
-            print(f"Indexed:    {indexed.index_condition}: {indexed.patients} patients")
+            print(f"Indexed:    {indexed.index_condition}: {_count(indexed.patients, 'patient')}")
         for outcome in indexed.outcomes:
             if isinstance(outcome, SkippedOutcome):
                 print(f"Outcome:    {outcome.name}: not computed — {outcome.reason}")

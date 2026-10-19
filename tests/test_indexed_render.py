@@ -116,7 +116,7 @@ def test_r5_a_skipped_outcome_shows_its_reason_and_no_numbers():
 
 
 def test_r6_patients_with_several_values_are_explained():
-    assert "1 patients have more than one value" in render_indexed(result())
+    assert "1 patient has more than one value" in render_indexed(result())
 
 
 def test_r7_the_cause_of_death_is_listed_with_its_three_counts():
