@@ -130,8 +130,6 @@ def text_frame(rows: list[dict[str, str]], columns) -> object:
 
 
 def small_dataset():
-    import pandas as pd  # noqa: F401 - keeps the helper's import local and explicit
-
     patients = text_frame(
         [
             {"Id": "a1", "BIRTHDATE": "1950-01-01", "GENDER": "M"},

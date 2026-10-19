@@ -1,7 +1,8 @@
-"""Skeleton tests for Phase 1, slice 1.
+"""Tests for the package metadata: the declared version and what importing it loads.
 
-These tests verify packaging facts rather than behaviour, because slice 1 only
-creates the project structure. Behaviour tests start with the result models.
+These verify packaging facts rather than behaviour: the version constant agrees with
+the project metadata, and importing the package — or its result models — does not
+pull in pandas.
 """
 
 from __future__ import annotations
