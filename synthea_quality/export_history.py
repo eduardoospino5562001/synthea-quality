@@ -43,12 +43,6 @@ YEARS_OF_HISTORY_KEY = "exporter.years_of_history"
 #: the value is reported as invalid instead of overflowing date arithmetic.
 MAX_YEARS_OF_HISTORY = 1000
 
-#: What the notice cites as the source of the cut-off rule.
-CUTOFF_PROVENANCE = (
-    "Synthea keeps what is after endTime minus 365 * N days "
-    "(Exporter.filterForExport with Utilities.convertTime, which truncates 365.25 to 365)"
-)
-
 
 @dataclass(frozen=True, slots=True)
 class ExportHistory:
