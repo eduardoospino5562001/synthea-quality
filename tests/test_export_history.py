@@ -127,6 +127,31 @@ def test_an_unreadable_file_is_invalid_without_raising(tmp_path):
     assert read_export_history(array, REF).status == "invalid"
 
 
+@pytest.mark.parametrize("status", ["no_metadata", "read", "missing_key", "invalid"])
+def test_a_read_history_keeps_its_status(status):
+    data = {
+        "years_of_history": None,
+        "status": status,
+        "metadata_file": None,
+        "cutoff": None,
+        "reason": None,
+    }
+    assert ExportHistory.from_dict(data).status == status
+
+
+def test_an_unknown_status_is_rejected():
+    """A profile JSON with a status this version does not know is not accepted."""
+    data = {
+        "years_of_history": 10,
+        "status": "bogus",
+        "metadata_file": None,
+        "cutoff": None,
+        "reason": None,
+    }
+    with pytest.raises(ValueError, match="status must be one of"):
+        ExportHistory.from_dict(data)
+
+
 def test_the_cutoff_subtracts_365_days_per_year_even_over_a_leap_day():
     # 2024-03-01 minus 365 days is 2023-03-02: the leap day is inside the span,
     # so a calendar-year subtraction (2023-03-01) would land a day off.
