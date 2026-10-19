@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from synthea_quality.indexed.definitions import (
@@ -12,6 +14,7 @@ from synthea_quality.indexed.definitions import (
     load_indexed,
 )
 from synthea_quality.prevalence.definitions import DefinitionError
+from synthea_quality.validate.models import load_module
 
 NAMES = {"COVID-19", "Breast cancer"}
 
@@ -159,3 +162,34 @@ def test_q_negative_from_days_is_accepted():
                           "window": {"from_days": -30}}]}
     _, (outcome,) = load(data)
     assert outcome.window == Window(-30, None)
+
+
+def test_r_load_module_reads_index_and_outcomes(tmp_path):
+    data = {
+        "module": {"name": "COVID-19", "synthea_modules": ["covid19/infection.json"]},
+        "conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+        "index": {"condition": "COVID-19"},
+        "outcomes": [
+            {"name": "Hospital admission", "type": "event", "table": "encounters",
+             "codes": ["1505002"]},
+            {"name": "ICU admission", "type": "event", "table": "encounters",
+             "codes": ["305351004"]},
+            {"name": "Ventilated", "type": "event", "table": "devices",
+             "codes": ["449071006"]},
+            {"name": "Death", "type": "death"},
+        ],
+    }
+    path = tmp_path / "module.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    module = load_module(path)
+    assert module.index == IndexSpec("COVID-19")
+    assert len(module.outcomes) == 4
+
+
+def test_s_load_module_rejects_outcomes_without_index(tmp_path):
+    data = {"conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+            "outcomes": [{"name": "Death", "type": "death"}]}
+    path = tmp_path / "module.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(DefinitionError, match="needs an 'index'"):
+        load_module(path)
