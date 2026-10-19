@@ -15,7 +15,10 @@ and the frames are handed to the existing computations:
   each alive patient, or of each patient of a condition cohort;
 * medications, when the module file has ``medications``, are
   :func:`synthea_quality.medications.compute.medication_results` — the share of the
-  alive patients, or of a condition cohort, with each medication, active and ever.
+  alive patients, or of a condition cohort, with each medication, active and ever;
+* the indexed cohort, when the module file has ``index``, is
+  :func:`synthea_quality.indexed.build.indexed_cohort_result` — every patient with the
+  index condition, alive or deceased, and each outcome measured from their index date.
 
 Nothing is guessed. Without a reference date or the patients, everything is ``SKIPPED``
 with the reason. Without the condition records, every condition's prevalence and
@@ -36,6 +39,12 @@ from synthea_quality.export_history import ExportHistory, read_export_history
 from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
+from synthea_quality.indexed.build import (
+    indexed_cohort_result,
+    indexed_tables,
+    skipped_indexed,
+)
+from synthea_quality.indexed.definitions import IndexSpec, Outcome
 from synthea_quality.medications import compute as medications_compute
 from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.build import (
@@ -97,6 +106,8 @@ def build_module_validation(
     module_file: str | Path,
     observations: Sequence[ObservationDefinition] = (),
     medications: Sequence[MedicationDefinition] = (),
+    index: IndexSpec | None = None,
+    outcomes: Sequence[Outcome] = (),
     reference_date: str | None = None,
     metadata: str | Path | None = None,
     window_years: int = incidence.DEFAULT_WINDOW_YEARS,
@@ -118,6 +129,7 @@ def build_module_validation(
         *TABLES,
         *(["observations"] if observations else []),
         *(["medications"] if medications else []),
+        *(indexed_tables(outcomes) if index is not None else ()),
     )
     context = open_dataset(
         data_dir, tables=tables, reference_date=reference_date, metadata=metadata,
@@ -152,6 +164,28 @@ def build_module_validation(
     exported = read_export_history(metadata, reference)
     history = export_history(exported, conditions, reference, window_years)
     notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
+    reason = None
+    if reference is None:
+        reason = resolution.reason or "no reference date"
+    elif patients is None:
+        reason = f"the population is unknown: {patients_input.reason}"
+    indexed = None
+    if index is not None:
+        reference_text = reference.isoformat() if reference is not None else ""
+        if reason is not None:
+            indexed = skipped_indexed(index, outcomes, reference_text, reason)
+        elif conditions is None:
+            indexed = skipped_indexed(
+                index, outcomes, reference_text,
+                f"no condition records: {conditions_input.reason}",
+            )
+        else:
+            assert reference is not None and patients is not None
+            indexed, indexed_inputs = indexed_cohort_result(
+                context, patients, conditions, definitions, index, outcomes, reference,
+                bands, observations=observation_frame,
+            )
+            inputs.extend(indexed_inputs)
     common: _CommonFields = {
         "data_dir": str(context.data_dir),
         "module_file": str(module_file),
@@ -167,11 +201,6 @@ def build_module_validation(
     if generated_at is not None:
         common["generated_at"] = generated_at
 
-    reason = None
-    if reference is None:
-        reason = resolution.reason or "no reference date"
-    elif patients is None:
-        reason = f"the population is unknown: {patients_input.reason}"
     if reason is not None:
         return ModuleValidationReport(
             alive=None,
@@ -183,6 +212,7 @@ def build_module_validation(
             medications=tuple(
                 medications_compute.skipped_medication(d, reason) for d in medications
             ),
+            indexed=indexed,
             **common,
         )
 
@@ -274,6 +304,7 @@ def build_module_validation(
         incidence_window=followed.window,
         incidence_population=followed.population,
         cohort={"followed": followed.size, "excluded": dict(followed.excluded)},
+        indexed=indexed,
         **common,
     )
 

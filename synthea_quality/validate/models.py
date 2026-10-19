@@ -33,6 +33,7 @@ from synthea_quality import __version__
 from synthea_quality.export_history import ExportHistory
 from synthea_quality.incidence.models import ConditionIncidence, Window
 from synthea_quality.indexed.definitions import IndexSpec, Outcome, load_indexed
+from synthea_quality.indexed.models import IndexedCohortResult
 from synthea_quality.medications.definitions import MedicationDefinition, load_medications
 from synthea_quality.medications.models import DEFINITIONS as MEDICATION_DEFINITIONS
 from synthea_quality.medications.models import MedicationResult
@@ -175,6 +176,7 @@ class ModuleValidationReport:
     incidence_population: str = "all"
     observations: tuple[ObservationResult, ...] = ()
     medications: tuple[MedicationResult, ...] = ()
+    indexed: IndexedCohortResult | None = None
     history: dict[str, Any] = field(default_factory=dict)
     cohort: dict[str, Any] = field(default_factory=dict)
     inputs: tuple[TableInput, ...] = ()
@@ -189,7 +191,7 @@ class ModuleValidationReport:
         return any(item.state.value == "unreadable" for item in self.inputs)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "schema_version": MODULE_VALIDATION_SCHEMA_VERSION,
             "tool_version": self.tool_version,
             "generated_at": self.generated_at,
@@ -214,6 +216,9 @@ class ModuleValidationReport:
             "medications": [item.to_dict() for item in self.medications],
             "medication_definitions": dict(MEDICATION_DEFINITIONS) if self.medications else None,
         }
+        if self.indexed is not None:
+            data["indexed_cohort"] = self.indexed.to_dict()
+        return data
 
     def to_json(self, *, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)

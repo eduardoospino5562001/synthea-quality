@@ -22,6 +22,7 @@ from typing import Any
 
 from synthea_quality.export_history import notice_lines
 from synthea_quality.incidence.render import render_condition as render_incidence
+from synthea_quality.indexed.render import render_indexed
 from synthea_quality.medications.render import render_medications
 from synthea_quality.observations.models import PERCENTILES_NOTE, ObservationResult
 from synthea_quality.observations.render import render_definitions as render_value_rules
@@ -83,6 +84,7 @@ def render_markdown(report: ModuleValidationReport) -> str:
         *(_condition(condition) for condition in report.conditions),
         *([render_medications(report.medications)] if report.medications else []),
         *_observations(report.observations),
+        *([render_indexed(report.indexed)] if report.indexed is not None else []),
     ]
     return "\n\n".join(block.rstrip() for block in blocks) + "\n"
 

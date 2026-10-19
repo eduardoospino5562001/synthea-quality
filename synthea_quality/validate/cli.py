@@ -22,6 +22,7 @@ from pathlib import Path
 from synthea_quality import __version__
 from synthea_quality.errors import SyntheaQualityError
 from synthea_quality.incidence.compute import DEFAULT_WINDOW_YEARS
+from synthea_quality.indexed.models import SkippedOutcome
 from synthea_quality.profile.cli import (
     _age_bands,
     _dataset_directory,
@@ -152,6 +153,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             definitions=loaded.conditions,
             observations=loaded.observations,
             medications=loaded.medications,
+            index=loaded.index,
+            outcomes=loaded.outcomes,
             module_file=args.module,
             reference_date=args.reference_date,
             metadata=args.metadata,
@@ -225,6 +228,18 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
             f"{medication.active.numerator}/{medication.active.denominator}, "
             f"ever {medication.ever.numerator}/{medication.ever.denominator}"
         )
+    indexed = report.indexed
+    if indexed is not None:
+        if indexed.reason is not None:
+            print(f"Indexed:    {indexed.index_condition}: not computed — {indexed.reason}")
+        else:
+            print(f"Indexed:    {indexed.index_condition}: {indexed.patients} patients")
+        for outcome in indexed.outcomes:
+            if isinstance(outcome, SkippedOutcome):
+                print(f"Outcome:    {outcome.name}: not computed — {outcome.reason}")
+                continue
+            total = outcome.breakdown.total
+            print(f"Outcome:    {outcome.name}: {total.patients}/{total.cohort}")
     for table_input in report.inputs:
         if table_input.state is InputState.UNREADABLE:
             print(f"Incomplete: {table_input.table} could not be read — {table_input.reason}")
