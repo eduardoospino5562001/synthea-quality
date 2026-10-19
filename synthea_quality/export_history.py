@@ -43,11 +43,10 @@ YEARS_OF_HISTORY_KEY = "exporter.years_of_history"
 #: the value is reported as invalid instead of overflowing date arithmetic.
 MAX_YEARS_OF_HISTORY = 1000
 
-#: What the notice cites as the source of the cut-off rule.
-CUTOFF_PROVENANCE = (
-    "Synthea keeps what is after endTime minus 365 * N days "
-    "(Exporter.filterForExport with Utilities.convertTime, which truncates 365.25 to 365)"
-)
+#: Every status a history can carry: no file given, the setting read, the key missing,
+#: or an unusable file/value. Anything else would be a JSON layout this version does
+#: not know, so it is rejected instead of silently kept.
+HISTORY_STATUSES = ("no_metadata", "read", "missing_key", "invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +55,7 @@ class ExportHistory:
 
     #: The setting's value, or ``None`` when there is no usable one.
     years: int | None
-    #: ``"no_metadata"`` (no file given), ``"read"``, ``"missing_key"`` or ``"invalid"``.
+    #: One of :data:`HISTORY_STATUSES`.
     status: str
     #: The metadata path as given, or ``None`` without a file.
     metadata_file: str | None
@@ -64,6 +63,14 @@ class ExportHistory:
     cutoff: date | None
     #: Why there is no usable value; ``None`` when there is one or no file was given.
     reason: str | None = None
+
+    def __post_init__(self) -> None:
+        # Checked here so a report read back from JSON cannot carry an unknown status
+        # into the notice, and a direct construction is held to the same values.
+        if self.status not in HISTORY_STATUSES:
+            raise ValueError(
+                f"status must be one of {HISTORY_STATUSES}, not {self.status!r}"
+            )
 
     @classmethod
     def no_metadata(cls) -> ExportHistory:

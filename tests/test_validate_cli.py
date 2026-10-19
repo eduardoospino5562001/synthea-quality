@@ -14,7 +14,7 @@ from csv_tables import write_table
 from synthea_quality import __version__
 from synthea_quality.schema.tables import tables_by_name
 from synthea_quality.validate.cli import EXIT_ERROR, EXIT_OK, main
-from synthea_quality.validate.models import load_module_file
+from synthea_quality.validate.models import load_module
 from synthea_quality.validate.render import JSON_NAME, MARKDOWN_NAME
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -43,7 +43,8 @@ def dataset(directory: Path) -> Path:
 
 
 def test_the_example_module_file_is_valid_and_says_its_values_are_illustrative():
-    module, (mi,) = load_module_file(EXAMPLE)
+    loaded = load_module(EXAMPLE)
+    module, (mi,) = loaded.module, loaded.conditions
     assert module.name == "Myocardial infarction"
     assert "myocardial_infarction.json" in module.synthea_modules
     assert mi.acute

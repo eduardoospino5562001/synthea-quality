@@ -211,17 +211,17 @@ def print_summary(report: ObservationsReport, markdown_path: Path, json_path: Pa
         kind = "APPROXIMATION" if reference.approximate else "exact"
         print(f"Reference:   {reference.value} ({kind}, source: {reference.source.value})")
     print(f"Alive:       {report.alive if report.alive is not None else '—'}")
-    for item in report.observations:
-        if item.status is SectionStatus.SKIPPED:
-            print(f"Observation: {item.name}: not computed — {item.reason}")
+    for observation in report.observations:
+        if observation.status is SectionStatus.SKIPPED:
+            print(f"Observation: {observation.name}: not computed — {observation.reason}")
             continue
         parts = [
             f"{g.summary.n} patient(s), median {g.summary.median:g} {g.units or ''}".rstrip()
             if g.summary.n
             else f"no value in {g.units or 'no units'}"
-            for g in item.groups
+            for g in observation.groups
         ]
-        print(f"Observation: {item.name}: {'; '.join(parts)}")
+        print(f"Observation: {observation.name}: {'; '.join(parts)}")
     general = report.general
     if general.status is SectionStatus.COMPUTED:
         print(
@@ -231,9 +231,9 @@ def print_summary(report: ObservationsReport, markdown_path: Path, json_path: Pa
         )
     else:
         print(f"General:     not computed — {general.reason}")
-    for item in report.inputs:
-        if item.state is InputState.UNREADABLE:
-            print(f"Incomplete:  {item.table} could not be read — {item.reason}")
+    for table_input in report.inputs:
+        if table_input.state is InputState.UNREADABLE:
+            print(f"Incomplete:  {table_input.table} could not be read — {table_input.reason}")
     print()
     print("Report:")
     print(f"  {markdown_path}")

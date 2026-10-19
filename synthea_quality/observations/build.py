@@ -18,13 +18,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import pandas as pd
 
 from synthea_quality.condition_cohort import select_cohort
 from synthea_quality.dataset import DatasetContext, open_dataset
 from synthea_quality.discovery import DiscoveryResult
-from synthea_quality.export_history import read_export_history
+from synthea_quality.export_history import ExportHistory, read_export_history
 from synthea_quality.observations.compute import (
     DEFAULT_TOP,
     OBSERVATION_COLUMNS,
@@ -42,11 +43,25 @@ from synthea_quality.observations.models import (
 )
 from synthea_quality.prevalence import compute as prevalence
 from synthea_quality.prevalence.definitions import ConditionDefinition
-from synthea_quality.profile.models import SectionStatus, TableInput
+from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
 
 OBSERVATIONS_USED_FOR = "observation values"
 CONDITIONS_USED_FOR = "the condition cohorts"
+
+
+class _CommonFields(TypedDict):
+    """The report fields every return path of :func:`build_observations` fills the same way."""
+
+    data_dir: str
+    module_file: str | None
+    reference_date: ReferenceDate | None
+    reference_reason: str | None
+    age_bands: tuple[int, ...]
+    lookback_years: int | None
+    inputs: tuple[TableInput, ...]
+    export_history: ExportHistory
+    generated_at: NotRequired[str]
 
 
 def build_observations(
@@ -107,17 +122,18 @@ def build_observations(
         )
         inputs.append(conditions_input)
         records_reason = conditions_input.reason
-    common = dict(
-        data_dir=str(context.data_dir),
-        module_file=str(module_file) if module_file is not None else None,
-        reference_date=resolution.reference,
-        reference_reason=resolution.reason,
-        age_bands=bands,
-        lookback_years=lookback_years,
-        inputs=tuple(inputs),
-        export_history=read_export_history(metadata, reference),
-        **({"generated_at": generated_at} if generated_at is not None else {}),
-    )
+    common: _CommonFields = {
+        "data_dir": str(context.data_dir),
+        "module_file": str(module_file) if module_file is not None else None,
+        "reference_date": resolution.reference,
+        "reference_reason": resolution.reason,
+        "age_bands": bands,
+        "lookback_years": lookback_years,
+        "inputs": tuple(inputs),
+        "export_history": read_export_history(metadata, reference),
+    }
+    if generated_at is not None:
+        common["generated_at"] = generated_at
 
     reason = None
     if reference is None:

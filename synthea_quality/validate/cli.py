@@ -195,34 +195,39 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
         prevalence, incidence = condition.prevalence, condition.incidence
         parts = []
         if prevalence.status is SectionStatus.COMPUTED:
+            assert prevalence.lifetime is not None
             parts.append(
                 f"lifetime {prevalence.lifetime.numerator}/{prevalence.lifetime.denominator}"
             )
         if incidence.status is SectionStatus.COMPUTED:
+            assert incidence.rate is not None
             parts.append(f"{incidence.rate.events} new case(s)")
         placed = sum(1 for r in condition.references if r.position is not None)
         if condition.references:
             parts.append(f"{placed} reference value(s) placed against the 95% CI")
         print(f"Condition:  {condition.name}: {', '.join(parts) or 'not computed'}")
-    for item in report.observations:
-        if item.status is SectionStatus.SKIPPED:
-            print(f"Observation: {item.name}: not computed — {item.reason}")
+    for observation in report.observations:
+        if observation.status is SectionStatus.SKIPPED:
+            print(f"Observation: {observation.name}: not computed — {observation.reason}")
             continue
         values = "; ".join(
-            f"{g.summary.n} patient(s) in {g.units or 'no units'}" for g in item.groups
+            f"{g.summary.n} patient(s) in {g.units or 'no units'}"
+            for g in observation.groups
         )
-        print(f"Observation: {item.name}: {values}")
-    for item in report.medications:
-        if item.status is SectionStatus.SKIPPED:
-            print(f"Medication: {item.name}: not computed — {item.reason}")
+        print(f"Observation: {observation.name}: {values}")
+    for medication in report.medications:
+        if medication.status is SectionStatus.SKIPPED:
+            print(f"Medication: {medication.name}: not computed — {medication.reason}")
             continue
+        assert medication.active is not None and medication.ever is not None
         print(
-            f"Medication: {item.name}: active {item.active.numerator}/{item.active.denominator}, "
-            f"ever {item.ever.numerator}/{item.ever.denominator}"
+            f"Medication: {medication.name}: active "
+            f"{medication.active.numerator}/{medication.active.denominator}, "
+            f"ever {medication.ever.numerator}/{medication.ever.denominator}"
         )
-    for item in report.inputs:
-        if item.state is InputState.UNREADABLE:
-            print(f"Incomplete: {item.table} could not be read — {item.reason}")
+    for table_input in report.inputs:
+        if table_input.state is InputState.UNREADABLE:
+            print(f"Incomplete: {table_input.table} could not be read — {table_input.reason}")
     print()
     print("Report:")
     print(f"  {markdown_path}")

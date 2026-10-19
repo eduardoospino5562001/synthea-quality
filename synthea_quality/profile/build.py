@@ -4,7 +4,7 @@ This is the only module of the profile that touches the file system. It reuses t
 pieces the quality checks already trust, in the same order:
 
 1. :func:`~synthea_quality.discovery.discover_dataset` finds the tables;
-2. :func:`~synthea_quality.structure.validate_tables` checks, for the two tables the
+2. :func:`~synthea_quality.structure.validate_tables` checks, for the nine tables the
    profile reads (``patients``, ``encounters`` and the seven clinical tables) whose
    header can be read, that every
    row has as many fields as the header. A table that fails is not read: the loader

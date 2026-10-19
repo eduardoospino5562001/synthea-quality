@@ -209,6 +209,7 @@ def print_summary(report: IncidenceReport, markdown_path: Path, json_path: Path)
             print(f"Condition:  {condition.name}: not computed — {condition.reason}")
             continue
         rate = condition.rate
+        assert rate is not None
         value = "—" if rate.value is None else f"{rate.value:.2f}"
         print(
             f"Condition:  {condition.name}: {rate.events} event(s) in "

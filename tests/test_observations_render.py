@@ -134,6 +134,14 @@ def test_numbers_are_shown_without_trailing_zeros():
     ]
 
 
+def test_a_share_smaller_than_a_tenth_of_a_percent_is_not_shown_as_zero():
+    from synthea_quality.observations.render import _share
+
+    assert _share(1, 10_000) == "1 (0.01%)"
+    assert _share(1, 10) == "1 (10.0%)"
+    assert _share(0, 0) == "0"
+
+
 def test_small_non_zero_values_are_never_shown_as_zero():
     assert trimmed(0.00001) == "1e-05"
     assert trimmed(3e-05) == "3e-05"

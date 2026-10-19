@@ -80,12 +80,6 @@ class ModuleFile:
     medications: tuple[MedicationDefinition, ...] = ()
 
 
-def load_module_file(path: str | Path) -> tuple[ModuleInfo, tuple[ConditionDefinition, ...]]:
-    """The module block and the conditions of a module file (see :func:`load_module`)."""
-    loaded = load_module(path)
-    return loaded.module, loaded.conditions
-
-
 def load_module(path: str | Path) -> ModuleFile:
     """The module block, the conditions, the observations and the medications of a file.
 

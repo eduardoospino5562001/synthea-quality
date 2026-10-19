@@ -19,13 +19,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import pandas as pd
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
-from synthea_quality.export_history import read_export_history, synthea_cutoff
+from synthea_quality.export_history import ExportHistory, read_export_history, synthea_cutoff
 from synthea_quality.incidence.compute import (
     CONDITION_COLUMNS,
     DEFAULT_WINDOW_YEARS,
@@ -43,7 +43,7 @@ from synthea_quality.incidence.compute import (
 from synthea_quality.incidence.models import ConditionIncidence, IncidenceReport
 from synthea_quality.prevalence.definitions import ConditionDefinition
 from synthea_quality.profile.dates import parse_date_only
-from synthea_quality.profile.models import SectionStatus
+from synthea_quality.profile.models import ReferenceDate, SectionStatus, TableInput
 from synthea_quality.profile.population import DEFAULT_AGE_BANDS, validate_age_bands
 
 INCIDENCE_TABLES = ("patients", "encounters", "conditions")
@@ -51,6 +51,20 @@ PATIENTS_USED_FOR = "the followed population: birth, death and sex"
 CONDITIONS_USED_FOR = "condition records"
 YEARS_OF_HISTORY_KEY = "exporter.years_of_history"
 SYNTHEA_DEFAULT_YEARS_OF_HISTORY = 10
+
+
+class _CommonFields(TypedDict):
+    """The report fields every return path of :func:`build_incidence` fills the same way."""
+
+    data_dir: str
+    reference_date: ReferenceDate | None
+    reference_reason: str | None
+    population: str
+    age_bands: tuple[int, ...]
+    history: dict[str, Any]
+    inputs: tuple[TableInput, ...]
+    export_history: ExportHistory
+    generated_at: NotRequired[str]
 
 
 def build_incidence(
@@ -103,20 +117,21 @@ def build_incidence(
         reason = f"no condition records: {conditions_input.reason}"
 
     reference = context.reference
-    history = export_history(metadata, conditions, reference, window_years)
     exported = read_export_history(metadata, reference)
+    history = export_history(exported, conditions, reference, window_years)
     notes = [*resolution.notes, population_note(population), *history.pop("notes")]
-    common: dict[str, Any] = dict(
-        data_dir=str(context.data_dir),
-        reference_date=resolution.reference,
-        reference_reason=resolution.reason,
-        population=population,
-        age_bands=bands,
-        history=history,
-        inputs=tuple(inputs),
-        export_history=exported,
-        **({"generated_at": generated_at} if generated_at is not None else {}),
-    )
+    common: _CommonFields = {
+        "data_dir": str(context.data_dir),
+        "reference_date": resolution.reference,
+        "reference_reason": resolution.reason,
+        "population": population,
+        "age_bands": bands,
+        "history": history,
+        "inputs": tuple(inputs),
+        "export_history": exported,
+    }
+    if generated_at is not None:
+        common["generated_at"] = generated_at
     if reason is not None:
         return IncidenceReport(
             window=None,
@@ -155,13 +170,16 @@ def population_note(population: str) -> str:
 
 
 def export_history(
-    metadata: str | Path | None,
+    exported: ExportHistory,
     conditions: pd.DataFrame | None,
     reference: date | None,
     window_years: int,
 ) -> dict[str, Any]:
-    """What is known about the exported history, and the notes it calls for."""
-    exported = read_export_history(metadata, reference)
+    """What is known about the exported history, and the notes it calls for.
+
+    ``exported`` is the metadata read once by the caller: a run with ``--metadata``
+    does not read the file a second time for the notice.
+    """
     years = exported.years
     earliest = None
     if conditions is not None and len(conditions):
@@ -178,7 +196,7 @@ def export_history(
         return history
     start = window_start(reference, window_years)
     if years is None:
-        if metadata is None:
+        if exported.status == "no_metadata":
             why = f"{YEARS_OF_HISTORY_KEY} is only in Synthea's run metadata; use --metadata"
         else:
             why = (

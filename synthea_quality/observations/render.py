@@ -30,7 +30,7 @@ from synthea_quality.observations.models import (
     ValueSummary,
 )
 from synthea_quality.profile.models import InputState, SectionStatus
-from synthea_quality.table_format import table_cell, trimmed
+from synthea_quality.table_format import fixed, table_cell, trimmed
 
 MARKDOWN_NAME = "synthea_observations.md"
 JSON_NAME = "synthea_observations.json"
@@ -377,7 +377,7 @@ def _stats(summary: ValueSummary) -> tuple[str, ...]:
 def _share(count: int, total: int) -> str:
     if total == 0:
         return str(count)
-    return f"{count} ({count / total * 100:.1f}%)"
+    return f"{count} ({fixed(count / total * 100, 1)}%)"
 
 
 def _value(value: Any) -> str:

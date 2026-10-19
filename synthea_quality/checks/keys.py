@@ -109,11 +109,11 @@ def check_primary_key(
         problems.append(
             f"{duplicate_values} duplicated value(s) covering {duplicate_rows} row(s)"
         )
-        counts = non_null[duplicate_mask].value_counts()
-        duplicate_samples = [
-            {"value": str(value), "occurrences": int(count)}
-            for value, count in counts.head(sample_limit).items()
-        ]
+        duplicated = non_null[duplicate_mask]  # ties below keep the order of first appearance
+        seen = {value: position for position, value in enumerate(duplicated.drop_duplicates())}
+        counts = duplicated.value_counts()
+        ranked = sorted(counts.items(), key=lambda item: (-int(item[1]), seen[item[0]]))
+        duplicate_samples = [{"value": str(v), "occurrences": int(c)} for v, c in ranked[:sample_limit]]
 
     if problems:
         message = (
@@ -316,9 +316,9 @@ def run_key_checks(
                     )
                 )
                 continue
-            if frame is None or rule.column not in present:  # defensive; see present/absent
-                results.append(_skipped(rule, f"column '{rule.column}' is not available"))
-                continue
+            # Every rule column is in ``wanted[table]``, so it is either absent (skipped
+            # just above) or present; a present column means the frame was loaded.
+            assert frame is not None
             values = cast(pd.Series, frame[rule.column])
             if isinstance(rule, PrimaryKeyRule):
                 results.append(check_primary_key(rule, values, sample_limit=sample_limit))
