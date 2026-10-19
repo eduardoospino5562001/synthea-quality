@@ -8,7 +8,7 @@ import pytest
 
 from synthea_quality.prevalence.definitions import DefinitionError
 from synthea_quality.prevalence.models import Expected
-from synthea_quality.validate.models import ModuleInfo, load_module_file
+from synthea_quality.validate.models import ModuleInfo, load_module
 
 
 def write(tmp_path, data) -> str:
@@ -18,7 +18,7 @@ def write(tmp_path, data) -> str:
 
 
 def test_module_file_with_all_three_measures(tmp_path):
-    module, (mi,) = load_module_file(
+    loaded = load_module(
         write(
             tmp_path,
             {
@@ -35,6 +35,8 @@ def test_module_file_with_all_three_measures(tmp_path):
             },
         )
     )
+    module = loaded.module
+    (mi,) = loaded.conditions
     assert module == ModuleInfo("MI", ("myocardial_infarction.json",), None)
     assert mi.acute
     assert [e.measure for e in mi.expected] == ["point", "lifetime", "incidence"]
@@ -42,10 +44,10 @@ def test_module_file_with_all_three_measures(tmp_path):
 
 
 def test_the_module_block_is_optional(tmp_path):
-    module, definitions = load_module_file(
+    loaded = load_module(
         write(tmp_path, {"conditions": [{"name": "HTN", "codes": ["59621000"]}]})
     )
-    assert module == ModuleInfo() and len(definitions) == 1
+    assert loaded.module == ModuleInfo() and len(loaded.conditions) == 1
 
 
 @pytest.mark.parametrize(
@@ -62,7 +64,7 @@ def test_the_module_block_is_optional(tmp_path):
 )
 def test_malformed_module_files_are_input_errors(tmp_path, data, message):
     with pytest.raises(DefinitionError, match=message):
-        load_module_file(write(tmp_path, data))
+        load_module(write(tmp_path, data))
 
 
 def test_a_module_file_with_observations(tmp_path):
@@ -95,9 +97,9 @@ def test_a_module_file_may_have_observations_only(tmp_path):
 
 def test_a_module_file_needs_conditions_or_observations(tmp_path):
     with pytest.raises(DefinitionError, match="'conditions', 'observations' or 'medications'"):
-        load_module_file(write(tmp_path, {"module": {"name": "X"}}))
+        load_module(write(tmp_path, {"module": {"name": "X"}}))
     with pytest.raises(DefinitionError, match="do not define"):
-        load_module_file(write(tmp_path, {"observations": [{"code": "1", "cohort": "X"}]}))
+        load_module(write(tmp_path, {"observations": [{"code": "1", "cohort": "X"}]}))
 
 
 def test_a_module_file_with_medications(tmp_path):
@@ -125,5 +127,5 @@ def test_a_module_file_with_medications(tmp_path):
 
 def test_a_condition_never_takes_a_medication_measure(tmp_path):
     with pytest.raises(DefinitionError, match="unknown key"):
-        load_module_file(write(tmp_path, {"conditions": [
+        load_module(write(tmp_path, {"conditions": [
             {"name": "A", "codes": ["1"], "expected": {"active": 0.5}}]}))
