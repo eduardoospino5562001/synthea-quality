@@ -99,6 +99,29 @@ def test_history_unknown_with_metadata_names_the_file_instead_of_asking_for_it(t
     )
 
 
+def test_the_metadata_is_read_once_per_build(tmp_path, monkeypatch):
+    """The history notice and the report field come from a single read of --metadata."""
+    from synthea_quality.incidence import build as incidence_build
+
+    metadata = tmp_path / "run.json"
+    metadata.write_text(
+        json.dumps({"endTime": "20260101", "exporter.years_of_history": 10}), "utf-8"
+    )
+    calls = []
+    original = incidence_build.read_export_history
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(incidence_build, "read_export_history", counting)
+    report = build_incidence(dataset(tmp_path / "csv"), definitions=MI, metadata=metadata)
+
+    assert len(calls) == 1
+    assert report.export_history.years == 10
+    assert report.history["years_of_history"] == 10
+
+
 @pytest.mark.parametrize(
     "years, window, expected",
     [

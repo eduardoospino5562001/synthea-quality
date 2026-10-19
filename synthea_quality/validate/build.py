@@ -149,7 +149,8 @@ def build_module_validation(
         )
         inputs.append(medications_input)
 
-    history = export_history(metadata, conditions, reference, window_years)
+    exported = read_export_history(metadata, reference)
+    history = export_history(exported, conditions, reference, window_years)
     notes = [*resolution.notes, WHY_ALL_PATIENTS, *history.pop("notes")]
     common: _CommonFields = {
         "data_dir": str(context.data_dir),
@@ -161,7 +162,7 @@ def build_module_validation(
         "history": history,
         "inputs": tuple(inputs),
         "notes": tuple(notes),
-        "export_history": read_export_history(metadata, reference),
+        "export_history": exported,
     }
     if generated_at is not None:
         common["generated_at"] = generated_at

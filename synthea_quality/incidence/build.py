@@ -117,8 +117,8 @@ def build_incidence(
         reason = f"no condition records: {conditions_input.reason}"
 
     reference = context.reference
-    history = export_history(metadata, conditions, reference, window_years)
     exported = read_export_history(metadata, reference)
+    history = export_history(exported, conditions, reference, window_years)
     notes = [*resolution.notes, population_note(population), *history.pop("notes")]
     common: _CommonFields = {
         "data_dir": str(context.data_dir),
@@ -170,13 +170,16 @@ def population_note(population: str) -> str:
 
 
 def export_history(
-    metadata: str | Path | None,
+    exported: ExportHistory,
     conditions: pd.DataFrame | None,
     reference: date | None,
     window_years: int,
 ) -> dict[str, Any]:
-    """What is known about the exported history, and the notes it calls for."""
-    exported = read_export_history(metadata, reference)
+    """What is known about the exported history, and the notes it calls for.
+
+    ``exported`` is the metadata read once by the caller: a run with ``--metadata``
+    does not read the file a second time for the notice.
+    """
     years = exported.years
     earliest = None
     if conditions is not None and len(conditions):
@@ -193,7 +196,7 @@ def export_history(
         return history
     start = window_start(reference, window_years)
     if years is None:
-        if metadata is None:
+        if exported.status == "no_metadata":
             why = f"{YEARS_OF_HISTORY_KEY} is only in Synthea's run metadata; use --metadata"
         else:
             why = (
