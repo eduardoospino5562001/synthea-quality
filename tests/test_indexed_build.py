@@ -239,3 +239,16 @@ def test_b10_a_patients_table_without_gender_gives_an_unknown_sex(tmp_path):
     outcome = report.to_dict()["indexed_cohort"]["outcomes"][0]
     assert [cell["label"] for cell in outcome["breakdown"]["by_sex"]] == ["unknown sex"]
     assert outcome["breakdown"]["total"]["denominator"] == 3
+
+
+def test_b11_a_missing_table_gives_its_reason_once(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    report = validate(
+        directory,
+        write_module(tmp_path, [HOSPITAL_ADMISSION, VENTILATED]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    ventilated = next(o for o in report.indexed.outcomes if o.name == "Ventilated")
+    assert isinstance(ventilated, SkippedOutcome)
+    assert ventilated.reason == "devices.csv is not in the dataset"

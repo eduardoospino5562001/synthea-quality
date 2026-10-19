@@ -179,8 +179,7 @@ def _measure(
     table = _table_of(outcome)
     frame = frames.get(table)
     if frame is None:
-        reason = f"{table}.csv: {reasons[table]}"
-        return SkippedOutcome(outcome.name, _outcome_type(outcome), reason)
+        return SkippedOutcome(outcome.name, _outcome_type(outcome), reasons[table])
     if isinstance(outcome, EventOutcome):
         return measure_event(cohort, frame, outcome, reference, age_bands)
     if isinstance(outcome, ValueOutcome):
