@@ -193,3 +193,11 @@ def test_s_load_module_rejects_outcomes_without_index(tmp_path):
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(DefinitionError, match="needs an 'index'"):
         load_module(path)
+
+
+def test_repeated_code_in_an_outcome_is_rejected():
+    data = {"index": {"condition": "COVID-19"},
+            "outcomes": [{"name": "Admission", "type": "event", "table": "encounters",
+                          "codes": ["1505002", "1505002"]}]}
+    with pytest.raises(DefinitionError, match="repeats code '1505002'"):
+        load(data)

@@ -237,8 +237,9 @@ def _codes(raw: Any, *, origin: str, name: str) -> tuple[str, ...]:
     for code in raw:
         if not isinstance(code, str) or not code.strip():
             raise DefinitionError(f"{origin}: outcome {name!r} codes must be non-empty strings")
-        if code.strip() not in cleaned:
-            cleaned.append(code.strip())
+        if code.strip() in cleaned:
+            raise DefinitionError(f"{origin}: outcome {name!r} repeats code {code.strip()!r}")
+        cleaned.append(code.strip())
     return tuple(cleaned)
 
 
