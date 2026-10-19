@@ -110,7 +110,7 @@ def check_primary_key(
             f"{duplicate_values} duplicated value(s) covering {duplicate_rows} row(s)"
         )
         duplicated = non_null[duplicate_mask]  # ties below keep the order of first appearance
-        seen = {value: position for position, value in enumerate(duplicated)}
+        seen = {value: position for position, value in enumerate(duplicated.drop_duplicates())}
         counts = duplicated.value_counts()
         ranked = sorted(counts.items(), key=lambda item: (-int(item[1]), seen[item[0]]))
         duplicate_samples = [{"value": str(v), "occurrences": int(c)} for v, c in ranked[:sample_limit]]
