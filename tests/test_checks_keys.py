@@ -79,6 +79,19 @@ def test_primary_key_samples_are_limited() -> None:
     assert result.metadata["sample_limit"] == 3
 
 
+def test_duplicate_samples_with_the_same_count_follow_the_table_order() -> None:
+    """Values counted alike are ranked by first appearance, not by hash order."""
+    values = pd.Series(["z", "a", "z", "a", "z", "a"])
+
+    result = check_primary_key(PATIENT_PK, values, sample_limit=2)
+
+    assert result.metrics["duplicate_values"] == 2
+    assert result.samples == (
+        {"value": "z", "occurrences": 3},
+        {"value": "a", "occurrences": 3},
+    )
+
+
 # --------------------------------------------------------------------------- #
 # foreign key
 # --------------------------------------------------------------------------- #

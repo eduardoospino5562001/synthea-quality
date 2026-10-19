@@ -109,11 +109,11 @@ def check_primary_key(
         problems.append(
             f"{duplicate_values} duplicated value(s) covering {duplicate_rows} row(s)"
         )
-        counts = non_null[duplicate_mask].value_counts()
-        duplicate_samples = [
-            {"value": str(value), "occurrences": int(count)}
-            for value, count in counts.head(sample_limit).items()
-        ]
+        duplicated = non_null[duplicate_mask]  # ties below keep the order of first appearance
+        seen = {value: position for position, value in enumerate(duplicated)}
+        counts = duplicated.value_counts()
+        ranked = sorted(counts.items(), key=lambda item: (-int(item[1]), seen[item[0]]))
+        duplicate_samples = [{"value": str(v), "occurrences": int(c)} for v, c in ranked[:sample_limit]]
 
     if problems:
         message = (
