@@ -37,6 +37,7 @@ from typing import cast
 
 import pandas as pd
 
+from synthea_quality.checks.samples import sample_text
 from synthea_quality.discovery import DiscoveryResult, discover_dataset
 from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table, read_header
@@ -532,9 +533,9 @@ def _samples(
     samples: list[Mapping[str, object]] = []
     for index in indices:
         row = frame.loc[index]
-        values = {column: _text(row[column]) for column in columns}
+        values = {column: sample_text(row[column]) for column in columns}
         if birth_values is not None:
-            values["patient_birth_date"] = _text(birth_values.loc[index])
+            values["patient_birth_date"] = sample_text(birth_values.loc[index])
         samples.append({"row": int(index) + 1, "values": values})  # type: ignore[call-overload]
     return tuple(samples)
 
@@ -565,10 +566,3 @@ def _skipped(check_id: str, table: str, reason: str) -> CheckResult:
         message=f"temporal check not run for {check_id}: {reason}",
         table=table,
     )
-
-
-def _text(value: object) -> str | None:
-    """Render a cell for a sample without turning a null into the text 'nan'."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return None
-    return str(value)

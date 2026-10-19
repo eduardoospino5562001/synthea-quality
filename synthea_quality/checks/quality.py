@@ -45,6 +45,7 @@ from typing import cast
 
 import pandas as pd
 
+from synthea_quality.checks.samples import sample_text
 from synthea_quality.discovery import DiscoveryResult, discover_dataset
 from synthea_quality.errors import TableLoadError
 from synthea_quality.loader import load_table
@@ -137,7 +138,7 @@ def check_duplicate_rows(
     metrics.update({"duplicate_groups": duplicate_groups, "redundant_rows": redundant_rows})
 
     samples = tuple(
-        {"row": int(index) + 1, "values": {str(k): _text(v) for k, v in row.items()}}
+        {"row": int(index) + 1, "values": {str(k): sample_text(v) for k, v in row.items()}}
         for index, row in representatives.head(sample_limit).iterrows()
     )
 
@@ -479,10 +480,3 @@ def _skipped(check_id: str, table: str, reason: str) -> CheckResult:
         message=f"check not run for {check_id}: {reason}",
         table=table,
     )
-
-
-def _text(value: object) -> str | None:
-    """Render a cell for a sample without turning a null into the text 'nan'."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return None
-    return str(value)
