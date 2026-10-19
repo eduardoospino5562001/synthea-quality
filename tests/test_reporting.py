@@ -8,6 +8,7 @@ a report usable: deterministic output and a lossless JSON round-trip.
 from __future__ import annotations
 
 import json
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -16,14 +17,17 @@ from csv_tables import write_table
 
 from synthea_quality.errors import EmptyDatasetError
 from synthea_quality.models import (
+    AnomalousEntry,
     CheckResult,
     DatasetReport,
+    LoadError,
     Severity,
     Status,
     TableSummary,
+    UnresolvedRelation,
 )
 from synthea_quality.reporting import json_report
-from synthea_quality.reporting.build import build_report, unresolved_relations
+from synthea_quality.reporting.build import _with_timestamp, build_report, unresolved_relations
 from synthea_quality.reporting.markdown import render_markdown
 from synthea_quality.schema.contract import ContractStatus
 
@@ -77,6 +81,38 @@ def make_report(*checks: CheckResult, **kwargs: Any) -> DatasetReport:
     kwargs.setdefault("data_dir", "/tmp/example")
     kwargs.setdefault("generated_at", FIXED_TIME)
     return DatasetReport(checks=tuple(checks), **kwargs)
+
+
+def test_a_given_timestamp_keeps_every_other_field() -> None:
+    """The timestamp is replaced without rebuilding the report field by field."""
+    original = DatasetReport(
+        data_dir="/tmp/example",
+        tables=(TableSummary("patients", "patients.csv", 2, ("Id", "BIRTHDATE"), True),),
+        checks=(make_check("pk.patients.Id", Status.PASS, Severity.LOW),),
+        unknown_files=("notes.csv",),
+        missing_known_tables=("procedures",),
+        schema_contract="synthea-csv-2026-08",
+        generated_at="2020-01-01T00:00:00+00:00",
+        tool_version="0.0.1",
+        schema_version=7,
+        contract_tables=19,
+        contract_status=ContractStatus.COMPATIBLE,
+        contract_summary="18 of 19 tables match",
+        contract_findings=("patients: extra column",),
+        load_errors=(LoadError("careplans", "unreadable"),),
+        anomalous_entries=(AnomalousEntry("allergies.csv", "is a directory"),),
+        unresolved_relations=(
+            UnresolvedRelation("temporal", "x", "y", "z", "a", "b", "c", "d"),
+        ),
+    )
+
+    updated = _with_timestamp(original, FIXED_TIME)
+
+    for item in fields(original):
+        if item.name == "generated_at":
+            continue
+        assert getattr(updated, item.name) == getattr(original, item.name), item.name
+    assert updated.generated_at == FIXED_TIME
 
 
 # --------------------------------------------------------------------------- #

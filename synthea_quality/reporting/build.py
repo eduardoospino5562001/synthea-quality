@@ -22,6 +22,7 @@ present table anyway; nothing is loaded a second time just to fill a number.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from synthea_quality.checks.keys import run_key_checks
@@ -206,21 +207,4 @@ def _table_summary(
 
 def _with_timestamp(report: DatasetReport, generated_at: str) -> DatasetReport:
     """Return the same report with a given timestamp (used by tests and callers)."""
-    return DatasetReport(
-        data_dir=report.data_dir,
-        tables=report.tables,
-        checks=report.checks,
-        unknown_files=report.unknown_files,
-        missing_known_tables=report.missing_known_tables,
-        schema_contract=report.schema_contract,
-        generated_at=generated_at,
-        tool_version=report.tool_version,
-        schema_version=report.schema_version,
-        contract_tables=report.contract_tables,
-        contract_status=report.contract_status,
-        contract_summary=report.contract_summary,
-        contract_findings=report.contract_findings,
-        load_errors=report.load_errors,
-        anomalous_entries=report.anomalous_entries,
-        unresolved_relations=report.unresolved_relations,
-    )
+    return replace(report, generated_at=generated_at)
