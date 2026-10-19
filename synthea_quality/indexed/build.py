@@ -78,11 +78,11 @@ def indexed_tables(outcomes: Sequence[Outcome]) -> tuple[str, ...]:
 
 
 def skipped_indexed(
-    index: IndexSpec, outcomes: Sequence[Outcome], reference: str, reason: str
+    index: IndexSpec, outcomes: Sequence[Outcome], reference: str | None, reason: str
 ) -> IndexedCohortResult:
     """An indexed cohort that could not be built: no patients, every outcome skipped.
 
-    ``reference`` is ``YYYY-MM-DD``, or empty when the dataset gave no reference date.
+    ``reference`` is ``YYYY-MM-DD``, or ``None`` when the dataset gave no reference date.
     """
     return IndexedCohortResult(
         index_condition=index.condition,

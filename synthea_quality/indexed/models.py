@@ -250,8 +250,8 @@ class IndexedCohortResult:
 
     #: Name of the condition whose earliest ``START`` is a patient's index date.
     index_condition: str
-    #: The reference date, ``YYYY-MM-DD``.
-    reference_date: str
+    #: The reference date, ``YYYY-MM-DD``, or None without a reference date.
+    reference_date: str | None
     #: Distinct patients of the cohort, alive and deceased, each counted once.
     patients: int
     #: Records of the index condition, any date.

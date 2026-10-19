@@ -209,3 +209,13 @@ def test_b8_the_console_summary_states_the_cohort_and_each_outcome(tmp_path, cap
     printed = capsys.readouterr().out
     assert "Indexed:    COVID-19: 3 patients" in printed
     assert "Outcome:    Hospital admission: 1/3" in printed
+
+
+def test_b9_without_a_reference_date_the_json_writes_no_date(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    (directory / "encounters.csv").unlink()
+    report = validate(directory, write_module(tmp_path, [HOSPITAL_ADMISSION]))
+    assert report.indexed is not None
+    data = report.to_dict()["indexed_cohort"]
+    assert data["reference_date"] is None
+    assert data["status"] == "SKIPPED"

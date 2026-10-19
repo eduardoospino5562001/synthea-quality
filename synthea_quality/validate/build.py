@@ -171,7 +171,7 @@ def build_module_validation(
         reason = f"the population is unknown: {patients_input.reason}"
     indexed = None
     if index is not None:
-        reference_text = reference.isoformat() if reference is not None else ""
+        reference_text = reference.isoformat() if reference is not None else None
         if reason is not None:
             indexed = skipped_indexed(index, outcomes, reference_text, reason)
         elif conditions is None:
