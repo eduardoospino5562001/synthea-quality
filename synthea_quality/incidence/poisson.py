@@ -16,6 +16,7 @@ of a few hundred people produces.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 #: Two-sided level of the intervals the tool reports.
 ALPHA = 0.05
@@ -45,7 +46,7 @@ def exact_interval(k: int, alpha: float = ALPHA) -> tuple[float, float]:
     return low, high
 
 
-def _solve(increasing, k: int) -> float:
+def _solve(increasing: Callable[[float], float], k: int) -> float:
     """Root of a function of λ that increases from negative to positive."""
     lo, hi = 0.0, max(10.0, 2.0 * k + 10.0)
     while increasing(hi) < 0:

@@ -27,11 +27,12 @@ from pathlib import Path
 from synthea_quality.checks.keys import run_key_checks
 from synthea_quality.checks.quality import run_quality_checks
 from synthea_quality.checks.temporal import run_temporal_checks
-from synthea_quality.discovery import DiscoveryResult, discover_dataset
+from synthea_quality.discovery import DiscoveredTable, DiscoveryResult, discover_dataset
 from synthea_quality.errors import EmptyDatasetError, TableLoadError
 from synthea_quality.loader import read_header
 from synthea_quality.models import (
     DEFAULT_SAMPLE_LIMIT,
+    CheckResult,
     DatasetReport,
     LoadError,
     TableSummary,
@@ -180,10 +181,10 @@ def unresolved_relations() -> tuple[UnresolvedRelation, ...]:
 
 
 def _table_summary(
-    table,
+    table: DiscoveredTable,
     header: tuple[str, ...] | None,
     schema_match: bool | None,
-    checks,
+    checks: tuple[CheckResult, ...],
 ) -> TableSummary:
     """Describe one table, taking its row count from the check that already loaded it."""
     rows = next(
