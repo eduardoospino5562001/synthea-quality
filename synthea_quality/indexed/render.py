@@ -173,25 +173,29 @@ def _breakdown_tables(breakdown: Breakdown) -> list[str]:
     return [
         "\n".join(
             _table(
-                ("Sex", "Patients (95% CI)"),
+                ("Sex", "Cohort", "Patients (95% CI)"),
                 _stratum_rows(breakdown.by_sex),
-                align=("", "r"),
+                align=("", "r", "r"),
             )
         ),
         "\n".join(
             _table(
-                ("Age at index", "Patients (95% CI)"),
+                ("Age at index", "Cohort", "Patients (95% CI)"),
                 _stratum_rows(breakdown.by_age),
-                align=("", "r"),
+                align=("", "r", "r"),
             )
         ),
     ]
 
 
-def _stratum_rows(strata: tuple[Stratum, ...]) -> list[tuple[str, str]]:
-    """One table row per stratum: its label and its share with the 95% CI."""
+def _stratum_rows(strata: tuple[Stratum, ...]) -> list[tuple[str, int, str]]:
+    """One table row per stratum: its label, its cohort and its share with the 95% CI."""
     return [
-        (table_cell(stratum.label), _share(Rate(stratum.patients, stratum.cohort)))
+        (
+            table_cell(stratum.label),
+            stratum.cohort,
+            _share(Rate(stratum.patients, stratum.cohort)),
+        )
         for stratum in strata
     ]
 

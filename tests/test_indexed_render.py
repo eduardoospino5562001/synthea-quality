@@ -147,3 +147,10 @@ def test_r12_few_values_say_the_percentiles_are_not_shown():
     few = replace(event(), days=ValueSummary(3, 0, None, None, 1, None, None, 2))
     text = render_indexed(replace(result(), outcomes=(few,)))
     assert "P25–P75 not shown below 10 patients" in text
+
+
+def test_r13_each_stratum_shows_its_cohort():
+    text = render_indexed(result())
+    assert "| Sex | Cohort | Patients (95% CI) |" in text
+    assert "| Age at index | Cohort | Patients (95% CI) |" in text
+    assert "| F | 2 | 1 (50.00%; 9.45–90.55%) |" in text
