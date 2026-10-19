@@ -32,6 +32,7 @@ from typing import Any
 from synthea_quality import __version__
 from synthea_quality.export_history import ExportHistory
 from synthea_quality.incidence.models import ConditionIncidence, Window
+from synthea_quality.indexed.definitions import IndexSpec, Outcome, load_indexed
 from synthea_quality.medications.definitions import MedicationDefinition, load_medications
 from synthea_quality.medications.models import DEFINITIONS as MEDICATION_DEFINITIONS
 from synthea_quality.medications.models import MedicationResult
@@ -78,6 +79,8 @@ class ModuleFile:
     conditions: tuple[ConditionDefinition, ...]
     observations: tuple[ObservationDefinition, ...] = ()
     medications: tuple[MedicationDefinition, ...] = ()
+    index: IndexSpec | None = None
+    outcomes: tuple[Outcome, ...] = ()
 
 
 def load_module(path: str | Path) -> ModuleFile:
@@ -100,6 +103,9 @@ def load_module(path: str | Path) -> ModuleFile:
     medications = load_medications(
         data, origin=str(file_path), condition_names={c.name for c in definitions}
     )
+    index, outcomes = load_indexed(
+        data, origin=str(file_path), condition_names={c.name for c in definitions}
+    )
     block = data.get("module", {})
     if not isinstance(block, dict):
         raise DefinitionError(f"{file_path}: 'module' must be an object")
@@ -118,7 +124,12 @@ def load_module(path: str | Path) -> ModuleFile:
     if not isinstance(modules, list) or not all(isinstance(m, str) for m in modules):
         raise DefinitionError(f"{file_path}: 'synthea_modules' must be a list of strings")
     return ModuleFile(
-        ModuleInfo(name, tuple(modules), description), definitions, observations, medications
+        ModuleInfo(name, tuple(modules), description),
+        definitions,
+        observations,
+        medications,
+        index=index,
+        outcomes=outcomes,
     )
 
 
