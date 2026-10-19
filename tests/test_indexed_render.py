@@ -123,6 +123,7 @@ def test_r7_the_cause_of_death_is_listed_with_its_three_counts():
     text = render_indexed(result())
     assert "Cause of death (`69453-9`): 1 with" in text
     assert "without a cause record" in text
+    assert "0 with another cause" in text
 
 
 def test_r8_no_verdict_words():

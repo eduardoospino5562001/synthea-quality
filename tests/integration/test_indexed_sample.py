@@ -58,9 +58,10 @@ def _day(value: str) -> date | None:
 def _index_dates(sample: Path, code: str) -> dict[str, date]:
     """Each patient's index date: the earliest ``START`` of ``code`` on or before the reference."""
     reference = date.fromisoformat(REFERENCE_DATE)
+    listed = {row["Id"] for row in _rows(sample / "patients.csv")}
     earliest: dict[str, date] = {}
     for row in _rows(sample / "conditions.csv"):
-        if row["CODE"] != code:
+        if row["CODE"] != code or row["PATIENT"] not in listed:
             continue
         start = _day(row["START"])
         if start is None or start > reference:
