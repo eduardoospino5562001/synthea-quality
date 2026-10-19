@@ -252,3 +252,18 @@ def test_b11_a_missing_table_gives_its_reason_once(tmp_path):
     ventilated = next(o for o in report.indexed.outcomes if o.name == "Ventilated")
     assert isinstance(ventilated, SkippedOutcome)
     assert ventilated.reason == "devices.csv is not in the dataset"
+
+
+def test_b12_an_event_on_observations_needs_no_value_column(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "observations",
+        [{"DATE": "2023-02-01T00:00:00Z", "PATIENT": "p1", "CODE": "21908-9"}],
+        columns=("DATE", "PATIENT", "CODE"),
+    )
+    stage = {"name": "Stage recorded", "type": "event", "table": "observations", "codes": ["21908-9"]}
+    report = validate(directory, write_module(tmp_path, [stage]), reference_date="2026-01-01")
+    outcome = report.to_dict()["indexed_cohort"]["outcomes"][0]
+    assert outcome["status"] == "COMPUTED"
+    assert outcome["breakdown"]["total"]["numerator"] == 1

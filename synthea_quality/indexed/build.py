@@ -129,7 +129,7 @@ def indexed_cohort_result(
         if table == OBSERVATIONS and observations is not None:
             frames[table] = observations
             continue
-        frame, table_input = _load_table(context, table)
+        frame, table_input = _load_table(context, table, _reads_value(outcomes))
         frames[table] = frame
         inputs.append(table_input)
         if frame is None:
@@ -154,14 +154,33 @@ def indexed_cohort_result(
     )
 
 
-def _load_table(context: DatasetContext, table: str) -> tuple[pd.DataFrame | None, TableInput]:
-    """Read the columns ``table`` needs for the outcomes, and what happened to it."""
+def _load_table(
+    context: DatasetContext, table: str, reads_value: bool
+) -> tuple[pd.DataFrame | None, TableInput]:
+    """Read the columns ``table`` needs for the outcomes, and what happened to it.
+
+    ``observations`` is always read with ``VALUE`` when it has one, but only requires it
+    when ``reads_value``: an ``event`` outcome on ``observations`` does not read it.
+    """
     columns: tuple[str, ...]
     if table == OBSERVATIONS:
-        columns = OBSERVATION_VALUE_COLUMNS
-    else:
-        columns = ("PATIENT", "CODE", DATE_COLUMNS.get(table, "START"))
+        wanted = OBSERVATION_VALUE_COLUMNS
+        if reads_value:
+            columns = wanted
+        else:
+            columns = tuple(c for c in wanted if c != "VALUE")
+        return context.load(table, wanted, columns, INDEXED_USED_FOR)
+    columns = ("PATIENT", "CODE", DATE_COLUMNS.get(table, "START"))
     return context.load(table, columns, columns, INDEXED_USED_FOR)
+
+
+def _reads_value(outcomes: Sequence[Outcome]) -> bool:
+    """Whether an outcome reads ``VALUE``: a ``value``, or a ``death`` with ``cause_values``."""
+    return any(
+        isinstance(outcome, ValueOutcome)
+        or (isinstance(outcome, DeathOutcome) and bool(outcome.cause_values))
+        for outcome in outcomes
+    )
 
 
 def _measure(
