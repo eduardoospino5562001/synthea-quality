@@ -93,7 +93,8 @@ def build_indexed_cohort(
 
     ``patients`` has the text columns ``Id``, ``BIRTHDATE``, ``DEATHDATE`` and ``GENDER``
     (see :data:`synthea_quality.prevalence.compute.PATIENT_COLUMNS`); an empty
-    ``GENDER`` becomes ``None``. The condition rows are selected with
+    ``GENDER`` becomes ``None``, and so does every patient when the table has no ``GENDER``
+    column. The condition rows are selected with
     :func:`synthea_quality.prevalence.compute.condition_rows`, the same match as the
     prevalence numerators.
     """
@@ -111,7 +112,7 @@ def build_indexed_cohort(
     people = patients.set_index("Id")
     births = parse_date_only(people["BIRTHDATE"]).values
     deaths = parse_date_only(people["DEATHDATE"]).values
-    sexes = people["GENDER"]
+    sexes = people["GENDER"] if "GENDER" in people.columns else pd.Series(None, index=people.index)
 
     rows = []
     for patient in sorted(first_start.index):

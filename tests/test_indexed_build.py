@@ -219,3 +219,23 @@ def test_b9_without_a_reference_date_the_json_writes_no_date(tmp_path):
     data = report.to_dict()["indexed_cohort"]
     assert data["reference_date"] is None
     assert data["status"] == "SKIPPED"
+
+
+def test_b10_a_patients_table_without_gender_gives_an_unknown_sex(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "patients",
+        [
+            {"Id": "p1", "BIRTHDATE": "1950-01-01"},
+            {"Id": "p2", "BIRTHDATE": "1990-06-01"},
+            {"Id": "p3", "BIRTHDATE": "2000-01-01"},
+        ],
+        columns=("Id", "BIRTHDATE", "DEATHDATE"),
+    )
+    report = validate(
+        directory, write_module(tmp_path, [HOSPITAL_ADMISSION]), reference_date="2026-01-01"
+    )
+    outcome = report.to_dict()["indexed_cohort"]["outcomes"][0]
+    assert [cell["label"] for cell in outcome["breakdown"]["by_sex"]] == ["unknown sex"]
+    assert outcome["breakdown"]["total"]["denominator"] == 3
