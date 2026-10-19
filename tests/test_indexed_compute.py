@@ -732,3 +732,21 @@ def test_d9_the_death_breakdown_is_by_sex_and_age_at_the_index_date():
         ("18-64", 0, 0),
         ("65+", 1, 1),
     ]
+
+
+def test_d10_a_death_whose_cause_rows_are_all_empty_has_no_cause_record():
+    people = patients(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
+    )
+    cohort = run(people, conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}))
+    result = measure_death(
+        cohort,
+        people,
+        observations(
+            {"PATIENT": "a1", "CODE": "69453-9", "DATE": "2020-06-05T10:00:00Z", "VALUE": ""}
+        ),
+        death_outcome((BREAST,)),
+        REF,
+        BANDS,
+    )
+    assert (result.with_cause, result.other_cause, result.no_cause_record) == (0, 0, 1)

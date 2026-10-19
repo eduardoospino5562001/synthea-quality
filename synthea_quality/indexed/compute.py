@@ -360,8 +360,10 @@ def _cause_counts(
 ) -> tuple[int | None, int | None, int | None]:
     """(with_cause, other_cause, no_cause_record) of the deceased ``dead``.
 
-    All three are ``None`` without ``cause_values`` or without an observations table:
-    the outcome then measures deaths only.
+    A patient has a cause only with a ``69453-9`` row whose ``VALUE`` is not empty, so
+    ``no_cause_record`` counts the deceased without such a row. All three are ``None``
+    without ``cause_values`` or without an observations table: the outcome then measures
+    deaths only.
     """
     if not cause_values or observations is None:
         return None, None, None
@@ -370,8 +372,9 @@ def _cause_counts(
         & (observations["CODE"] == CAUSE_OF_DEATH_CODE)
     ]
     by_patient = {
-        patient: {str(value) for value in values if pd.notna(value)}
+        patient: causes
         for patient, values in recorded.groupby("PATIENT")["VALUE"]
+        if (causes := {str(value) for value in values if pd.notna(value) and str(value).strip()})
     }
     wanted = set(cause_values)
     with_cause = sum(1 for values in by_patient.values() if values & wanted)
