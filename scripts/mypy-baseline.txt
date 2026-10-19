@@ -19,7 +19,6 @@ synthea_quality/condition_cohort.py: error: Incompatible types in assignment (ex
 synthea_quality/incidence/compute.py: error: Argument 1 to "append" of "list" has incompatible type "None"; expected "str"  [arg-type]
 synthea_quality/incidence/compute.py: error: Argument 2 to "ExpectedComparison" has incompatible type "IncidenceRate"; expected "Rate"  [arg-type]
 synthea_quality/medications/render.py: error: Argument 1 to "append" of "list" has incompatible type "tuple[str, str, str, int, str, str, str, str]"; expected "tuple[str, str, str, str, str, str, str, str]"  [arg-type]
-synthea_quality/observations/compute.py: error: Incompatible types in assignment (expression has type "None", variable has type "float")  [assignment]
 synthea_quality/observations/render.py: error: Argument 1 to "append" of "list" has incompatible type "tuple[int, str, str, str, int, str, str, str]"; expected "tuple[str, str, str]"  [arg-type]
 synthea_quality/prevalence/cli.py: error: Item "None" of "Rate | None" has no attribute "denominator"  [union-attr]
 synthea_quality/prevalence/cli.py: error: Item "None" of "Rate | None" has no attribute "denominator"  [union-attr]

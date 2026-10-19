@@ -187,6 +187,11 @@ def summarise(values: pd.Series) -> ValueSummary:
     if values.empty:
         return ValueSummary(0)
     quantiles = values.quantile([p / 100 for p in PERCENTILES]).tolist()
+    p5: float | None
+    p25: float | None
+    median: float
+    p75: float | None
+    p95: float | None
     p5, p25, median, p75, p95 = (float(q) for q in quantiles)
     if len(values) < MIN_PATIENTS_FOR_PERCENTILES:
         p5 = p25 = p75 = p95 = None
