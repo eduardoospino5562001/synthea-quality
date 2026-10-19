@@ -89,6 +89,8 @@ def build_indexed_cohort(
 ) -> IndexedCohort:
     """The patients of ``definition`` with their index date, sex, age band and death date.
 
+    A birth missing or after the index date gives the unknown age band.
+
     ``patients`` has the text columns ``Id``, ``BIRTHDATE``, ``DEATHDATE`` and ``GENDER``
     (see :data:`synthea_quality.prevalence.compute.PATIENT_COLUMNS`); an empty
     ``GENDER`` becomes ``None``. The condition rows are selected with
@@ -119,7 +121,7 @@ def build_indexed_cohort(
             band = UNKNOWN_AGE
         else:
             age = age_on(birth.date(), index_date.date())
-            band = labels[band_of(age, bounds)]
+            band = UNKNOWN_AGE if age < 0 else labels[band_of(age, bounds)]
         sex = sexes.loc[patient]
         rows.append(
             {

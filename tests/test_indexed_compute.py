@@ -153,6 +153,14 @@ def test_t10_an_empty_birthdate_has_an_unknown_age_band():
     assert cohort.frame.loc["a1", "AGE_BAND"] == UNKNOWN_AGE
 
 
+def test_t13_a_birth_after_the_index_date_has_an_unknown_age_band():
+    cohort = run(
+        patients({"Id": "a1", "BIRTHDATE": "2021-01-01", "GENDER": "M"}),
+        conditions({"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"}),
+    )
+    assert cohort.frame.loc["a1", "AGE_BAND"] == UNKNOWN_AGE
+
+
 def test_t11_no_record_of_the_condition_gives_an_empty_cohort():
     cohort = run(
         patients({"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"}),
