@@ -956,8 +956,9 @@ two rows of the same day counts once instead of twice:
   the number of patients with several values is counted after the grouping.
 - The label `no value` is reserved: it is the stratum of the patients without a value.
 - The file is rejected when `groups` is not an object or is empty, when a label is empty,
-  when a list is empty or holds an empty text, when a text is repeated inside a group or
-  belongs to two groups.
+  repeats another label once trimmed or is a text of another group (a label that is a
+  text of its own group is allowed), when a list is empty or holds an empty text, when a
+  text is repeated inside a group or belongs to two groups.
 
 ### Crossing one outcome with another
 
@@ -967,6 +968,9 @@ two rows of the same day counts once instead of twice:
   strata to give.
 - A `value` Y gives one stratum per value, in the order of the table of values, and a last
   one for the patients of the cohort without a value.
+- A `value` Y with a value whose text is exactly `no value` gives no crossing: that text
+  is already the label of the patients without a value, so the crossing is left out with
+  its reason. Put the text in a group with another label to count it.
 - An `event` Y gives two strata: with the event and without it.
 - The denominator of a stratum is the cohort of the stratum and the numerator the patients
   of X inside it, with its 95% CI. A patient with several values of Y counts in each of
@@ -1015,8 +1019,8 @@ crossing more than one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1095 unit and component tests, about 20 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 69 end-to-end tests that run the commands as a user would, about 90 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1102 unit and component tests, about 20 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 73 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
