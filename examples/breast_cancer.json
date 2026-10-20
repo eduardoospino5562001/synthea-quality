@@ -1,0 +1,13 @@
+{
+  "module": {
+    "name": "Breast cancer",
+    "synthea_modules": ["breast_cancer.json"],
+    "description": "Example module file with an indexed cohort: every patient diagnosed with breast cancer (254837009), alive or deceased. The stage group is the first observation 21908-9 from the diagnosis; a patient with two stage rows on that date counts under both. A death counts as caused by breast cancer when the cause of death observation (69453-9) has that text."
+  },
+  "conditions": [{"name": "Breast cancer", "codes": ["254837009"]}],
+  "index": {"condition": "Breast cancer"},
+  "outcomes": [
+    {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"},
+    {"name": "Death", "type": "death", "cause_values": ["Malignant neoplasm of breast (disorder)"]}
+  ]
+}

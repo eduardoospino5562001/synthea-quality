@@ -376,6 +376,33 @@ def patients_with(
     return pd.Index(rows["PATIENT"].unique())
 
 
+def code_mask(frame: pd.DataFrame, ref: CodeRef, has_system: bool) -> pd.Series:
+    """Rows of ``frame`` with ``ref``'s code, and its system when the table has one.
+
+    ``frame["SYSTEM"]`` must already be normalised (see :func:`_normalised_systems`).
+    """
+    this = frame["CODE"] == ref.code
+    if ref.system is not None and has_system:
+        this &= frame["SYSTEM"] == ref.system
+    return this
+
+
+def condition_rows(conditions: pd.DataFrame, definition: ConditionDefinition) -> pd.Series:
+    """Rows of ``conditions`` with any code of ``definition``, any patient and any date.
+
+    The same match as the prevalence numerators, so an index condition selects exactly
+    the records its prevalence would count.
+    """
+    has_system = "SYSTEM" in conditions.columns
+    frame = pd.DataFrame(
+        {"CODE": conditions["CODE"], "SYSTEM": _normalised_systems(conditions, has_system)}
+    )
+    match = pd.Series(False, index=conditions.index)
+    for ref in definition.codes:
+        match |= code_mask(frame, ref, has_system)
+    return match
+
+
 def _match(
     definition: ConditionDefinition, records: Records
 ) -> tuple[pd.Series, dict[str, int], list[str]]:
@@ -384,9 +411,7 @@ def _match(
     match = pd.Series(False, index=frame.index)
     per_code: dict[str, int] = {}
     for ref in definition.codes:
-        this = frame["CODE"] == ref.code
-        if ref.system is not None and records.has_system:
-            this &= frame["SYSTEM"] == ref.system
+        this = code_mask(frame, ref, records.has_system)
         match |= this
         per_code[_label(ref.system, ref.code)] = int(this.sum())
     absent = missing_codes(definition.codes, records.table_codes, records.has_system)

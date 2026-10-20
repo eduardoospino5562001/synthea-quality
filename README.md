@@ -105,7 +105,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.9.3
+synthea-quality 0.10.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -257,7 +257,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.9.3",
+    "tool_version": "0.10.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -456,7 +456,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.9.3)
+synthea-profile (synthea-quality 0.10.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -883,12 +883,81 @@ and the records without `STOP` with the `csv` module and `datetime` only, and ch
 the cohort is, key for key, the numerator `synthea-prevalence` reports for hypertension
 with the same file.
 
+## Indexed cohort
+
+An indexed cohort follows every patient with a condition from the patient's first record of
+that condition and measures what happens to them afterwards; it is declared in the same
+module file as the conditions, the observations and the medications.
+
+```json
+{
+  "conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+  "index": {"condition": "COVID-19"},
+  "outcomes": [
+    {"name": "Hospital admission", "type": "event", "table": "encounters", "codes": ["1505002"]},
+    {"name": "ICU admission", "type": "event", "table": "encounters", "codes": ["305351004"]},
+    {"name": "Ventilated", "type": "event", "table": "devices", "codes": ["449071006"]},
+    {"name": "Death", "type": "death"}
+  ]
+}
+```
+
+- `index.condition` names a condition of the same file.
+- Each outcome has a `name`, unique in the file, and a `type`:
+  - `event`: `table` is one of `conditions`, `encounters`, `procedures`, `medications`,
+    `careplans`, `devices`, `immunizations` and `observations`; `codes` is a non-empty list
+    of codes of that table.
+  - `value`: `code` is a code of `observations.csv`; `pick` is `first` (the default) or
+    `last`.
+  - `death`: optional `cause_values`, a list of exact texts of the `VALUE` of observation
+    `69453-9`. In the CSV that column holds the description, not the code.
+- `window` is optional, per outcome: `{"from_days": 0, "to_days": null}`, in days from the
+  index date. The default is day 0 with no end.
+
+The decisions the section takes:
+
+- The cohort holds alive and deceased patients, each counted once however many records
+  they have.
+- A patient's index date is the earliest `START` of the index condition on or before the
+  reference date.
+- Age is completed years at the index date, not at the reference date.
+- A `value` outcome takes each patient's earliest (`first`) or latest (`last`) date with a
+  non-empty `VALUE` in the window; a patient with several values on that date counts under
+  each of them.
+- Records of the index condition after the reference date, with an unusable `START` or of a
+  patient absent from `patients.csv` are left out and counted in the report; so are, per
+  outcome, the records after the reference date, with an unusable date or outside the
+  window.
+- A missing table leaves only its outcome `SKIPPED`, with the reason; so does an
+  `observations.csv` without `VALUE` for a `value` outcome or a `death` with
+  `cause_values`. The other outcomes are still measured.
+- Without `index`, the report is the same as before.
+
+### Example (official sample)
+
+`examples/covid19.json` on the official sample with the reference date 2026-08-17: 4
+patients (2 F, 2 M), one of them admitted to hospital on the index date.
+
+| Outcome | Type | Window | Patients (95% CI) |
+| --- | --- | --- | ---: |
+| Hospital admission | event | day 0 onward | 1 (25.00%; 4.56–69.94%) |
+| ICU admission | event | day 0 onward | 0 (0.00%; 0.00–48.99%) |
+| Ventilated | event | day 0 onward | 0 (0.00%; 0.00–48.99%) |
+| Death | death | day 0 onward | 0 (0.00%; 0.00–48.99%) |
+
+The integration suite recounts the cohort and every outcome with the `csv` module only.
+
+### Not covered yet
+
+Composite outcomes, windows anchored to another outcome, second episodes, daily series,
+crossing one outcome with another, and survival estimates (Kaplan-Meier).
+
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 805 unit and component tests, about 15 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 57 end-to-end tests that run the commands as a user would, about 70 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1031 unit and component tests, about 20 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 69 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:

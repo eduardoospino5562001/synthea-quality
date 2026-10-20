@@ -1,0 +1,15 @@
+{
+  "module": {
+    "name": "COVID-19",
+    "synthea_modules": ["covid19/infection.json", "covid19/admission.json"],
+    "description": "Example module file with an indexed cohort: every patient diagnosed with COVID-19 (840539006), alive or deceased, followed from the first diagnosis. The outcomes are the four of the outcome table of the COVID-19 notebook of module-validation. Ventilation is the device 449071006 that the current module writes."
+  },
+  "conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+  "index": {"condition": "COVID-19"},
+  "outcomes": [
+    {"name": "Hospital admission", "type": "event", "table": "encounters", "codes": ["1505002"]},
+    {"name": "ICU admission", "type": "event", "table": "encounters", "codes": ["305351004"]},
+    {"name": "Ventilated", "type": "event", "table": "devices", "codes": ["449071006"]},
+    {"name": "Death", "type": "death"}
+  ]
+}
