@@ -267,3 +267,28 @@ def test_b12_an_event_on_observations_needs_no_value_column(tmp_path):
     outcome = report.to_dict()["indexed_cohort"]["outcomes"][0]
     assert outcome["status"] == "COMPUTED"
     assert outcome["breakdown"]["total"]["numerator"] == 1
+
+
+def test_b13_a_table_not_read_states_its_use(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "observations",
+        [{"DATE": "2023-02-01T00:00:00Z", "PATIENT": "p1", "CODE": "21908-9"}],
+        columns=("DATE", "PATIENT", "CODE"),
+    )
+    stage = {"name": "Stage recorded", "type": "event", "table": "observations", "codes": ["21908-9"]}
+    module_path = write_module(tmp_path, [stage])
+    data = json.loads(module_path.read_text(encoding="utf-8"))
+    data["observations"] = [{"code": "8480-6"}]
+    module_path.write_text(json.dumps(data), encoding="utf-8")
+    report = validate(
+        directory, module_path, reference_date="2026-01-01",
+        observations=load_module(module_path).observations,
+    )
+    text = render_markdown(report)
+    assert (
+        "- `observations`: **absent** for observation values — "
+        "observations.csv has no VALUE column(s)"
+    ) in text
+    assert "- `observations`: 1 rows, for indexed cohort outcomes" in text

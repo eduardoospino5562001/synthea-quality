@@ -107,7 +107,9 @@ def _scope(report: ModuleValidationReport) -> str:
         if item.state is InputState.READ:
             lines.append(f"  - `{item.table}`: {item.rows} rows, for {item.used_for}")
         else:
-            lines.append(f"  - `{item.table}`: **{item.state.value}** — {item.reason}")
+            lines.append(
+                f"  - `{item.table}`: **{item.state.value}** for {item.used_for} — {item.reason}"
+            )
     if report.incomplete:
         lines += ["", "**This report is incomplete:** a table it needs could not be read."]
     return "\n".join(lines)
