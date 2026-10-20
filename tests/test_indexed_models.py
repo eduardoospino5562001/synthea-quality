@@ -9,6 +9,8 @@ import pytest
 from synthea_quality.indexed.definitions import Window
 from synthea_quality.indexed.models import (
     Breakdown,
+    CrossResult,
+    CrossStratum,
     DeathResult,
     EventResult,
     IndexedCohortResult,
@@ -151,3 +153,76 @@ def test_m8_the_whole_result_is_serialisable():
     )
     text = json.dumps(result.to_dict())
     assert json.loads(text)["index_condition"] == "COVID-19"
+
+
+def test_m9_a_cross_stratum_reuses_the_rate_and_its_interval():
+    cell = CrossStratum("Stage 1", 1, 4, 2).to_dict()
+    rate = Rate(1, 4).to_dict()
+    assert cell["label"] == "Stage 1"
+    assert cell["numerator"] == 1
+    assert cell["denominator"] == 4
+    assert cell["rate"] == 0.25
+    assert cell["ci95_low"] == rate["ci95_low"]
+    assert cell["ci95_high"] == rate["ci95_high"]
+    assert cell["with_cause"] == 2
+
+
+def test_m10_a_cross_stratum_without_a_cause_keeps_the_key_with_none():
+    cell = CrossStratum("no value", 0, 3, None).to_dict()
+    assert cell["with_cause"] is None
+    assert cell["rate"] == 0.0
+
+
+def test_m11_a_computed_cross_lists_its_strata_and_its_status():
+    result = CrossResult(
+        outcome="Death",
+        by="Stage group",
+        by_type="value",
+        strata=(CrossStratum("Stage 1", 1, 4, 2),),
+        patients_in_several_strata=0,
+    )
+    data = result.to_dict()
+    assert data["outcome"] == "Death"
+    assert data["by"] == "Stage group"
+    assert data["by_type"] == "value"
+    assert data["status"] == SectionStatus.COMPUTED.value
+    assert data["strata"] == [
+        {
+            "label": "Stage 1",
+            "numerator": 1,
+            "denominator": 4,
+            "rate": 0.25,
+            "ci95_low": CrossStratum("Stage 1", 1, 4, 2).to_dict()["ci95_low"],
+            "ci95_high": CrossStratum("Stage 1", 1, 4, 2).to_dict()["ci95_high"],
+            "with_cause": 2,
+        }
+    ]
+    assert data["patients_in_several_strata"] == 0
+    assert data["reason"] is None
+
+
+def test_m12_a_skipped_cross_has_no_strata_and_its_reason():
+    result = CrossResult(
+        outcome="Death",
+        by="Stage group",
+        by_type="value",
+        strata=(),
+        patients_in_several_strata=0,
+        reason="outcome 'Stage group' was not computed: observations.csv is missing",
+    )
+    data = result.to_dict()
+    assert data["status"] == SectionStatus.SKIPPED.value
+    assert data["strata"] == []
+    assert data["reason"] == "outcome 'Stage group' was not computed: observations.csv is missing"
+
+
+def test_m13_a_cross_is_serialisable():
+    result = CrossResult(
+        outcome="Death",
+        by="Stage group",
+        by_type="value",
+        strata=(CrossStratum("Stage 1", 1, 4, 2),),
+        patients_in_several_strata=1,
+    )
+    text = json.dumps(result.to_dict())
+    assert json.loads(text)["strata"][0]["label"] == "Stage 1"
