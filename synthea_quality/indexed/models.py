@@ -1,4 +1,11 @@
-"""[INDEXED] Results of the indexed cohort: counts of distinct patients, never rows."""
+"""[INDEXED] Results of the indexed cohort: counts of distinct patients, never rows.
+
+A cross of two outcomes (:class:`CrossResult`) is an intersection of patients, so its
+numerator can never be larger than its denominator: the denominator is the cohort of
+the stratum and the numerator the patients of the crossed outcome inside it. A cross
+that could not be computed is ``SKIPPED`` with its reason, like every other result of
+the tool; it never shows a made-up number.
+"""
 
 from __future__ import annotations
 
@@ -212,6 +219,73 @@ class DeathResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CrossStratum:
+    """One cell of a cross: the patients of the outcome inside a stratum of the other.
+
+    Both counts are distinct patients: the denominator is the cohort of the stratum and
+    the numerator the patients of the crossed outcome inside it. ``with_cause`` counts
+    the deaths with the recorded cause of the crossed outcome, and is ``None`` when the
+    crossed outcome is not a death with a cause.
+    """
+
+    #: The label of the stratum: a value of the crossed outcome, ``"no value"`` or
+    #: ``"with <outcome>"`` and ``"without <outcome>"`` for an event.
+    label: str
+    #: Distinct patients of the stratum with the crossed outcome.
+    numerator: int
+    #: Distinct patients of the cohort in the stratum.
+    denominator: int
+    #: Deaths with the cause, when the crossed outcome is a death with a cause.
+    with_cause: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The cell as JSON: its label, the rate with its interval and the cause."""
+        return {
+            "label": self.label,
+            **Rate(self.numerator, self.denominator).to_dict(),
+            "with_cause": self.with_cause,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CrossResult:
+    """One crossing of the ``by`` list: an outcome measured in the strata of another.
+
+    ``by_type`` is the kind of the outcome that gives the strata: ``"value"`` gives one
+    stratum per value (and a last one for the patients without a value) and ``"event"``
+    gives two, with and without the event. The strata are in the order of the values of
+    the crossed outcome, and a patient with more than one value counts in each of them:
+    ``patients_in_several_strata`` says how many do.
+    """
+
+    #: Name of the outcome that is measured.
+    outcome: str
+    #: Name of the outcome that gives the strata.
+    by: str
+    #: "value" or "event": the kind of the outcome that gives the strata.
+    by_type: str
+    #: The strata of the cross, in their stable order.
+    strata: tuple[CrossStratum, ...]
+    #: Patients under more than one stratum of the crossed outcome.
+    patients_in_several_strata: int
+    #: Why the cross could not be computed; ``None`` when it could.
+    reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The cross as JSON: its strata and, when it was skipped, its reason."""
+        status = SectionStatus.SKIPPED if self.reason is not None else SectionStatus.COMPUTED
+        return {
+            "outcome": self.outcome,
+            "by": self.by,
+            "by_type": self.by_type,
+            "status": status.value,
+            "strata": [stratum.to_dict() for stratum in self.strata],
+            "patients_in_several_strata": self.patients_in_several_strata,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SkippedOutcome:
     """An outcome that could not be measured, such as one whose table is missing.
 
@@ -245,7 +319,8 @@ class IndexedCohortResult:
 
     All patient counts are distinct patients, alive or deceased. The ``rows_*`` counts
     are records of the index condition, not patients: they say what was left out on the
-    way to the cohort.
+    way to the cohort. The ``crosses`` measure an outcome inside the strata of another
+    one, as the module file's ``by`` list asks.
     """
 
     #: Name of the condition whose earliest ``START`` is a patient's index date.
@@ -265,9 +340,11 @@ class IndexedCohortResult:
     outcomes: tuple[EventResult | ValueResult | DeathResult | SkippedOutcome, ...]
     #: Why the whole cohort could not be built; ``None`` when it was.
     reason: str | None = None
+    #: The crossings of the module file's ``by`` list, in the order of that list.
+    crosses: tuple[CrossResult, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        """The cohort and every outcome as JSON, in the order the module file gives."""
+        """The cohort, every outcome and every crossing as JSON, in the file's order."""
         status = SectionStatus.SKIPPED if self.reason is not None else SectionStatus.COMPUTED
         return {
             "index_condition": self.index_condition,
@@ -278,6 +355,7 @@ class IndexedCohortResult:
             "rows_start_unusable": self.rows_start_unusable,
             "rows_after_reference": self.rows_after_reference,
             "outcomes": [outcome.to_dict() for outcome in self.outcomes],
+            "crosses": [cross.to_dict() for cross in self.crosses],
             "status": status.value,
             "reason": self.reason,
         }

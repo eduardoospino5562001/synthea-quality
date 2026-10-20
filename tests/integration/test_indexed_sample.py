@@ -10,6 +10,7 @@ or pointed at with ``SYNTHEA_QUALITY_SAMPLE``; without it these tests skip.
 from __future__ import annotations
 
 import csv
+import json
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
@@ -38,6 +39,10 @@ COVID_EVENTS = {
     "ICU admission": ("encounters", {"305351004"}),
     "Ventilated": ("devices", {"449071006"}),
 }
+#: The observation whose VALUE holds the cause of death.
+CAUSE_OF_DEATH_CODE = "69453-9"
+#: The cause the breast cancer example counts.
+BREAST_CANCER_CAUSE = "Malignant neoplasm of breast (disorder)"
 
 
 def _rows(path: Path) -> Iterable[dict[str, str]]:
@@ -72,10 +77,10 @@ def _index_dates(sample: Path, code: str) -> dict[str, date]:
     return earliest
 
 
-def _event_patients(
+def _event_members(
     sample: Path, table: str, codes: set[str], index_dates: dict[str, date]
-) -> int:
-    """Distinct cohort patients with a row of ``codes`` between their index and the reference."""
+) -> set[str]:
+    """The cohort patients with a row of ``codes`` between their index and the reference."""
     reference = date.fromisoformat(REFERENCE_DATE)
     column = DATE_COLUMNS.get(table, "START")
     patients = set()
@@ -88,11 +93,18 @@ def _event_patients(
         recorded = _day(row[column])
         if recorded is not None and index <= recorded <= reference:
             patients.add(row["PATIENT"])
-    return len(patients)
+    return patients
 
 
-def _death_patients(sample: Path, index_dates: dict[str, date]) -> int:
-    """Distinct cohort patients whose ``DEATHDATE`` is between their index and the reference."""
+def _event_patients(
+    sample: Path, table: str, codes: set[str], index_dates: dict[str, date]
+) -> int:
+    """Distinct cohort patients with a row of ``codes`` between their index and the reference."""
+    return len(_event_members(sample, table, codes, index_dates))
+
+
+def _death_members(sample: Path, index_dates: dict[str, date]) -> set[str]:
+    """The cohort patients whose ``DEATHDATE`` is between their index and the reference."""
     reference = date.fromisoformat(REFERENCE_DATE)
     patients = set()
     for row in _rows(sample / "patients.csv"):
@@ -102,7 +114,86 @@ def _death_patients(sample: Path, index_dates: dict[str, date]) -> int:
         death = _day(row["DEATHDATE"])
         if death is not None and index <= death <= reference:
             patients.add(row["Id"])
-    return len(patients)
+    return patients
+
+
+def _death_patients(sample: Path, index_dates: dict[str, date]) -> int:
+    """Distinct cohort patients whose ``DEATHDATE`` is between their index and the reference."""
+    return len(_death_members(sample, index_dates))
+
+
+def _value_labels(
+    sample: Path, code: str, index_dates: dict[str, date], groups: dict[str, str]
+) -> dict[str, frozenset[str]]:
+    """Each patient's labels of ``code`` on their first date with a value.
+
+    The groups are applied first, so a patient with two rows of the same group on that
+    date has one label; a text outside every group keeps its own text.
+    """
+    reference = date.fromisoformat(REFERENCE_DATE)
+    by_patient: dict[str, dict[date, set[str]]] = {}
+    for row in _rows(sample / "observations.csv"):
+        if row["CODE"] != code:
+            continue
+        index = index_dates.get(row["PATIENT"])
+        if index is None:
+            continue
+        recorded = _day(row["DATE"])
+        if recorded is None or not index <= recorded <= reference:
+            continue
+        value = row["VALUE"]
+        if not value:
+            continue
+        by_patient.setdefault(row["PATIENT"], {}).setdefault(recorded, set()).add(value)
+    return {
+        patient: frozenset(groups.get(text, text) for text in by_day[min(by_day)])
+        for patient, by_day in by_patient.items()
+    }
+
+
+def _value_strata(
+    labels: dict[str, frozenset[str]], cohort: set[str]
+) -> dict[str, set[str]]:
+    """The strata of a value outcome: each label and the patients under it.
+
+    The last stratum, ``no value``, holds the patients of the cohort without a value.
+    """
+    strata: dict[str, set[str]] = {}
+    for patient, patient_labels in labels.items():
+        for label in patient_labels:
+            strata.setdefault(label, set()).add(patient)
+    valued: set[str] = set()
+    for members in strata.values():
+        valued |= members
+    strata["no value"] = set(cohort) - valued
+    return strata
+
+
+def _cause_members(
+    sample: Path, deaths: set[str], cause_values: set[str]
+) -> set[str]:
+    """The deceased patients whose cause of death observation names one of the causes."""
+    patients = set()
+    for row in _rows(sample / "observations.csv"):
+        if row["CODE"] != CAUSE_OF_DEATH_CODE or row["PATIENT"] not in deaths:
+            continue
+        if row["VALUE"] in cause_values:
+            patients.add(row["PATIENT"])
+    return patients
+
+
+def _stage_groups(module_path: Path) -> dict[str, str]:
+    """Each ``VALUE`` text of the example's stage groups under its label.
+
+    The groups are input data of the example, read from the file and not from the code
+    under test, so the recount below does not share any logic with the tool.
+    """
+    with module_path.open(encoding="utf-8") as handle:
+        module = json.load(handle)
+    groups = next(
+        outcome["groups"] for outcome in module["outcomes"] if outcome["name"] == "Stage group"
+    )
+    return {text: label for label, texts in groups.items() for text in texts}
 
 
 def _validate(sample: Path, module_path: Path) -> dict:
@@ -115,6 +206,7 @@ def _validate(sample: Path, module_path: Path) -> dict:
         module_file=module_path,
         index=loaded.index,
         outcomes=loaded.outcomes,
+        crosses=loaded.crosses,
         reference_date=REFERENCE_DATE,
     )
     return report.to_dict()
@@ -124,6 +216,19 @@ def _outcome(report: dict, name: str) -> dict:
     """The outcome of the indexed cohort named ``name``."""
     outcomes = report["indexed_cohort"]["outcomes"]
     return next(outcome for outcome in outcomes if outcome["name"] == name)
+
+
+def _cross(report: dict, outcome: str, by: str) -> dict:
+    """The crossing of ``outcome`` by ``by`` in the report."""
+    crosses = report["indexed_cohort"]["crosses"]
+    return next(
+        cross for cross in crosses if cross["outcome"] == outcome and cross["by"] == by
+    )
+
+
+def _stratum(cross: dict, label: str) -> dict:
+    """The cell of ``label`` in the crossing."""
+    return next(stratum for stratum in cross["strata"] if stratum["label"] == label)
 
 
 @pytest.fixture(scope="module")
@@ -187,3 +292,65 @@ def test_i6_only_a_module_with_an_index_writes_the_key(sample, covid):
     myocardial = _validate(sample, MYOCARDIAL_INFARCTION)
     assert "indexed_cohort" in covid
     assert "indexed_cohort" not in myocardial
+
+
+def test_i7_the_patient_with_two_stage_rows_counts_once_in_its_group(sample, breast):
+    groups = _stage_groups(BREAST_CANCER)
+    assert groups["American Joint Committee on Cancer stage IIA (qualifier value)"] == "Stage 2"
+    assert groups["Stage 2 (qualifier value)"] == "Stage 2"
+    index_dates = _index_dates(sample, BREAST_CANCER_CODE)
+    labels = _value_labels(sample, STAGE_CODE, index_dates, groups)
+    assert len(labels) == 1
+    assert set(next(iter(labels.values()))) == {"Stage 2"}
+    values = _outcome(breast, "Stage group")["values"]
+    assert [(share["value"], share["patients"]) for share in values] == [("Stage 2", 1)]
+
+
+def test_i8_the_stage_cross_is_the_independent_recount(sample, breast):
+    index_dates = _index_dates(sample, BREAST_CANCER_CODE)
+    labels = _value_labels(sample, STAGE_CODE, index_dates, _stage_groups(BREAST_CANCER))
+    strata = _value_strata(labels, set(index_dates))
+    deaths = _death_members(sample, index_dates)
+    with_cause = _cause_members(sample, deaths, {BREAST_CANCER_CAUSE})
+    cross = _cross(breast, "Death", "Stage group")
+    measured = {
+        stratum["label"]: (stratum["numerator"], stratum["denominator"])
+        for stratum in cross["strata"]
+    }
+    recount = {
+        label: (len(members & deaths), len(members)) for label, members in strata.items()
+    }
+    assert measured == recount
+    assert measured == {"Stage 2": (0, 1), "no value": (0, 0)}
+    assert cross["patients_in_several_strata"] == 0
+    causes = {stratum["label"]: stratum["with_cause"] for stratum in cross["strata"]}
+    assert causes == {label: len(members & with_cause) for label, members in strata.items()}
+
+
+def test_i9_the_covid_cross_is_the_independent_recount(sample, covid):
+    index_dates = _index_dates(sample, COVID_CODE)
+    icu = _event_members(sample, "encounters", {"305351004"}, index_dates)
+    deaths = _death_members(sample, index_dates)
+    strata = {
+        "with ICU admission": icu,
+        "without ICU admission": set(index_dates) - icu,
+    }
+    cross = _cross(covid, "Death", "ICU admission")
+    measured = {
+        stratum["label"]: (stratum["numerator"], stratum["denominator"])
+        for stratum in cross["strata"]
+    }
+    recount = {
+        label: (len(members & deaths), len(members)) for label, members in strata.items()
+    }
+    assert measured == recount
+    assert measured == {"with ICU admission": (0, 0), "without ICU admission": (0, 4)}
+    assert cross["patients_in_several_strata"] == 0
+
+
+def test_i10_the_denominators_of_a_cross_add_up_to_the_cohort(sample, covid, breast):
+    for report in (covid, breast):
+        cross = report["indexed_cohort"]["crosses"][0]
+        assert cross["patients_in_several_strata"] == 0
+        denominators = sum(stratum["denominator"] for stratum in cross["strata"])
+        assert denominators == report["indexed_cohort"]["patients"]

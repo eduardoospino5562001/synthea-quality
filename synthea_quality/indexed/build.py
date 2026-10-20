@@ -12,6 +12,11 @@ out ``SKIPPED`` with the table and the reason, and the other outcomes are still 
 (RULES §2.2). When the cohort itself cannot be built (no reference date, no patients, no
 condition records), every outcome is ``SKIPPED`` with that reason and the cohort's
 ``reason`` says why.
+
+The crossings of the module file's ``by`` list come after the outcomes: a crossing needs
+the patients of both of its outcomes, so it is measured from the same tables the
+outcomes were measured from and never reads a table of its own. A crossing whose
+outcome could not be measured is ``SKIPPED`` with that reason, like the outcome itself.
 """
 
 from __future__ import annotations
@@ -25,12 +30,19 @@ from synthea_quality.dataset import DatasetContext
 from synthea_quality.indexed.compute import (
     DATE_COLUMNS,
     IndexedCohort,
+    OutcomeMembers,
     build_indexed_cohort,
+    death_members,
+    event_members,
+    measure_cross,
     measure_death,
     measure_event,
     measure_value,
+    skipped_cross,
+    value_members,
 )
 from synthea_quality.indexed.definitions import (
+    CrossSpec,
     DeathOutcome,
     EventOutcome,
     IndexSpec,
@@ -38,6 +50,7 @@ from synthea_quality.indexed.definitions import (
     ValueOutcome,
 )
 from synthea_quality.indexed.models import (
+    CrossResult,
     DeathResult,
     EventResult,
     IndexedCohortResult,
@@ -78,12 +91,19 @@ def indexed_tables(outcomes: Sequence[Outcome]) -> tuple[str, ...]:
 
 
 def skipped_indexed(
-    index: IndexSpec, outcomes: Sequence[Outcome], reference: str | None, reason: str
+    index: IndexSpec,
+    outcomes: Sequence[Outcome],
+    reference: str | None,
+    reason: str,
+    crosses: Sequence[CrossSpec] = (),
 ) -> IndexedCohortResult:
     """An indexed cohort that could not be built: no patients, every outcome skipped.
 
     ``reference`` is ``YYYY-MM-DD``, or ``None`` when the dataset gave no reference date.
+    Every crossing is skipped with the same reason: without a cohort there is nothing
+    to cross.
     """
+    by_name = _outcomes_by_name(outcomes)
     return IndexedCohortResult(
         index_condition=index.condition,
         reference_date=reference,
@@ -97,6 +117,12 @@ def skipped_indexed(
             for outcome in outcomes
         ),
         reason=reason,
+        crosses=tuple(
+            skipped_cross(
+                cross, _by_type(by_name[cross.by]), cross.outcome, reason
+            )
+            for cross in crosses
+        ),
     )
 
 
@@ -110,8 +136,9 @@ def indexed_cohort_result(
     reference: date,
     age_bands: Sequence[int],
     observations: pd.DataFrame | None = None,
+    crosses: Sequence[CrossSpec] = (),
 ) -> tuple[IndexedCohortResult, tuple[TableInput, ...]]:
-    """The indexed cohort of ``index`` and every outcome, with the tables it loaded.
+    """The indexed cohort of ``index``, every outcome and every crossing.
 
     ``observations`` is the frame the caller already read, if any: it is then used as is
     and not loaded a second time. The returned :class:`TableInput` are only the tables
@@ -119,6 +146,8 @@ def indexed_cohort_result(
 
     :raises StopIteration: ``definitions`` has no condition named ``index.condition``;
         the module file's loader rejects that case before this function runs.
+    :raises KeyError: a crossing names an outcome that ``outcomes`` does not have; the
+        module file's loader rejects that case before this function runs.
     """
     definition = next(d for d in definitions if d.name == index.condition)
     cohort = build_indexed_cohort(patients, conditions, definition, reference, age_bands)
@@ -149,9 +178,134 @@ def indexed_cohort_result(
             rows_start_unusable=cohort.rows_start_unusable,
             rows_after_reference=cohort.rows_after_reference,
             outcomes=measured,
+            crosses=_crosses(
+                cohort, crosses, outcomes, measured, frames, patients, reference
+            ),
         ),
         tuple(inputs),
     )
+
+
+def _crosses(
+    cohort: IndexedCohort,
+    crosses: Sequence[CrossSpec],
+    outcomes: Sequence[Outcome],
+    measured: Sequence[OutcomeResult],
+    frames: Mapping[str, pd.DataFrame | None],
+    patients: pd.DataFrame,
+    reference: date,
+) -> tuple[CrossResult, ...]:
+    """The crossings of the module file, in its order, with the outcomes' members.
+
+    A crossing whose outcome could not be measured is skipped with that reason, the
+    measured one first: the report says which outcome is missing, not only that
+    something is. The members of an outcome are computed once, however many crossings
+    use it, and from the tables its own measure used.
+    """
+    by_name = _outcomes_by_name(outcomes)
+    results = {outcome.name: outcome for outcome in measured}
+    members = _members(
+        cohort, crosses, by_name, results, frames, patients, reference
+    )
+    computed: list[CrossResult] = []
+    for cross in crosses:
+        by_type = _by_type(by_name[cross.by])
+        missing = _missing_outcome(cross, results)
+        if missing is not None:
+            name, reason = missing
+            computed.append(skipped_cross(cross, by_type, name, reason))
+            continue
+        computed.append(
+            measure_cross(
+                cohort,
+                cross,
+                members[cross.outcome],
+                members[cross.by],
+                by_type,
+            )
+        )
+    return tuple(computed)
+
+
+def _missing_outcome(
+    cross: CrossSpec, results: Mapping[str, OutcomeResult]
+) -> tuple[str, str] | None:
+    """The outcome of the crossing that could not be measured, with its reason.
+
+    The measured outcome comes first: the report names the outcome that is missing.
+    """
+    for name in (cross.outcome, cross.by):
+        result = results[name]
+        if isinstance(result, SkippedOutcome):
+            return name, result.reason
+    return None
+
+
+def _members(
+    cohort: IndexedCohort,
+    crosses: Sequence[CrossSpec],
+    by_name: Mapping[str, Outcome],
+    results: Mapping[str, OutcomeResult],
+    frames: Mapping[str, pd.DataFrame | None],
+    patients: pd.DataFrame,
+    reference: date,
+) -> dict[str, OutcomeMembers]:
+    """The patients of every outcome a crossing uses, computed once each.
+
+    An outcome that could not be measured has no members: its crossing is skipped
+    before this is asked for it.
+    """
+    members: dict[str, OutcomeMembers] = {}
+    for cross in crosses:
+        for name in (cross.outcome, cross.by):
+            if name in members or isinstance(results[name], SkippedOutcome):
+                continue
+            members[name] = _outcome_members(
+                by_name[name], cohort, frames, patients, reference
+            )
+    return members
+
+
+def _outcome_members(
+    outcome: Outcome,
+    cohort: IndexedCohort,
+    frames: Mapping[str, pd.DataFrame | None],
+    patients: pd.DataFrame,
+    reference: date,
+) -> OutcomeMembers:
+    """The patients of an outcome, from the tables its own measure read.
+
+    The tables are the ones already loaded for the outcomes: a crossing never reads a
+    table of its own, so the numbers of a crossing and of its outcome cannot disagree.
+    """
+    if isinstance(outcome, EventOutcome):
+        frame = frames[outcome.table]
+        assert frame is not None
+        return event_members(cohort, frame, outcome, reference)
+    if isinstance(outcome, ValueOutcome):
+        frame = frames[OBSERVATIONS]
+        assert frame is not None
+        return value_members(cohort, frame, outcome, reference)
+    observations = frames.get(OBSERVATIONS) if outcome.cause_values else None
+    return death_members(cohort, patients, observations, outcome, reference)
+
+
+def _outcomes_by_name(outcomes: Sequence[Outcome]) -> dict[str, Outcome]:
+    """Each outcome of the module file by its name."""
+    return {outcome.name: outcome for outcome in outcomes}
+
+
+def _by_type(by: Outcome) -> str:
+    """The kind of strata an outcome gives: one per value, or two for an event.
+
+    :raises ValueError: the outcome is a death, which cannot give strata; the module
+        file's loader rejects that case before this function runs.
+    """
+    if isinstance(by, ValueOutcome):
+        return "value"
+    if isinstance(by, EventOutcome):
+        return "event"
+    raise ValueError(f"outcome {by.name!r} is a death and cannot give the strata of a cross")
 
 
 def _load_table(context: DatasetContext, table: str) -> tuple[pd.DataFrame | None, TableInput]:

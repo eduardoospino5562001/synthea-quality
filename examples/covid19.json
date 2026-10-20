@@ -11,5 +11,6 @@
     {"name": "ICU admission", "type": "event", "table": "encounters", "codes": ["305351004"]},
     {"name": "Ventilated", "type": "event", "table": "devices", "codes": ["449071006"]},
     {"name": "Death", "type": "death"}
-  ]
+  ],
+  "by": [{"outcome": "Death", "by": "ICU admission"}]
 }
