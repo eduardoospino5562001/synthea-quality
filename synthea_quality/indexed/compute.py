@@ -25,6 +25,14 @@ the decisions the outcomes of :mod:`synthea_quality.indexed.definitions` rely on
    cohort when a patient has more than one value. A ``value`` outcome whose values hold
    the very text of ``NO_VALUE_LABEL`` gives no cross: that label already names the
    patients without a value, so the cross is left out with its reason.
+8. An event outcome can have several parts and filters. Every part is measured on its
+   own, and its records go through six steps in this order: the code, the filters of
+   the part, the end of the record, its date, the reference date and the window. A
+   record left out is counted in exactly one of them, and the date of a part is the
+   first record of the window. The parts then combine: with ``any`` the patient counts
+   with one part and reaches the outcome on the earliest of them; with ``all`` the
+   patient needs every part and reaches the outcome on the latest of them, the day the
+   last part is met.
 
 This module computes; it reads no file and renders nothing.
 """
@@ -43,6 +51,7 @@ from synthea_quality.indexed.definitions import (
     NO_VALUE_LABEL,
     CrossSpec,
     DeathOutcome,
+    EventMatch,
     EventOutcome,
     ValueOutcome,
     Window,
@@ -53,6 +62,7 @@ from synthea_quality.indexed.models import (
     CrossResult,
     CrossStratum,
     DeathResult,
+    EventMatchResult,
     EventResult,
     Stratum,
     ValueResult,
@@ -70,6 +80,8 @@ UNKNOWN_AGE = "unknown age"
 DATE_COLUMNS = {"observations": "DATE", "immunizations": "DATE"}
 #: Tables whose record date is a day (``YYYY-MM-DD``); the rest are UTC timestamps.
 DATE_ONLY_TABLES = ("conditions", "careplans")
+#: The column that holds the end of a record; a part can count on it.
+STOP_COLUMN = "STOP"
 #: The observation of the cause of death; its VALUE is the cause's description, not a code.
 CAUSE_OF_DEATH_CODE = "69453-9"
 
@@ -192,15 +204,23 @@ def build_indexed_cohort(
     )
 
 
-def record_days(cohort: IndexedCohort, table: pd.DataFrame, table_name: str) -> pd.Series:
+def record_days(
+    cohort: IndexedCohort,
+    table: pd.DataFrame,
+    table_name: str,
+    column: str | None = None,
+) -> pd.Series:
     """Days from each patient's index date to every record of ``table``, as floats.
 
     The record date comes from ``DATE`` in ``observations`` and ``immunizations`` and
     from ``START`` elsewhere (see :data:`DATE_COLUMNS`); ``conditions`` and ``careplans``
     write a day and the rest a UTC timestamp (see :data:`DATE_ONLY_TABLES`). A record of
     a patient outside the cohort, or with an empty or unparseable date, is ``NaN``.
+
+    ``column`` reads another date column of the same table, with the same rule of the
+    table: a part that counts on the end of a record asks for its ``STOP`` date.
     """
-    column = DATE_COLUMNS.get(table_name, "START")
+    column = column or DATE_COLUMNS.get(table_name, "START")
     if table.empty:
         return pd.Series(float("nan"), index=table.index, dtype="float")
     if table_name in DATE_ONLY_TABLES:
@@ -266,93 +286,254 @@ def _window_masks(
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class _EventSelection:
-    """The records of an event outcome and the window they fall in."""
+class _PartSelection:
+    """The records of one part of an event outcome and what it found.
 
-    #: The records of the codes of the outcome, of the patients of the cohort.
+    The ``rows_*`` counts are records, not patients: they say what was left out on the
+    way to the distinct patients of the part. Every record left out is counted in
+    exactly one of them.
+    """
+
+    #: The records of the codes of the part, of the patients of the cohort.
     matched: pd.DataFrame
-    #: The days from the index date to each of those records.
-    days: pd.Series
-    #: Which of those records fall in the window.
-    in_window: pd.Series
-    #: Which of those records are dated after the reference date.
-    after_reference: pd.Series
     #: The days to the first in-window record, one value per patient.
     first: pd.Series
+    #: Records of the codes of the part, of the patients of the cohort, any date.
+    rows_matched: int
+    #: Of those, records left out by the filters of the part.
+    rows_filtered_out: int
+    #: Of those, records without a ``STOP``: the part counts on their end date.
+    rows_not_ended: int
+    #: Of those, records whose date is empty or unparseable.
+    rows_date_unusable: int
+    #: Of those, records dated after the reference date.
+    rows_after_reference: int
+    #: Of those, records with a usable date, not after the reference date and outside
+    #: the window.
+    rows_outside_window: int
+
+
+def _part_selection(
+    cohort: IndexedCohort,
+    table: pd.DataFrame,
+    part: EventMatch,
+    window: Window,
+    reference: date,
+) -> _PartSelection:
+    """The records of one part of an event outcome and the patients they select.
+
+    The records of the part go through six steps, in this order, and every record left
+    out is counted in exactly one of them: the code (of a patient of the cohort), the
+    filters of the part, the end of the record, its date, the reference date and the
+    window. The date of the part is the first record of the window.
+    """
+    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(part.codes)
+    matched = table[selected]
+    filtered = _keep_filtered(matched, part)
+    ended = _keep_ended(filtered, part)
+    days = record_days(cohort, ended, part.table, column=_date_column(part))
+    in_window, after = _window_masks(cohort, ended, days, window, reference)
+    first = days[in_window].groupby(ended.loc[in_window, "PATIENT"]).min()
+    return _PartSelection(
+        matched=matched,
+        first=first,
+        rows_matched=len(matched),
+        rows_filtered_out=len(matched) - len(filtered),
+        rows_not_ended=len(filtered) - len(ended),
+        rows_date_unusable=int(days.isna().sum()),
+        rows_after_reference=int(after.sum()),
+        rows_outside_window=int(
+            (days.notna() & ~after & ~in_window).sum()
+        ),
+    )
+
+
+def _keep_filtered(matched: pd.DataFrame, part: EventMatch) -> pd.DataFrame:
+    """The records of ``matched`` that pass the filters of ``part``.
+
+    ``values`` and ``reasons`` are exact texts, compared as they are written: the
+    loader keeps every value of a CSV as text, so nothing is converted here.
+    """
+    kept = matched
+    if part.values:
+        kept = kept[kept["VALUE"].isin(part.values)]
+    if part.reasons:
+        kept = kept[kept["REASONCODE"].isin(part.reasons)]
+    return kept
+
+
+def _keep_ended(matched: pd.DataFrame, part: EventMatch) -> pd.DataFrame:
+    """The records of ``matched`` that ended, when the part counts on their end.
+
+    A record without a ``STOP`` is still open: it has no end date to count on, so it
+    is left out here. A record with a ``STOP`` that does not parse is left out later,
+    as a date that cannot be used.
+    """
+    if part.at != "stop":
+        return matched
+    return matched[matched[STOP_COLUMN].notna()]
+
+
+def _date_column(part: EventMatch) -> str | None:
+    """The date column a part counts on: its ``STOP``, or the one of its table."""
+    return STOP_COLUMN if part.at == "stop" else None
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _EventSelection:
+    """The parts of an event outcome and the day each patient reaches it."""
+
+    #: The selection of every part of the outcome, in the order of the parts.
+    parts: tuple[_PartSelection, ...]
+    #: The days from the index date to the outcome, one value per patient that counts.
+    days: pd.Series
 
 
 def _event_selection(
     cohort: IndexedCohort,
-    table: pd.DataFrame,
+    tables: pd.DataFrame | Mapping[str, pd.DataFrame],
     outcome: EventOutcome,
     reference: date,
 ) -> _EventSelection:
-    """The records of an event outcome and the patients they select.
+    """The parts of an event outcome and the patients they select.
 
     The masks are computed once and used by both the measure and the members of the
     outcome, so the two can never disagree on which patients count.
-
-    Only the first part of the outcome is measured: an outcome of several parts is not
-    measured yet, and the build leaves it out of the report.
     """
-    part = outcome.parts[0]
-    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(part.codes)
-    matched = table[selected]
-    days = record_days(cohort, matched, part.table)
-    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
-    first = days[in_window].groupby(matched.loc[in_window, "PATIENT"]).min()
-    return _EventSelection(matched, days, in_window, after, first)
+    frames = _tables_of(tables, outcome)
+    parts = outcome.parts
+    selections = tuple(
+        _part_selection(cohort, frame, part, outcome.window, reference)
+        for frame, part in zip(frames, parts)
+    )
+    return _EventSelection(selections, _outcome_days(selections, outcome.op))
+
+
+def _tables_of(
+    tables: pd.DataFrame | Mapping[str, pd.DataFrame], outcome: EventOutcome
+) -> tuple[pd.DataFrame, ...]:
+    """The table of every part of ``outcome``.
+
+    A single frame is the table of an outcome of one part. An outcome of several parts
+    needs one frame per part, given by the name of its table.
+
+    :raises ValueError: the outcome has several parts and only one frame was given, or
+        the frames do not hold the table of one of its parts.
+    """
+    parts = outcome.parts
+    if isinstance(tables, pd.DataFrame):
+        if len(parts) > 1:
+            raise ValueError(
+                f"the outcome {outcome.name!r} has {len(parts)} parts: it needs a table "
+                "for each of them, not a single one"
+            )
+        return (tables,)
+    frames = []
+    for part in parts:
+        if part.table not in tables:
+            raise ValueError(
+                f"the outcome {outcome.name!r} needs the table {part.table!r} of its "
+                f"part {part.name!r}: it was not given"
+            )
+        frames.append(tables[part.table])
+    return tuple(frames)
+
+
+def _outcome_days(selections: Sequence[_PartSelection], op: str) -> pd.Series:
+    """The day each patient reaches the outcome, from the days of its parts.
+
+    With ``any`` a patient counts with one part and reaches the outcome on the
+    earliest of them. With ``all`` the patient needs every part and reaches it on the
+    latest of them: the day the last part is met.
+    """
+    days = pd.concat([selection.first for selection in selections])
+    if op == "any":
+        return days.groupby(level=0).min()
+    # With "all" the patient needs every part: the outcome is on the latest of them.
+    counted = days.groupby(level=0).count()
+    complete = counted[counted == len(selections)].index
+    return days[days.index.isin(complete)].groupby(level=0).max()
 
 
 def measure_event(
     cohort: IndexedCohort,
-    table: pd.DataFrame,
+    tables: pd.DataFrame | Mapping[str, pd.DataFrame],
     outcome: EventOutcome,
     reference: date,
     age_bands: Sequence[int],
 ) -> EventResult:
-    """Patients of the cohort with a record of the codes of its part in its window.
+    """Patients of the cohort with a record of the codes of its parts in its window.
 
     Only ``CODE`` selects a record: ``SYSTEM`` is not consulted, because the outcome
     definition has no system. The window is counted in days from each patient's index
-    date, and :attr:`~synthea_quality.indexed.models.EventResult.days` describes the days
-    to the first record of the window, one value per patient.
+    date, and :attr:`~synthea_quality.indexed.models.EventResult.days` describes the
+    days to the outcome, one value per patient: with ``any`` the earliest of its parts,
+    with ``all`` the latest, the day the last part is met.
+
+    ``tables`` is the table of the outcome when it has one part, and one table per part
+    by name when it has several.
+
+    :raises ValueError: the outcome has several parts and only one table was given, or
+        the tables do not hold the table of one of its parts.
     """
-    selection = _event_selection(cohort, table, outcome, reference)
-    part = outcome.parts[0]
+    selection = _event_selection(cohort, tables, outcome, reference)
+    matches = tuple(
+        _match_result(part, part_selection)
+        for part, part_selection in zip(outcome.parts, selection.parts)
+    )
     return EventResult(
         name=outcome.name,
+        table=outcome.table,
+        codes=outcome.codes,
+        window=outcome.window,
+        breakdown=breakdown(cohort, selection.days.index, age_bands),
+        days=summarise(selection.days),
+        rows_matched=sum(match.rows_matched for match in matches),
+        rows_date_unusable=sum(match.rows_date_unusable for match in matches),
+        rows_after_reference=sum(match.rows_after_reference for match in matches),
+        rows_outside_window=sum(match.rows_outside_window for match in matches),
+        rows_filtered_out=sum(match.rows_filtered_out for match in matches),
+        rows_not_ended=sum(match.rows_not_ended for match in matches),
+        op=outcome.op,
+        matches=matches,
+    )
+
+
+def _match_result(part: EventMatch, selection: _PartSelection) -> EventMatchResult:
+    """What one part found: its rule, its patients and the records left out."""
+    return EventMatchResult(
+        name=part.name,
         table=part.table,
         codes=part.codes,
-        window=outcome.window,
-        breakdown=breakdown(cohort, selection.first.index, age_bands),
-        days=summarise(selection.first),
-        rows_matched=len(selection.matched),
-        rows_date_unusable=int(selection.days.isna().sum()),
-        rows_after_reference=int(selection.after_reference.sum()),
-        rows_outside_window=int(
-            (
-                selection.days.notna()
-                & ~selection.after_reference
-                & ~selection.in_window
-            ).sum()
-        ),
+        values=part.values,
+        reasons=part.reasons,
+        at=part.at,
+        patients=len(selection.first),
+        rows_matched=selection.rows_matched,
+        rows_filtered_out=selection.rows_filtered_out,
+        rows_not_ended=selection.rows_not_ended,
+        rows_date_unusable=selection.rows_date_unusable,
+        rows_after_reference=selection.rows_after_reference,
+        rows_outside_window=selection.rows_outside_window,
     )
 
 
 def event_members(
     cohort: IndexedCohort,
-    table: pd.DataFrame,
+    tables: pd.DataFrame | Mapping[str, pd.DataFrame],
     outcome: EventOutcome,
     reference: date,
 ) -> OutcomeMembers:
-    """The patients of an event outcome: those with a record of its codes in its window.
+    """The patients of an event outcome: those with a record of its parts in its window.
 
     The set is the one of the total numerator of :func:`measure_event`: a cross of this
     outcome counts exactly the patients the outcome counts.
+
+    :raises ValueError: the outcome has several parts and only one table was given, or
+        the tables do not hold the table of one of its parts.
     """
-    selection = _event_selection(cohort, table, outcome, reference)
-    return OutcomeMembers(patients=frozenset(selection.first.index))
+    selection = _event_selection(cohort, tables, outcome, reference)
+    return OutcomeMembers(patients=frozenset(selection.days.index))
 
 
 @dataclass(frozen=True, slots=True, eq=False)
