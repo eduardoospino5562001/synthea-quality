@@ -9,6 +9,8 @@ import pytest
 from synthea_quality.indexed.definitions import (
     CrossSpec,
     DeathOutcome,
+    EventMatch,
+    EventOutcome,
     IndexSpec,
     ValueOutcome,
     Window,
@@ -41,6 +43,27 @@ def groups_file(groups):
     return {"index": {"condition": "Breast cancer"},
             "outcomes": [{"name": "Stage group", "type": "value", "code": "21908-9",
                           "groups": groups}]}
+
+
+def event_file(outcome):
+    """A file with one ``event`` outcome."""
+    return {"index": {"condition": "COVID-19"}, "outcomes": [outcome]}
+
+
+#: The "Recovered" event of the plan: the isolation ended, or a negative test.
+RECOVERED = {
+    "name": "Recovered",
+    "type": "event",
+    "op": "any",
+    "match": [
+        {"name": "Isolation ended", "table": "careplans", "codes": ["736376001"],
+         "reasons": ["840539006"], "at": "stop"},
+        {"name": "Negative test", "table": "observations", "codes": ["94531-1"],
+         "values": ["Not detected (qualifier value)"]},
+    ],
+}
+#: The two parts of the "Recovered" event, on their own.
+RECOVERED_PARTS = RECOVERED["match"]
 
 
 def test_a_index_names_a_condition_the_file_does_not_define():
@@ -408,3 +431,234 @@ def test_a_file_without_by_or_groups_has_neither(tmp_path):
     module = load_module(path)
     assert module.crosses == ()
     assert module.outcomes[0].groups == ()
+
+
+def test_the_recovered_event_of_the_plan_is_read():
+    _, (outcome,) = load(event_file(RECOVERED))
+    assert outcome.op == "any"
+    assert outcome.table is None
+    assert outcome.codes == ()
+    assert outcome.parts == (
+        EventMatch(
+            "Isolation ended", "careplans", ("736376001",), (), ("840539006",), "stop"
+        ),
+        EventMatch(
+            "Negative test",
+            "observations",
+            ("94531-1",),
+            ("Not detected (qualifier value)",),
+            (),
+            "start",
+        ),
+    )
+
+
+def test_an_event_can_use_the_all_op():
+    _, (outcome,) = load(event_file({**RECOVERED, "op": "all"}))
+    assert outcome.op == "all"
+
+
+def test_an_event_of_one_table_is_read_as_it_was():
+    _, (outcome,) = load(
+        event_file(
+            {"name": "Hospital admission", "type": "event", "table": "encounters",
+             "codes": ["1505002"]}
+        )
+    )
+    assert outcome == EventOutcome(
+        "Hospital admission", "encounters", ("1505002",), Window(0, None)
+    )
+    assert outcome.parts == (
+        EventMatch("encounters: 1505002", "encounters", ("1505002",)),
+    )
+
+
+def test_an_event_of_one_table_can_use_a_value():
+    _, (outcome,) = load(
+        event_file(
+            {"name": "Negative test", "type": "event", "table": "observations",
+             "codes": ["94531-1"], "values": ["Not detected (qualifier value)"]}
+        )
+    )
+    assert outcome.values == ("Not detected (qualifier value)",)
+    assert outcome.parts == (
+        EventMatch(
+            "observations: 94531-1",
+            "observations",
+            ("94531-1",),
+            ("Not detected (qualifier value)",),
+        ),
+    )
+
+
+def test_an_event_of_one_table_can_use_a_reason():
+    _, (outcome,) = load(
+        event_file(
+            {"name": "Isolation ended", "type": "event", "table": "careplans",
+             "codes": ["736376001"], "reasons": ["840539006"]}
+        )
+    )
+    assert outcome.reasons == ("840539006",)
+    assert outcome.parts == (
+        EventMatch(
+            "careplans: 736376001", "careplans", ("736376001",), (), ("840539006",)
+        ),
+    )
+
+
+def test_an_event_of_one_table_can_count_on_its_stop_date():
+    _, (outcome,) = load(
+        event_file(
+            {"name": "COVID-19 ended", "type": "event", "table": "conditions",
+             "codes": ["840539006"], "at": "stop"}
+        )
+    )
+    assert outcome.at == "stop"
+    assert outcome.parts == (
+        EventMatch("conditions: 840539006", "conditions", ("840539006",), (), (), "stop"),
+    )
+
+
+def test_match_cannot_be_used_with_the_keys_of_an_event_of_one_table():
+    for key in ("table", "codes", "values", "reasons", "at"):
+        outcome = {**RECOVERED, key: "encounters"}
+        with pytest.raises(DefinitionError, match="cannot be used with"):
+            load(event_file(outcome))
+
+
+def test_op_needs_a_match():
+    with pytest.raises(DefinitionError, match="'op' needs a 'match'"):
+        load(
+            event_file(
+                {"name": "Admission", "type": "event", "table": "encounters",
+                 "codes": ["1505002"], "op": "all"}
+            )
+        )
+
+
+def test_op_must_be_any_or_all():
+    with pytest.raises(DefinitionError, match="'op' must be one of"):
+        load(event_file({**RECOVERED, "op": "some"}))
+
+
+def test_match_must_be_a_list():
+    with pytest.raises(DefinitionError, match="at least two parts"):
+        load(event_file({**RECOVERED, "match": {"name": "Isolation ended"}}))
+
+
+def test_match_needs_at_least_two_parts():
+    with pytest.raises(DefinitionError, match="at least two parts"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0]]}))
+
+
+def test_the_message_of_a_short_match_says_how_to_write_one_part():
+    with pytest.raises(DefinitionError, match="'table' and 'codes'"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0]]}))
+
+
+def test_a_part_must_be_an_object():
+    with pytest.raises(DefinitionError, match="part 1 of 'match': is not an object"):
+        load(event_file({**RECOVERED, "match": ["Isolation ended", RECOVERED_PARTS[1]]}))
+
+
+def test_a_part_rejects_unknown_keys():
+    part = {**RECOVERED_PARTS[0], "pick": "first"}
+    with pytest.raises(DefinitionError, match="part 1 of 'match': unknown key"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_a_part_needs_a_table_the_tool_knows():
+    part = {**RECOVERED_PARTS[0], "table": "claims"}
+    with pytest.raises(DefinitionError, match="part 1 of 'match'.*not 'claims'"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_a_part_needs_a_non_empty_codes_list():
+    part = {**RECOVERED_PARTS[0], "codes": []}
+    with pytest.raises(DefinitionError, match="part 1 of 'match'.*non-empty 'codes'"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_a_part_needs_a_name_that_is_not_empty():
+    part = {**RECOVERED_PARTS[0], "name": "   "}
+    with pytest.raises(DefinitionError, match="part 1 of 'match'.*non-empty name"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_two_parts_cannot_repeat_a_name():
+    parts = [RECOVERED_PARTS[0], {**RECOVERED_PARTS[1], "name": "Isolation ended"}]
+    with pytest.raises(DefinitionError, match="repeats the name 'Isolation ended'"):
+        load(event_file({**RECOVERED, "match": parts}))
+
+
+def test_a_part_name_cannot_be_the_default_name_of_another_part():
+    unnamed = {key: value for key, value in RECOVERED_PARTS[1].items() if key != "name"}
+    parts = [{**RECOVERED_PARTS[0], "name": "observations: 94531-1"}, unnamed]
+    with pytest.raises(
+        DefinitionError, match="repeats the name 'observations: 94531-1'"
+    ):
+        load(event_file({**RECOVERED, "match": parts}))
+
+
+def test_values_must_be_a_non_empty_list_of_texts():
+    part = {**RECOVERED_PARTS[1], "values": []}
+    with pytest.raises(DefinitionError, match="'values' must be a non-empty list of texts"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+    part = {**RECOVERED_PARTS[1], "values": [""]}
+    with pytest.raises(DefinitionError, match="'values' texts must be non-empty strings"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+    part = {**RECOVERED_PARTS[1], "values": ["Not detected", "Not detected"]}
+    with pytest.raises(DefinitionError, match="'values' repeats the text 'Not detected'"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+
+
+def test_reasons_must_be_a_non_empty_list_of_texts():
+    part = {**RECOVERED_PARTS[0], "reasons": []}
+    with pytest.raises(DefinitionError, match="'reasons' must be a non-empty list of texts"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+    part = {**RECOVERED_PARTS[0], "reasons": [""]}
+    with pytest.raises(DefinitionError, match="'reasons' texts must be non-empty strings"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+    part = {**RECOVERED_PARTS[0], "reasons": ["840539006", "840539006"]}
+    with pytest.raises(DefinitionError, match="'reasons' repeats the text '840539006'"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_values_need_the_observations_table():
+    part = {**RECOVERED_PARTS[0], "values": ["Suspected COVID-19"]}
+    with pytest.raises(DefinitionError, match="'values' needs a table of"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_reasons_need_a_table_with_a_reason_code():
+    part = {**RECOVERED_PARTS[1], "reasons": ["840539006"]}
+    with pytest.raises(DefinitionError, match="'reasons' needs a table of"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+
+
+def test_at_must_be_start_or_stop():
+    part = {**RECOVERED_PARTS[0], "at": "middle"}
+    with pytest.raises(DefinitionError, match="'at' must be one of"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_at_stop_needs_a_table_with_a_stop_date():
+    part = {**RECOVERED_PARTS[1], "at": "stop"}
+    with pytest.raises(DefinitionError, match="'at: stop' needs a table of"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+
+
+def test_two_parts_cannot_say_the_same_thing():
+    parts = [RECOVERED_PARTS[0], {**RECOVERED_PARTS[0], "name": "The same part"}]
+    with pytest.raises(DefinitionError, match="part 2 of 'match' is the same as part 1"):
+        load(event_file({**RECOVERED, "match": parts}))
+
+
+def test_an_event_of_one_table_cannot_use_a_filter_its_table_has_not():
+    with pytest.raises(DefinitionError, match="'values' needs a table of"):
+        load(
+            event_file(
+                {"name": "Admission", "type": "event", "table": "encounters",
+                 "codes": ["1505002"], "values": ["Inpatient"]}
+            )
+        )

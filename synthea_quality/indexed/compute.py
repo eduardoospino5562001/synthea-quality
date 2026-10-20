@@ -291,10 +291,14 @@ def _event_selection(
 
     The masks are computed once and used by both the measure and the members of the
     outcome, so the two can never disagree on which patients count.
+
+    Only the first part of the outcome is measured: an outcome of several parts is not
+    measured yet, and the build leaves it out of the report.
     """
-    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(outcome.codes)
+    part = outcome.parts[0]
+    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(part.codes)
     matched = table[selected]
-    days = record_days(cohort, matched, outcome.table)
+    days = record_days(cohort, matched, part.table)
     in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
     first = days[in_window].groupby(matched.loc[in_window, "PATIENT"]).min()
     return _EventSelection(matched, days, in_window, after, first)
@@ -307,7 +311,7 @@ def measure_event(
     reference: date,
     age_bands: Sequence[int],
 ) -> EventResult:
-    """Patients of the cohort with a record of ``outcome.codes`` in its window.
+    """Patients of the cohort with a record of the codes of its part in its window.
 
     Only ``CODE`` selects a record: ``SYSTEM`` is not consulted, because the outcome
     definition has no system. The window is counted in days from each patient's index
@@ -315,10 +319,11 @@ def measure_event(
     to the first record of the window, one value per patient.
     """
     selection = _event_selection(cohort, table, outcome, reference)
+    part = outcome.parts[0]
     return EventResult(
         name=outcome.name,
-        table=outcome.table,
-        codes=outcome.codes,
+        table=part.table,
+        codes=part.codes,
         window=outcome.window,
         breakdown=breakdown(cohort, selection.first.index, age_bands),
         days=summarise(selection.first),

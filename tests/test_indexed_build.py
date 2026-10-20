@@ -132,6 +132,18 @@ def cross_dataset(directory: Path) -> Path:
 
 STAGE = {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"}
 DEATH = {"name": "Death", "type": "death", "cause_values": ["Cause"]}
+#: The "Recovered" event of the plan: two parts, which are not measured yet.
+RECOVERED = {
+    "name": "Recovered",
+    "type": "event",
+    "op": "any",
+    "match": [
+        {"name": "Isolation ended", "table": "careplans", "codes": ["736376001"],
+         "reasons": ["840539006"], "at": "stop"},
+        {"name": "Negative test", "table": "observations", "codes": ["94531-1"],
+         "values": ["Not detected (qualifier value)"]},
+    ],
+}
 
 
 def write_module(
@@ -508,3 +520,58 @@ def test_b21_the_two_examples_are_loaded_without_error():
         assert loaded.index is not None
         assert loaded.crosses
         assert all(cross.outcome and cross.by for cross in loaded.crosses)
+
+
+def test_b22_an_event_of_several_parts_is_not_measured_yet(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.type == "event"
+    assert outcome.reason == (
+        "outcome 'Recovered': 'match', 'values', 'reasons' and 'at' are not measured yet"
+    )
+    data = report.to_dict()["indexed_cohort"]["outcomes"][0]
+    assert data["status"] == "SKIPPED"
+    assert data["reason"] == outcome.reason
+    assert (
+        "`SKIPPED` — outcome 'Recovered': 'match', 'values', 'reasons' and 'at' are "
+        "not measured yet" in render_markdown(report)
+    )
+
+
+def test_b23_an_event_of_several_parts_reads_no_table(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert not [
+        item for item in report.inputs if item.used_for == indexed_build.INDEXED_USED_FOR
+    ]
+
+
+def test_b24_an_event_with_a_filter_is_not_measured_yet(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    negative_test = {
+        "name": "Negative test",
+        "type": "event",
+        "table": "observations",
+        "codes": ["94531-1"],
+        "values": ["Not detected (qualifier value)"],
+    }
+    report = validate(
+        directory, write_module(tmp_path, [negative_test]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.reason == (
+        "outcome 'Negative test': 'match', 'values', 'reasons' and 'at' are not "
+        "measured yet"
+    )
+    assert not [
+        item for item in report.inputs if item.used_for == indexed_build.INDEXED_USED_FOR
+    ]

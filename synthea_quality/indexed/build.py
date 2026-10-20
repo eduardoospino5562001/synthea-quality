@@ -13,6 +13,11 @@ out ``SKIPPED`` with the table and the reason, and the other outcomes are still 
 condition records), every outcome is ``SKIPPED`` with that reason and the cohort's
 ``reason`` says why.
 
+An ``event`` outcome of several parts, or with a filter, is also ``SKIPPED``, with the
+reason that its parts and its filters are not measured yet, and it reads no table at
+all: measuring only its first part would give a figure that says nothing about the
+rest of the outcome.
+
 The crossings of the module file's ``by`` list come after the outcomes: a crossing needs
 the patients of both of its outcomes, so it is measured from the same tables the
 outcomes were measured from and never reads a table of its own. A crossing whose
@@ -42,6 +47,7 @@ from synthea_quality.indexed.compute import (
     value_members,
 )
 from synthea_quality.indexed.definitions import (
+    DEFAULT_AT,
     CrossSpec,
     DeathOutcome,
     EventOutcome,
@@ -66,6 +72,8 @@ OBSERVATION_VALUE_COLUMNS = ("DATE", "PATIENT", "CODE", "VALUE")
 OBSERVATIONS = "observations"
 #: What the report says the extra tables were read for.
 INDEXED_USED_FOR = "indexed cohort outcomes"
+#: Why an event outcome of several parts, or with a filter, is not measured yet.
+UNMEASURED_EVENT = "'match', 'values', 'reasons' and 'at' are not measured yet"
 
 OutcomeResult = EventResult | ValueResult | DeathResult | SkippedOutcome
 
@@ -76,11 +84,16 @@ def indexed_tables(outcomes: Sequence[Outcome]) -> tuple[str, ...]:
     An ``event`` outcome names its table; a ``value`` outcome and a ``death`` outcome
     with ``cause_values`` read ``observations``. A ``death`` outcome without a cause
     needs no table at all: its dates come from ``patients``.
+
+    An event outcome of several parts, or with a filter, reads no table: it is not
+    measured yet, and the table of its first part would only be read for nothing.
     """
     tables: list[str] = []
     for outcome in outcomes:
         if isinstance(outcome, EventOutcome):
-            table = outcome.table
+            if _is_unmeasured_event(outcome):
+                continue
+            table = outcome.parts[0].table
         elif isinstance(outcome, ValueOutcome) or outcome.cause_values:
             table = OBSERVATIONS
         else:
@@ -88,6 +101,21 @@ def indexed_tables(outcomes: Sequence[Outcome]) -> tuple[str, ...]:
         if table not in tables:
             tables.append(table)
     return tuple(tables)
+
+
+def _is_unmeasured_event(outcome: EventOutcome) -> bool:
+    """Whether the event uses several parts or a filter, which are not measured yet.
+
+    The parts and the filters of an event are read from the module file, but they are
+    not measured yet. An outcome that uses them is left out of the report with its
+    reason, instead of measuring only its first part and saying nothing about the rest.
+    """
+    return (
+        len(outcome.parts) > 1
+        or bool(outcome.values)
+        or bool(outcome.reasons)
+        or outcome.at != DEFAULT_AT
+    )
 
 
 def skipped_indexed(
@@ -279,7 +307,7 @@ def _outcome_members(
     table of its own, so the numbers of a crossing and of its outcome cannot disagree.
     """
     if isinstance(outcome, EventOutcome):
-        frame = frames[outcome.table]
+        frame = frames[outcome.parts[0].table]
         assert frame is not None
         return event_members(cohort, frame, outcome, reference)
     if isinstance(outcome, ValueOutcome):
@@ -331,9 +359,13 @@ def _measure(
     reference: date,
     age_bands: Sequence[int],
 ) -> OutcomeResult:
-    """One outcome, or ``SKIPPED`` with the reason when its table is not available."""
+    """One outcome, or ``SKIPPED`` with the reason when it could not be measured."""
     if isinstance(outcome, DeathOutcome) and not outcome.cause_values:
         return measure_death(cohort, patients, None, outcome, reference, age_bands)
+    if isinstance(outcome, EventOutcome) and _is_unmeasured_event(outcome):
+        return SkippedOutcome(
+            outcome.name, "event", f"outcome {outcome.name!r}: {UNMEASURED_EVENT}"
+        )
     table = _table_of(outcome)
     frame = frames.get(table)
     if frame is None:
@@ -350,7 +382,9 @@ def _measure(
 
 def _table_of(outcome: Outcome) -> str:
     """The table ``outcome`` reads: its own for an event, ``observations`` otherwise."""
-    return outcome.table if isinstance(outcome, EventOutcome) else OBSERVATIONS
+    if isinstance(outcome, EventOutcome):
+        return outcome.parts[0].table
+    return OBSERVATIONS
 
 
 def _outcome_type(outcome: Outcome) -> str:
