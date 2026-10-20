@@ -928,8 +928,9 @@ The decisions the section takes:
   patient absent from `patients.csv` are left out and counted in the report; so are, per
   outcome, the records after the reference date, with an unusable date or outside the
   window.
-- A missing table leaves only its outcome `SKIPPED`, with the reason; the other outcomes
-  are still measured.
+- A missing table leaves only its outcome `SKIPPED`, with the reason; so does an
+  `observations.csv` without `VALUE` for a `value` outcome or a `death` with
+  `cause_values`. The other outcomes are still measured.
 - Without `index`, the report is the same as before.
 
 ### Example (official sample)
