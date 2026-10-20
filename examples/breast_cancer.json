@@ -2,12 +2,34 @@
   "module": {
     "name": "Breast cancer",
     "synthea_modules": ["breast_cancer.json"],
-    "description": "Example module file with an indexed cohort: every patient diagnosed with breast cancer (254837009), alive or deceased. The stage group is the first observation 21908-9 from the diagnosis; a patient with two stage rows on that date counts under both. A death counts as caused by breast cancer when the cause of death observation (69453-9) has that text."
+    "description": "Example module file with an indexed cohort: every patient diagnosed with breast cancer (254837009), alive or deceased. The stage group is the first observation 21908-9 from the diagnosis; the stage texts of the two families Synthea writes (Stage 1, Stage 1A, ... and American Joint Committee on Cancer stage IA, ...) are grouped under Stage 1 to Stage 4, so a patient with two rows of the same stage on that date counts once. The crossing measures the deaths inside each stage group. A death counts as caused by breast cancer when the cause of death observation (69453-9) has that text."
   },
   "conditions": [{"name": "Breast cancer", "codes": ["254837009"]}],
   "index": {"condition": "Breast cancer"},
   "outcomes": [
-    {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"},
+    {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first",
+     "groups": {
+       "Stage 1": [
+         "Stage 1 (qualifier value)",
+         "Stage 1A (qualifier value)",
+         "Stage 1B (qualifier value)",
+         "American Joint Committee on Cancer stage IA (qualifier value)",
+         "American Joint Committee on Cancer stage IB (qualifier value)"],
+       "Stage 2": [
+         "Stage 2 (qualifier value)",
+         "Stage 2A (qualifier value)",
+         "Stage 2B (qualifier value)",
+         "American Joint Committee on Cancer stage IIA (qualifier value)",
+         "American Joint Committee on Cancer stage IIB (qualifier value)"],
+       "Stage 3": [
+         "Stage 3 (qualifier value)",
+         "Stage 3A (qualifier value)",
+         "Stage 3C (qualifier value)",
+         "American Joint Committee on Cancer stage IIIA (qualifier value)",
+         "American Joint Committee on Cancer stage IIIB (qualifier value)",
+         "American Joint Committee on Cancer stage IIIC (qualifier value)"],
+       "Stage 4": ["Stage 4 (qualifier value)"]}},
     {"name": "Death", "type": "death", "cause_values": ["Malignant neoplasm of breast (disorder)"]}
-  ]
+  ],
+  "by": [{"outcome": "Death", "by": "Stage group"}]
 }

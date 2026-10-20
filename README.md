@@ -898,7 +898,8 @@ module file as the conditions, the observations and the medications.
     {"name": "ICU admission", "type": "event", "table": "encounters", "codes": ["305351004"]},
     {"name": "Ventilated", "type": "event", "table": "devices", "codes": ["449071006"]},
     {"name": "Death", "type": "death"}
-  ]
+  ],
+  "by": [{"outcome": "Death", "by": "ICU admission"}]
 }
 ```
 
@@ -908,11 +909,13 @@ module file as the conditions, the observations and the medications.
     `careplans`, `devices`, `immunizations` and `observations`; `codes` is a non-empty list
     of codes of that table.
   - `value`: `code` is a code of `observations.csv`; `pick` is `first` (the default) or
-    `last`.
+    `last`; optional `groups` joins several exact `VALUE` texts under one label.
   - `death`: optional `cause_values`, a list of exact texts of the `VALUE` of observation
     `69453-9`. In the CSV that column holds the description, not the code.
 - `window` is optional, per outcome: `{"from_days": 0, "to_days": null}`, in days from the
   index date. The default is day 0 with no end.
+- `by` is optional: a non-empty list of `{"outcome": X, "by": Y}`. It crosses the outcome
+  X with the outcome Y.
 
 The decisions the section takes:
 
@@ -933,6 +936,55 @@ The decisions the section takes:
   `cause_values`. The other outcomes are still measured.
 - Without `index`, the report is the same as before.
 
+### Groups of values
+
+A `value` outcome can join several `VALUE` texts under one label, so that a patient with
+two rows of the same day counts once instead of twice:
+
+```json
+{"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first",
+ "groups": {
+   "Stage 1": ["Stage 1 (qualifier value)", "Stage 1A (qualifier value)"],
+   "Stage 2": ["Stage 2 (qualifier value)", "Stage 2A (qualifier value)"]}}
+```
+
+- `groups` is optional and only a `value` outcome may have it. Its keys are the labels and
+  its values are non-empty lists of exact `VALUE` texts.
+- A text that belongs to a group counts under the label of the group; a text outside every
+  group keeps its own text.
+- A patient whose values of the picked date fall all in the same group counts **once**;
+  the number of patients with several values is counted after the grouping.
+- The label `no value` is reserved: it is the stratum of the patients without a value.
+- The file is rejected when `groups` is not an object or is empty, when a label is empty,
+  when a list is empty or holds an empty text, when a text is repeated inside a group or
+  belongs to two groups.
+
+### Crossing one outcome with another
+
+`by` measures an outcome X inside the strata of another outcome Y:
+
+- X can be of any type; Y has to be a `value` or an `event`, because a `death` has no
+  strata to give.
+- A `value` Y gives one stratum per value, in the order of the table of values, and a last
+  one for the patients of the cohort without a value.
+- An `event` Y gives two strata: with the event and without it.
+- The denominator of a stratum is the cohort of the stratum and the numerator the patients
+  of X inside it, with its 95% CI. A patient with several values of Y counts in each of
+  them, so the denominators may add up to more than the cohort; the report says how many
+  patients are under more than one stratum.
+- When X is a `death` with `cause_values`, each stratum also counts the deaths with that
+  cause.
+- **The crossing does not require Y to be observed before X**: each outcome keeps its own
+  window, and the report says so under the table.
+- The file is rejected when `by` has no `index`, is not a non-empty list, has an unknown
+  key, names an outcome the file does not define, crosses an outcome with itself, uses a
+  `death` to give the strata, or repeats the same pair.
+
+The Markdown of a crossing is a section of its own with the table
+`| <Y> | Cohort | <X> (95% CI) |`, plus the column `| With the cause |` when X is a death
+with a cause. The JSON keeps them in `indexed_cohort.crosses`, one element per crossing,
+with its strata and the patients under more than one of them.
+
 ### Example (official sample)
 
 `examples/covid19.json` on the official sample with the reference date 2026-08-17: 4
@@ -945,18 +997,25 @@ patients (2 F, 2 M), one of them admitted to hospital on the index date.
 | Ventilated | event | day 0 onward | 0 (0.00%; 0.00–48.99%) |
 | Death | death | day 0 onward | 0 (0.00%; 0.00–48.99%) |
 
+The crossing of the same file measures the deaths inside the ICU admissions:
+
+| ICU admission | Cohort | Death (95% CI) |
+| --- | ---: | ---: |
+| with ICU admission | 0 | 0 (—) |
+| without ICU admission | 4 | 0 (0.00%; 0.00–48.99%) |
+
 The integration suite recounts the cohort and every outcome with the `csv` module only.
 
 ### Not covered yet
 
 Composite outcomes, windows anchored to another outcome, second episodes, daily series,
-crossing one outcome with another, and survival estimates (Kaplan-Meier).
+crossing more than one outcome at a time, and survival estimates (Kaplan-Meier).
 
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1031 unit and component tests, about 20 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1095 unit and component tests, about 20 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 69 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
