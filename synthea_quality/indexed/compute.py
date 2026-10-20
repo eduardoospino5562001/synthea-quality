@@ -22,7 +22,9 @@ the decisions the outcomes of :mod:`synthea_quality.indexed.definitions` rely on
 7. A cross of two outcomes is an intersection of patients, never of counts. The members
    of an outcome come from the same masks its measure uses, so the total of a cross is
    the total of the outcome it measures, and the strata may add up to more than the
-   cohort when a patient has more than one value.
+   cohort when a patient has more than one value. A ``value`` outcome whose values hold
+   the very text of ``NO_VALUE_LABEL`` gives no cross: that label already names the
+   patients without a value, so the cross is left out with its reason.
 
 This module computes; it reads no file and renders nothing.
 """
@@ -93,7 +95,7 @@ class IndexedCohort:
         return len(self.frame)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class OutcomeMembers:
     """The patients of an outcome, as sets, so that two outcomes can be crossed.
 
@@ -105,7 +107,9 @@ class OutcomeMembers:
     ``values`` holds the labels of a ``value`` outcome and the patients under them,
     already grouped; it is empty for the other kinds of outcome. ``with_cause`` holds
     the deaths with the recorded cause of a ``death`` outcome, and is ``None`` when the
-    outcome has no cause to count.
+    outcome has no cause to count. Two members are equal only when they are the same
+    object: nothing compares or hashes them, and the read-only mapping of the values
+    would make a field-by-field equality misleading.
     """
 
     #: The patients that count in the outcome: the same set as its total numerator.
@@ -688,8 +692,26 @@ def measure_cross(
     before the death. A patient with more than one value counts in every stratum it
     belongs to, so the denominators may add up to more than the cohort.
 
+    A ``value`` outcome with a value whose label is exactly ``NO_VALUE_LABEL`` gives no
+    cross: the last stratum of the patients without a value would then have the same
+    label as that value, and the label would no longer say which stratum it names. The
+    text is not renamed either, so that the label always means the same thing; the
+    module file puts it in a group with another label instead.
+
     :raises ValueError: ``by_type`` is neither ``"value"`` nor ``"event"``.
     """
+    if by_type == "value" and NO_VALUE_LABEL in by.values:
+        return CrossResult(
+            outcome=cross.outcome,
+            by=cross.by,
+            by_type=by_type,
+            strata=(),
+            patients_in_several_strata=0,
+            reason=(
+                f"a value of {cross.by!r} is the text {NO_VALUE_LABEL!r}, the label of "
+                "the patients without a value; put it in a group with another label"
+            ),
+        )
     if by_type == "value":
         strata, several = _value_strata(cohort, outcome, by)
     elif by_type == "event":

@@ -1127,7 +1127,54 @@ def test_x7_a_skipped_cross_has_no_strata_and_its_reason():
     )
 
 
-def test_x8_an_unknown_kind_of_strata_is_an_error():
+def test_x8_a_value_with_the_no_value_text_skips_the_cross():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "no value"},
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, observations(), death_outcome(), REF),
+        value_members(cohort, stage, value_outcome(), REF),
+        "value",
+    )
+    assert cross.strata == ()
+    assert cross.patients_in_several_strata == 0
+    assert cross.reason == (
+        "a value of 'Stage group' is the text 'no value', the label of the patients "
+        "without a value; put it in a group with another label"
+    )
+
+
+def test_x9_the_no_value_text_in_a_group_computes_the_cross():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "no value"},
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, observations(), death_outcome(), REF),
+        value_members(
+            cohort, stage, grouped_outcome((("Undetermined", ("no value",)),)), REF
+        ),
+        "value",
+    )
+    assert cross.reason is None
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("Undetermined", 1, 1),
+        ("no value", 0, 1),
+    ]
+
+
+def test_x10_an_unknown_kind_of_strata_is_an_error():
     people, cohort = cohort_with(
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "F"}
     )
