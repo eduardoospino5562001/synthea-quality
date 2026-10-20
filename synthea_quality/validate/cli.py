@@ -249,9 +249,11 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
                     f"{cross.reason}"
                 )
                 continue
+            count = len(cross.strata)
+            noun = "stratum" if count == 1 else "strata"
             print(
                 f"Cross:      {cross.outcome} by {cross.by}: "
-                f"{len(cross.strata)} strata"
+                f"{count} {noun}"
             )
     for table_input in report.inputs:
         if table_input.state is InputState.UNREADABLE:

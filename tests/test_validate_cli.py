@@ -206,6 +206,33 @@ def indexed_module(directory: Path, crosses: list[dict]) -> Path:
     return path
 
 
+def test_the_console_says_one_stratum(tmp_path, capsys):
+    """A value outcome without any value leaves the single stratum of the no value."""
+    directory = indexed_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "observations",
+        [{"PATIENT": "a1", "CODE": "8480-6", "DATE": "2023-02-01T00:00:00Z", "VALUE": "120"}],
+    )
+    data = {
+        "module": {"name": "COVID-19"},
+        "conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+        "index": {"condition": "COVID-19"},
+        "outcomes": [
+            {"name": "Stage group", "type": "value", "code": "21908-9"},
+            {"name": "Death", "type": "death"},
+        ],
+        "by": [{"outcome": "Death", "by": "Stage group"}],
+    }
+    module = tmp_path / "module.json"
+    module.write_text(json.dumps(data), encoding="utf-8")
+    code = main([str(directory), "--module", str(module), "--output-dir", str(tmp_path / "o"),
+                 "--reference-date", "2026-01-01"])
+    assert code == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "Cross:      Death by Stage group: 1 stratum" in printed
+
+
 def test_the_console_shows_every_crossing(tmp_path, capsys):
     directory = indexed_dataset(tmp_path / "csv")
     module = indexed_module(
