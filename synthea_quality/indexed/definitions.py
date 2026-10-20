@@ -316,7 +316,11 @@ def _groups(
     """The groups of a ``value`` outcome: a label and the exact ``VALUE`` texts it joins.
 
     The groups keep the order of the module file, so that the report lists them the way
-    the file does. A text belongs to one group only, and a group cannot be empty.
+    the file does. A text belongs to one group only and a group cannot be empty. A label
+    is unique once stripped: two labels cleaned into the same one would merge two groups
+    without saying so. A label is not a text of *another* group either, because a
+    ``VALUE`` with that text would then count under a different label than the group
+    that names it; a label that is a text of its own group is fine.
     """
     if raw is None:
         return ()
@@ -336,6 +340,10 @@ def _groups(
             raise DefinitionError(
                 f"{origin}: outcome {name!r} 'groups' cannot use the label "
                 f"{NO_VALUE_LABEL!r}"
+            )
+        if any(existing == label for existing, _ in groups):
+            raise DefinitionError(
+                f"{origin}: outcome {name!r} 'groups' repeats the label {label!r}"
             )
         if not isinstance(texts, list) or not texts:
             raise DefinitionError(
@@ -362,6 +370,13 @@ def _groups(
             owner[text] = label
             cleaned.append(text)
         groups.append((label, tuple(cleaned)))
+    for label, _ in groups:
+        used_as = owner.get(label)
+        if used_as is not None and used_as != label:
+            raise DefinitionError(
+                f"{origin}: outcome {name!r} 'groups' uses the label {label!r} as a "
+                f"text of group {used_as!r}"
+            )
     return tuple(groups)
 
 

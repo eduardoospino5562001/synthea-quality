@@ -266,6 +266,37 @@ def test_a_text_cannot_be_in_two_groups():
         load(groups_file(groups))
 
 
+def test_a_group_label_cannot_be_repeated():
+    groups = {"Stage 1": ["Stage 1 (qualifier value)"],
+              " Stage 1 ": ["Stage 1A (qualifier value)"]}
+    with pytest.raises(DefinitionError, match="repeats the label 'Stage 1'"):
+        load(groups_file(groups))
+
+
+def test_a_group_label_cannot_be_a_text_of_another_group():
+    groups = {"B": ["A"], "A": ["C"]}
+    with pytest.raises(DefinitionError, match="uses the label 'A' as a text of group 'B'"):
+        load(groups_file(groups))
+
+
+def test_a_group_label_cannot_be_a_text_of_a_later_group():
+    groups = {"A": ["C"], "B": ["A"]}
+    with pytest.raises(DefinitionError, match="uses the label 'A' as a text of group 'B'"):
+        load(groups_file(groups))
+
+
+def test_a_group_label_can_be_a_text_of_its_own_group():
+    groups = {"Stage 2": ["Stage 2", "Stage 2A (qualifier value)"]}
+    _, (outcome,) = load(groups_file(groups))
+    assert outcome == ValueOutcome(
+        "Stage group",
+        "21908-9",
+        "first",
+        Window(0, None),
+        (("Stage 2", ("Stage 2", "Stage 2A (qualifier value)")),),
+    )
+
+
 def test_groups_are_read_in_the_order_of_the_file_and_stripped():
     groups = {
         " Stage 1 ": ["Stage 1 (qualifier value) ",
