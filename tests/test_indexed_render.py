@@ -8,6 +8,8 @@ from dataclasses import replace
 from synthea_quality.indexed.definitions import Window
 from synthea_quality.indexed.models import (
     Breakdown,
+    CrossResult,
+    CrossStratum,
     DeathResult,
     EventResult,
     IndexedCohortResult,
@@ -74,6 +76,47 @@ def death() -> DeathResult:
         with_cause=1,
         other_cause=0,
         no_cause_record=0,
+    )
+
+
+def cross() -> CrossResult:
+    """A crossing of the deaths in the strata of a value, with a cause to count."""
+    return CrossResult(
+        outcome="Death",
+        by="Stage group",
+        by_type="value",
+        strata=(
+            CrossStratum("Stage 2", 1, 3, 1),
+            CrossStratum("Stage | IIA", 0, 1, 0),
+            CrossStratum("no value", 0, 2, 0),
+        ),
+        patients_in_several_strata=1,
+    )
+
+
+def cross_without_cause() -> CrossResult:
+    """A crossing of the deaths in the strata of an event, without a cause to count."""
+    return CrossResult(
+        outcome="Death",
+        by="Hospital | admission",
+        by_type="event",
+        strata=(
+            CrossStratum("with Hospital | admission", 1, 2, None),
+            CrossStratum("without Hospital | admission", 0, 3, None),
+        ),
+        patients_in_several_strata=0,
+    )
+
+
+def skipped_cross() -> CrossResult:
+    """A crossing that could not be computed."""
+    return CrossResult(
+        outcome="Death",
+        by="Stage group",
+        by_type="value",
+        strata=(),
+        patients_in_several_strata=0,
+        reason="outcome 'Stage group' was not computed: observations.csv is not in the dataset",
     )
 
 
@@ -155,3 +198,53 @@ def test_r13_each_stratum_shows_its_cohort():
     assert "| Sex | Cohort | Patients (95% CI) |" in text
     assert "| Age at index | Cohort | Patients (95% CI) |" in text
     assert "| F | 2 | 1 (50.00%; 9.45–90.55%) |" in text
+
+
+def test_r14_a_cross_shows_its_strata_under_its_own_heading():
+    text = render_indexed(replace(result(), crosses=(cross(),)))
+    assert "### Death by Stage group" in text
+    assert "| Stage group | Cohort | Death (95% CI) | With the cause |" in text
+    assert "| Stage 2 | 3 | 1 (33.33%; 6.15–79.23%) | 1 |" in text
+    assert "| Stage \\| IIA | 1 | 0 (0.00%; 0.00–79.35%) | 0 |" in text
+    assert "| no value | 2 | 0 (0.00%; 0.00–65.76%) | 0 |" in text
+
+
+def test_r15_the_column_of_the_cause_is_only_there_when_there_is_a_cause():
+    text = render_indexed(replace(result(), crosses=(cross_without_cause(),)))
+    assert "| Hospital \\| admission | Cohort | Death (95% CI) |" in text
+    assert "With the cause" not in text
+
+
+def test_r16_a_cross_says_that_no_order_is_required():
+    text = render_indexed(replace(result(), crosses=(cross(),)))
+    assert (
+        "The crossing does not require Stage group to be observed before Death: "
+        "each outcome keeps its own window."
+    ) in text
+
+
+def test_r17_a_patient_under_several_strata_is_explained():
+    text = render_indexed(replace(result(), crosses=(cross(),)))
+    assert "1 patient is under more than one stratum and counts in each." in text
+    quiet = render_indexed(replace(result(), crosses=(cross_without_cause(),)))
+    assert "more than one stratum" not in quiet
+
+
+def test_r18_a_cross_that_could_not_be_computed_shows_its_reason_and_no_table():
+    text = render_indexed(replace(result(), crosses=(skipped_cross(),)))
+    assert (
+        "Not computed: outcome 'Stage group' was not computed: observations.csv is not "
+        "in the dataset."
+    ) in text
+    assert "| Stage group | Cohort |" not in text
+
+
+def test_r19_without_a_cross_the_text_has_no_crossing():
+    text = render_indexed(result())
+    assert " by " not in text
+    assert "Cross" not in text
+
+
+def test_r20_no_verdict_words_in_a_crossing():
+    text = render_indexed(replace(result(), crosses=(cross(), cross_without_cause())))
+    assert re.search(r"\b(pass|fail|ok|match)\b", text, re.I) is None

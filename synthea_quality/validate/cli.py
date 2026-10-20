@@ -156,6 +156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             medications=loaded.medications,
             index=loaded.index,
             outcomes=loaded.outcomes,
+            crosses=loaded.crosses,
             module_file=args.module,
             reference_date=args.reference_date,
             metadata=args.metadata,
@@ -241,6 +242,17 @@ def print_summary(report: ModuleValidationReport, markdown_path: Path, json_path
                 continue
             total = outcome.breakdown.total
             print(f"Outcome:    {outcome.name}: {total.patients}/{total.cohort}")
+        for cross in indexed.crosses:
+            if cross.reason is not None:
+                print(
+                    f"Cross:      {cross.outcome} by {cross.by}: not computed — "
+                    f"{cross.reason}"
+                )
+                continue
+            print(
+                f"Cross:      {cross.outcome} by {cross.by}: "
+                f"{len(cross.strata)} strata"
+            )
     for table_input in report.inputs:
         if table_input.state is InputState.UNREADABLE:
             print(f"Incomplete: {table_input.table} could not be read — {table_input.reason}")

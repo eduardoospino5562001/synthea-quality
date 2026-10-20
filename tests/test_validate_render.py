@@ -184,9 +184,49 @@ def test_medications_and_their_reference_values(tmp_path):
     assert "| Lisinopril | `314076` | Hypertension | 1 | 1 (100.00%; 20.65–100.00%) |" in text
 
 
+def test_a_crossing_says_the_same_in_the_json_and_in_the_markdown(tmp_path):
+    from synthea_quality.indexed.definitions import (
+        CrossSpec,
+        DeathOutcome,
+        EventOutcome,
+        IndexSpec,
+    )
+
+    write_table(tmp_path, "patients", [
+        {"Id": "a1", "BIRTHDATE": "1950-01-01", "DEATHDATE": "2023-06-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1970-01-01", "GENDER": "F"},
+    ])
+    write_table(tmp_path, "encounters", [
+        {"Id": "e1", "PATIENT": "a1", "CODE": "1505002", "START": "2023-02-01T00:00:00Z"},
+    ])
+    write_table(tmp_path, "conditions", [
+        {"PATIENT": "a1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01"},
+        {"PATIENT": "a2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-02-01"},
+    ])
+    report = build_module_validation(
+        tmp_path, module=ModuleInfo("COVID-19"),
+        definitions=assemble(("COVID-19=840539006",), None, (), measures=ALL_MEASURES),
+        module_file="m.json",
+        index=IndexSpec("COVID-19"),
+        outcomes=(
+            EventOutcome("ICU admission", "encounters", ("1505002",)),
+            DeathOutcome("Death"),
+        ),
+        crosses=(CrossSpec("Death", "ICU admission"),),
+        reference_date="2026-01-01",
+        generated_at="2026-09-29T00:00:00+00:00",
+    )
+    data = json.loads(dumps(report))["indexed_cohort"]["crosses"][0]
+    assert [(s["numerator"], s["denominator"]) for s in data["strata"]] == [(1, 1), (0, 1)]
+    text = render_markdown(report)
+    assert "### Death by ICU admission" in text
+    assert "| ICU admission | Cohort | Death (95% CI) |" in text
+    assert "| with ICU admission | 1 | 1 (100.00%; 20.65–100.00%) |" in text
+    assert "| without ICU admission | 1 | 0 (0.00%; 0.00–79.35%) |" in text
+
+
 def _unescaped_pipes(line: str) -> int:
     return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
-
 
 def _tables(text: str) -> list[list[str]]:
     tables: list[list[str]] = []

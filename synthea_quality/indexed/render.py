@@ -3,9 +3,11 @@
 Read only from :class:`~synthea_quality.indexed.models.IndexedCohortResult`: no CSV,
 no computation. A summary table gives every outcome's window and its patients with a
 95% CI; then each outcome repeats itself by sex and by age band at the index date, with
-the days from the index date and the records left out on the way to the patients. An
-outcome that could not be measured says ``SKIPPED`` and its reason, never a made-up
-number. Every text of the module file or of the CSV that lands in a table goes through
+the days from the index date and the records left out on the way to the patients. Each
+crossing of the module file follows, with its strata and the share of the crossed
+outcome in each of them. An outcome that could not be measured says ``SKIPPED`` and its
+reason, never a made-up number; so does a crossing. Every text of the module file or of
+the CSV that lands in a table goes through
 :func:`~synthea_quality.table_format.table_cell`; the shares and their intervals come
 from :class:`~synthea_quality.prevalence.models.Rate`, and the numbers from
 :func:`~synthea_quality.table_format.trimmed`.
@@ -18,6 +20,8 @@ from __future__ import annotations
 from synthea_quality.indexed.definitions import Window
 from synthea_quality.indexed.models import (
     Breakdown,
+    CrossResult,
+    CrossStratum,
     DeathResult,
     EventResult,
     IndexedCohortResult,
@@ -75,6 +79,9 @@ def render_indexed(result: IndexedCohortResult, *, level: int = 2) -> str:
     for outcome in result.outcomes:
         blocks.append(f"{'#' * (level + 1)} {outcome.name}")
         blocks.extend(_outcome_blocks(outcome))
+    for cross in result.crosses:
+        blocks.append(f"{'#' * (level + 1)} {cross.outcome} by {cross.by}")
+        blocks.extend(_cross_blocks(cross))
     return "\n\n".join(blocks)
 
 
@@ -170,6 +177,63 @@ def _outcome_blocks(
     return blocks
 
 
+def _cross_blocks(cross: CrossResult) -> list[str]:
+    """The blocks of one crossing below its heading.
+
+    A crossing that could not be computed says so and shows no table: a made-up number
+    would be worse than no number.
+    """
+    if cross.reason is not None:
+        return [f"Not computed: {cross.reason}."]
+    blocks = [_cross_table(cross)]
+    blocks.append(
+        f"The crossing does not require {cross.by} to be observed before "
+        f"{cross.outcome}: each outcome keeps its own window."
+    )
+    if cross.patients_in_several_strata > 0:
+        several = cross.patients_in_several_strata
+        blocks.append(
+            f"{_count(several, 'patient')} "
+            f"{'is' if several == 1 else 'are'} under more than one stratum and "
+            f"{'counts' if several == 1 else 'count'} in each."
+        )
+    return blocks
+
+
+def _cross_table(cross: CrossResult) -> str:
+    """The table of a crossing: its strata, their cohort and the crossed outcome.
+
+    The column of the cause is only there when the crossed outcome counts one: a
+    crossing of an outcome without a cause has no cause to show.
+    """
+    with_cause = any(stratum.with_cause is not None for stratum in cross.strata)
+    header: tuple[str, ...] = (
+        table_cell(cross.by),
+        "Cohort",
+        f"{table_cell(cross.outcome)} (95% CI)",
+    )
+    align: tuple[str, ...] = ("", "r", "r")
+    if with_cause:
+        header = (*header, "With the cause")
+        align = (*align, "r")
+    rows = [_cross_row(stratum, with_cause) for stratum in cross.strata]
+    return "\n".join(_table(header, rows, align=align))
+
+
+def _cross_row(
+    stratum: CrossStratum, with_cause: bool
+) -> tuple[str, int, str] | tuple[str, int, str, str]:
+    """One table row: the stratum, its cohort and the crossed outcome inside it.
+
+    The cause is only in the row when the table has that column.
+    """
+    label, cohort, share = _share_row(stratum.label, stratum.numerator, stratum.denominator)
+    if not with_cause:
+        return (label, cohort, share)
+    cause = EMPTY if stratum.with_cause is None else str(stratum.with_cause)
+    return (label, cohort, share, cause)
+
+
 def _breakdown_tables(breakdown: Breakdown) -> list[str]:
     """The two tables of every computed outcome: by sex and by age at the index date."""
     return [
@@ -193,13 +257,13 @@ def _breakdown_tables(breakdown: Breakdown) -> list[str]:
 def _stratum_rows(strata: tuple[Stratum, ...]) -> list[tuple[str, int, str]]:
     """One table row per stratum: its label, its cohort and its share with the 95% CI."""
     return [
-        (
-            table_cell(stratum.label),
-            stratum.cohort,
-            _share(Rate(stratum.patients, stratum.cohort)),
-        )
-        for stratum in strata
+        _share_row(stratum.label, stratum.patients, stratum.cohort) for stratum in strata
     ]
+
+
+def _share_row(label: str, numerator: int, denominator: int) -> tuple[str, int, str]:
+    """One table row: its label, its cohort and the share with the 95% CI."""
+    return (table_cell(label), denominator, _share(Rate(numerator, denominator)))
 
 
 def _count(n: int, noun: str) -> str:

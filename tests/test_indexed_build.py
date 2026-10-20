@@ -7,6 +7,7 @@ from pathlib import Path
 
 from csv_tables import write_table
 
+from synthea_quality.indexed import build as indexed_build
 from synthea_quality.indexed.models import DeathResult, EventResult, SkippedOutcome, ValueResult
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.cli import print_summary
@@ -81,7 +82,57 @@ def with_observations(directory: Path) -> Path:
     return directory
 
 
-def write_module(directory: Path, outcomes: list[dict] | None = None) -> Path:
+def cross_dataset(directory: Path) -> Path:
+    """Three patients with COVID-19: one dead with a stage and a cause, one with a stage.
+
+    The stages are two different values, so the crossing has one stratum per value and
+    a last one for the patient without a stage.
+    """
+    write_table(
+        directory,
+        "patients",
+        [
+            {"Id": "p1", "BIRTHDATE": "1950-01-01", "DEATHDATE": "2023-06-01", "GENDER": "F"},
+            {"Id": "p2", "BIRTHDATE": "1990-06-01", "GENDER": "M"},
+            {"Id": "p3", "BIRTHDATE": "2000-01-01", "GENDER": "F"},
+        ],
+    )
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "p1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01"},
+            {"PATIENT": "p2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-03-01"},
+            {"PATIENT": "p3", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-04-01"},
+        ],
+    )
+    write_table(
+        directory,
+        "observations",
+        [
+            {"DATE": "2023-02-01T00:00:00Z", "PATIENT": "p1", "CODE": "21908-9", "VALUE": "Stage 1",
+             "TYPE": "text"},
+            {"DATE": "2023-06-05T00:00:00Z", "PATIENT": "p1", "CODE": "69453-9", "VALUE": "Cause",
+             "TYPE": "text"},
+            {"DATE": "2023-05-01T00:00:00Z", "PATIENT": "p3", "CODE": "21908-9", "VALUE": "Stage 2",
+             "TYPE": "text"},
+        ],
+    )
+    write_table(
+        directory,
+        "encounters",
+        [{"Id": "e1", "PATIENT": "p1", "CODE": "1505002", "START": "2023-02-05T00:00:00Z"}],
+    )
+    return directory
+
+
+STAGE = {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"}
+DEATH = {"name": "Death", "type": "death", "cause_values": ["Cause"]}
+
+
+def write_module(
+    directory: Path, outcomes: list[dict] | None = None, crosses: list[dict] | None = None
+) -> Path:
     """A module file of COVID-19 with ``outcomes``, or without an index when None."""
     data: dict = {
         "module": {"name": "COVID-19"},
@@ -90,6 +141,8 @@ def write_module(directory: Path, outcomes: list[dict] | None = None) -> Path:
     if outcomes is not None:
         data["index"] = {"condition": "COVID-19"}
         data["outcomes"] = outcomes
+    if crosses is not None:
+        data["by"] = crosses
     path = directory / "module.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
@@ -104,6 +157,7 @@ def validate(directory: Path, module_path: Path, **kwargs) -> ModuleValidationRe
         module_file=module_path,
         index=loaded.index,
         outcomes=loaded.outcomes,
+        crosses=loaded.crosses,
         generated_at=GENERATED_AT,
         **kwargs,
     )
@@ -314,3 +368,134 @@ def test_b14_an_event_is_measured_when_another_outcome_lacks_value(tmp_path):
     for name in ("Stage group", "Death"):
         assert measured[name]["status"] == "SKIPPED"
         assert measured[name]["reason"] == "observations.csv has no VALUE column(s)"
+
+
+def test_b15_the_cross_reaches_the_result_with_the_figures_of_the_measure(tmp_path):
+    directory = cross_dataset(tmp_path / "csv")
+    report = validate(
+        directory,
+        write_module(tmp_path, [STAGE, DEATH], [{"outcome": "Death", "by": "Stage group"}]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    (cross,) = report.indexed.crosses
+    assert (cross.outcome, cross.by, cross.by_type) == ("Death", "Stage group", "value")
+    assert [
+        (stratum.label, stratum.numerator, stratum.denominator, stratum.with_cause)
+        for stratum in cross.strata
+    ] == [
+        ("Stage 1", 1, 1, 1),
+        ("Stage 2", 0, 1, 0),
+        ("no value", 0, 1, 0),
+    ]
+    assert cross.patients_in_several_strata == 0
+    death = report.indexed.outcomes[1]
+    assert isinstance(death, DeathResult)
+    assert sum(stratum.numerator for stratum in cross.strata) == death.breakdown.total.patients
+
+
+def test_b16_the_members_of_an_outcome_are_computed_once(tmp_path, monkeypatch):
+    directory = cross_dataset(tmp_path / "csv")
+    calls: list[str] = []
+    original = indexed_build.value_members
+
+    def counted(cohort, observations, outcome, reference):
+        calls.append(outcome.name)
+        return original(cohort, observations, outcome, reference)
+
+    monkeypatch.setattr(indexed_build, "value_members", counted)
+    report = validate(
+        directory,
+        write_module(
+            tmp_path,
+            [STAGE, DEATH, HOSPITAL_ADMISSION],
+            [
+                {"outcome": "Death", "by": "Stage group"},
+                {"outcome": "Stage group", "by": "Hospital admission"},
+            ],
+        ),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    assert len(report.indexed.crosses) == 2
+    assert calls == ["Stage group"]
+
+
+def test_b17_an_outcome_that_could_not_be_measured_skips_its_cross(tmp_path):
+    directory = cross_dataset(tmp_path / "csv")
+    report = validate(
+        directory,
+        write_module(
+            tmp_path,
+            [STAGE, DEATH, VENTILATED],
+            [
+                {"outcome": "Ventilated", "by": "Stage group"},
+                {"outcome": "Death", "by": "Ventilated"},
+            ],
+        ),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    first, second = report.indexed.crosses
+    assert first.strata == ()
+    assert first.reason == (
+        "outcome 'Ventilated' was not computed: devices.csv is not in the dataset"
+    )
+    assert second.reason == first.reason
+    assert second.by_type == "event"
+
+
+def test_b18_a_cross_names_the_measured_outcome_first(tmp_path):
+    directory = cross_dataset(tmp_path / "csv")
+    (directory / "observations.csv").unlink()
+    report = validate(
+        directory,
+        write_module(
+            tmp_path,
+            [STAGE, DEATH, VENTILATED],
+            [{"outcome": "Ventilated", "by": "Stage group"}],
+        ),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    (cross,) = report.indexed.crosses
+    assert cross.reason == (
+        "outcome 'Ventilated' was not computed: devices.csv is not in the dataset"
+    )
+
+
+def test_b19_a_cohort_that_could_not_be_built_skips_every_cross(tmp_path):
+    directory = cross_dataset(tmp_path / "csv")
+    (directory / "conditions.csv").unlink()
+    report = validate(
+        directory,
+        write_module(tmp_path, [STAGE, DEATH], [{"outcome": "Death", "by": "Stage group"}]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    assert report.indexed.reason is not None
+    (cross,) = report.indexed.crosses
+    assert cross.strata == ()
+    assert cross.reason == (
+        f"outcome 'Death' was not computed: {report.indexed.reason}"
+    )
+
+
+def test_b20_without_a_cross_the_json_has_none_and_the_markdown_has_none(tmp_path):
+    directory = cross_dataset(tmp_path / "csv")
+    report = validate(
+        directory, write_module(tmp_path, [STAGE, DEATH]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    assert report.indexed.crosses == ()
+    assert report.to_dict()["indexed_cohort"]["crosses"] == []
+    assert "### Death by Stage group" not in render_markdown(report)
+
+
+def test_b21_the_two_examples_are_loaded_without_error():
+    repository = Path(__file__).resolve().parents[1]
+    for name in ("breast_cancer.json", "covid19.json"):
+        loaded = load_module(repository / "examples" / name)
+        assert loaded.index is not None
+        assert loaded.crosses
+        assert all(cross.outcome and cross.by for cross in loaded.crosses)

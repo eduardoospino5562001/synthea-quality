@@ -18,7 +18,9 @@ and the frames are handed to the existing computations:
   alive patients, or of a condition cohort, with each medication, active and ever;
 * the indexed cohort, when the module file has ``index``, is
   :func:`synthea_quality.indexed.build.indexed_cohort_result` — every patient with the
-  index condition, alive or deceased, and each outcome measured from their index date.
+  index condition, alive or deceased, and each outcome measured from their index date,
+  with each crossing of the module file's ``by`` list measured in the strata of another
+  outcome.
 
 Nothing is guessed. Without a reference date or the patients, everything is ``SKIPPED``
 with the reason. Without the condition records, every condition's prevalence and
@@ -44,7 +46,7 @@ from synthea_quality.indexed.build import (
     indexed_tables,
     skipped_indexed,
 )
-from synthea_quality.indexed.definitions import IndexSpec, Outcome
+from synthea_quality.indexed.definitions import CrossSpec, IndexSpec, Outcome
 from synthea_quality.medications import compute as medications_compute
 from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.build import (
@@ -108,6 +110,7 @@ def build_module_validation(
     medications: Sequence[MedicationDefinition] = (),
     index: IndexSpec | None = None,
     outcomes: Sequence[Outcome] = (),
+    crosses: Sequence[CrossSpec] = (),
     reference_date: str | None = None,
     metadata: str | Path | None = None,
     window_years: int = incidence.DEFAULT_WINDOW_YEARS,
@@ -173,17 +176,18 @@ def build_module_validation(
     if index is not None:
         reference_text = reference.isoformat() if reference is not None else None
         if reason is not None:
-            indexed = skipped_indexed(index, outcomes, reference_text, reason)
+            indexed = skipped_indexed(index, outcomes, reference_text, reason, crosses)
         elif conditions is None:
             indexed = skipped_indexed(
                 index, outcomes, reference_text,
                 f"no condition records: {conditions_input.reason}",
+                crosses,
             )
         else:
             assert reference is not None and patients is not None
             indexed, indexed_inputs = indexed_cohort_result(
                 context, patients, conditions, definitions, index, outcomes, reference,
-                bands, observations=observation_frame,
+                bands, observations=observation_frame, crosses=crosses,
             )
             inputs.extend(indexed_inputs)
     common: _CommonFields = {

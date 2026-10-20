@@ -319,7 +319,8 @@ class IndexedCohortResult:
 
     All patient counts are distinct patients, alive or deceased. The ``rows_*`` counts
     are records of the index condition, not patients: they say what was left out on the
-    way to the cohort.
+    way to the cohort. The ``crosses`` measure an outcome inside the strata of another
+    one, as the module file's ``by`` list asks.
     """
 
     #: Name of the condition whose earliest ``START`` is a patient's index date.
@@ -339,9 +340,11 @@ class IndexedCohortResult:
     outcomes: tuple[EventResult | ValueResult | DeathResult | SkippedOutcome, ...]
     #: Why the whole cohort could not be built; ``None`` when it was.
     reason: str | None = None
+    #: The crossings of the module file's ``by`` list, in the order of that list.
+    crosses: tuple[CrossResult, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        """The cohort and every outcome as JSON, in the order the module file gives."""
+        """The cohort, every outcome and every crossing as JSON, in the file's order."""
         status = SectionStatus.SKIPPED if self.reason is not None else SectionStatus.COMPUTED
         return {
             "index_condition": self.index_condition,
@@ -352,6 +355,7 @@ class IndexedCohortResult:
             "rows_start_unusable": self.rows_start_unusable,
             "rows_after_reference": self.rows_after_reference,
             "outcomes": [outcome.to_dict() for outcome in self.outcomes],
+            "crosses": [cross.to_dict() for cross in self.crosses],
             "status": status.value,
             "reason": self.reason,
         }

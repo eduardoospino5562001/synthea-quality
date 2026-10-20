@@ -159,3 +159,68 @@ def test_the_hypertension_example_with_medications(tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "Medication: Lisinopril: active 2/2, ever 2/2" in printed
     assert "Medication: Losartan: active 1/2, ever 1/2" in printed
+
+
+def indexed_dataset(directory: Path) -> Path:
+    """Two patients with COVID-19: one of them admitted to the ICU and dead."""
+    write_table(
+        directory,
+        "patients",
+        [
+            {"Id": "a1", "BIRTHDATE": "1950-01-01", "DEATHDATE": "2023-06-01", "GENDER": "M"},
+            {"Id": "a2", "BIRTHDATE": "1970-01-01", "GENDER": "F"},
+        ],
+    )
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "a1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01"},
+            {"PATIENT": "a2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-02-01"},
+        ],
+    )
+    write_table(
+        directory,
+        "encounters",
+        [{"Id": "e1", "PATIENT": "a1", "CODE": "1505002", "START": "2023-02-01T00:00:00Z"}],
+    )
+    return directory
+
+
+def indexed_module(directory: Path, crosses: list[dict]) -> Path:
+    """A module file of COVID-19 with an indexed cohort and the given crossings."""
+    data = {
+        "module": {"name": "COVID-19"},
+        "conditions": [{"name": "COVID-19", "codes": ["840539006"]}],
+        "index": {"condition": "COVID-19"},
+        "outcomes": [
+            {"name": "ICU admission", "type": "event", "table": "encounters",
+             "codes": ["1505002"]},
+            {"name": "Ventilated", "type": "event", "table": "devices", "codes": ["449071006"]},
+            {"name": "Death", "type": "death"},
+        ],
+        "by": crosses,
+    }
+    path = directory / "module.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_the_console_shows_every_crossing(tmp_path, capsys):
+    directory = indexed_dataset(tmp_path / "csv")
+    module = indexed_module(
+        tmp_path,
+        [
+            {"outcome": "Death", "by": "ICU admission"},
+            {"outcome": "Death", "by": "Ventilated"},
+        ],
+    )
+    code = main([str(directory), "--module", str(module), "--output-dir", str(tmp_path / "o"),
+                 "--reference-date", "2026-01-01"])
+    assert code == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "Cross:      Death by ICU admission: 2 strata" in printed
+    assert (
+        "Cross:      Death by Ventilated: not computed — outcome 'Ventilated' was not "
+        "computed: devices.csv is not in the dataset"
+    ) in printed

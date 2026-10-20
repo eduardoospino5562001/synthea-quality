@@ -159,6 +159,66 @@ def test_invalid_arguments(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# the crossings of the module file
+# --------------------------------------------------------------------------- #
+
+
+def with_encounters(directory: Path) -> Path:
+    """One ICU admission, of the patient who dies later."""
+    write_table(
+        directory,
+        "encounters",
+        [{"Id": "e1", "PATIENT": "d1", "CODE": "1505002", "START": "2022-06-10T00:00:00Z"}],
+    )
+    return directory
+
+
+def test_the_crossings_of_the_module_file_reach_the_report(tmp_path):
+    from synthea_quality.indexed.definitions import (
+        CrossSpec,
+        DeathOutcome,
+        EventOutcome,
+        IndexSpec,
+    )
+
+    directory = with_encounters(dataset(tmp_path))
+    report = validate(
+        directory,
+        reference_date="2026-01-01",
+        index=IndexSpec("Myocardial infarction"),
+        outcomes=(
+            EventOutcome("ICU admission", "encounters", ("1505002",)),
+            DeathOutcome("Death"),
+        ),
+        crosses=(CrossSpec("Death", "ICU admission"),),
+    )
+    assert report.indexed is not None
+    (cross,) = report.indexed.crosses
+    assert (cross.outcome, cross.by, cross.by_type) == ("Death", "ICU admission", "event")
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("with ICU admission", 1, 1),
+        ("without ICU admission", 0, 1),
+    ]
+    data = report.to_dict()["indexed_cohort"]
+    assert data["crosses"][0]["outcome"] == "Death"
+    assert data["crosses"][0]["strata"][0]["numerator"] == 1
+
+
+def test_a_report_without_crossings_has_none(tmp_path):
+    from synthea_quality.indexed.definitions import DeathOutcome, IndexSpec
+
+    report = validate(
+        dataset(tmp_path),
+        reference_date="2026-01-01",
+        index=IndexSpec("Myocardial infarction"),
+        outcomes=(DeathOutcome("Death"),),
+    )
+    assert report.indexed is not None
+    assert report.indexed.crosses == ()
+    assert report.to_dict()["indexed_cohort"]["crosses"] == []
+
+
+# --------------------------------------------------------------------------- #
 # observations of the module file
 # --------------------------------------------------------------------------- #
 
