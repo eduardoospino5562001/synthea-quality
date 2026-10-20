@@ -228,6 +228,7 @@ def test_a_crossing_says_the_same_in_the_json_and_in_the_markdown(tmp_path):
 def _unescaped_pipes(line: str) -> int:
     return sum(1 for i, ch in enumerate(line) if ch == "|" and (i == 0 or line[i - 1] != "\\"))
 
+
 def _tables(text: str) -> list[list[str]]:
     tables: list[list[str]] = []
     current: list[str] = []

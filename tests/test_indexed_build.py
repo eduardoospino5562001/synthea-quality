@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
+import pandas as pd
 from csv_tables import write_table
 
 from synthea_quality.indexed import build as indexed_build
+from synthea_quality.indexed.compute import IndexedCohort, OutcomeMembers
+from synthea_quality.indexed.definitions import ValueOutcome
 from synthea_quality.indexed.models import DeathResult, EventResult, SkippedOutcome, ValueResult
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.cli import print_summary
@@ -399,7 +403,12 @@ def test_b16_the_members_of_an_outcome_are_computed_once(tmp_path, monkeypatch):
     calls: list[str] = []
     original = indexed_build.value_members
 
-    def counted(cohort, observations, outcome, reference):
+    def counted(
+        cohort: IndexedCohort,
+        observations: pd.DataFrame,
+        outcome: ValueOutcome,
+        reference: date,
+    ) -> OutcomeMembers:
         calls.append(outcome.name)
         return original(cohort, observations, outcome, reference)
 
