@@ -5,15 +5,27 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from synthea_quality.indexed.compute import (
     UNKNOWN_AGE,
     build_indexed_cohort,
+    death_members,
+    event_members,
+    measure_cross,
     measure_death,
     measure_event,
     measure_value,
+    skipped_cross,
+    value_members,
 )
-from synthea_quality.indexed.definitions import DeathOutcome, EventOutcome, ValueOutcome, Window
+from synthea_quality.indexed.definitions import (
+    CrossSpec,
+    DeathOutcome,
+    EventOutcome,
+    ValueOutcome,
+    Window,
+)
 from synthea_quality.indexed.models import ValueShare
 from synthea_quality.prevalence.compute import CONDITION_COLUMNS, PATIENT_COLUMNS
 from synthea_quality.prevalence.definitions import parse_condition_option
@@ -760,3 +772,370 @@ def test_d10_a_death_whose_cause_rows_are_all_empty_has_no_cause_record():
         BANDS,
     )
     assert (result.with_cause, result.other_cause, result.no_cause_record) == (0, 0, 1)
+
+
+STAGE_GROUPS = (
+    ("Stage 1", ("Stage 1 (qualifier value)", "Stage 1A (qualifier value)")),
+    ("Stage 2", ("Stage 2 (qualifier value)", "Stage 2A (qualifier value)")),
+)
+
+
+def grouped_outcome(groups=STAGE_GROUPS, pick="first", window=None) -> ValueOutcome:
+    """A value outcome whose groups join the texts of a stage."""
+    return ValueOutcome(
+        "Stage group", STAGE, pick, Window() if window is None else window, groups
+    )
+
+
+def test_g1_two_texts_of_the_same_group_count_as_one_value():
+    result = measure_value(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 1 (qualifier value)"},
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 1A (qualifier value)"},
+        ),
+        grouped_outcome(),
+        REF,
+        BANDS,
+    )
+    assert result.values == (ValueShare("Stage 1", 1),)
+    assert result.patients_with_several_values == 0
+    assert result.breakdown.total.patients == 1
+
+
+def test_g2_two_texts_of_two_groups_count_in_both():
+    result = measure_value(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 1 (qualifier value)"},
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 2 (qualifier value)"},
+        ),
+        grouped_outcome(),
+        REF,
+        BANDS,
+    )
+    assert result.values == (ValueShare("Stage 1", 1), ValueShare("Stage 2", 1))
+    assert result.patients_with_several_values == 1
+    assert result.breakdown.total.patients == 1
+
+
+def test_g3_a_text_outside_the_groups_keeps_its_text():
+    result = measure_value(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Unstaged"}
+        ),
+        grouped_outcome(),
+        REF,
+        BANDS,
+    )
+    assert result.values == (ValueShare("Unstaged", 1),)
+
+
+def test_g4_without_groups_the_values_keep_their_text():
+    result = measure_value(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 1 (qualifier value)"},
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 1A (qualifier value)"},
+        ),
+        value_outcome("first"),
+        REF,
+        BANDS,
+    )
+    assert result.values == (
+        ValueShare("Stage 1 (qualifier value)", 1),
+        ValueShare("Stage 1A (qualifier value)", 1),
+    )
+    assert result.patients_with_several_values == 1
+
+
+def test_g5_a_group_label_that_is_also_a_text_counts_them_together():
+    result = measure_value(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 2A (qualifier value)"},
+            {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": "Stage 2"},
+        ),
+        grouped_outcome((("Stage 2", ("Stage 2A (qualifier value)",)),)),
+        REF,
+        BANDS,
+    )
+    assert result.values == (ValueShare("Stage 2", 1),)
+    assert result.patients_with_several_values == 0
+
+
+def cohort_with(*rows):
+    """A cohort of the given patients, each with the index condition on 2020-01-01."""
+    people = patients(*rows)
+    records = conditions(
+        *[
+            {"PATIENT": row["Id"], "CODE": "840539006", "START": "2020-01-01"}
+            for row in rows
+        ]
+    )
+    return people, run(people, records)
+
+
+def test_m1_the_event_members_are_the_patients_of_the_measure():
+    cohort = run(
+        patients(
+            {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+            {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+            {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        ),
+        conditions(
+            {"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"},
+            {"PATIENT": "a2", "CODE": "840539006", "START": "2020-01-01"},
+            {"PATIENT": "a3", "CODE": "840539006", "START": "2020-01-01"},
+        ),
+    )
+    table = encounters(
+        {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"},
+        {"PATIENT": "a2", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"},
+    )
+    result = measure_event(cohort, table, event(), REF, BANDS)
+    members = event_members(cohort, table, event(), REF)
+    assert members.patients == frozenset({"a1", "a2"})
+    assert len(members.patients) == result.breakdown.total.patients
+
+
+def test_m2_the_value_members_are_the_patients_and_the_labels_of_the_measure():
+    cohort = run(
+        patients(
+            {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+            {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+            {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        ),
+        conditions(
+            {"PATIENT": "a1", "CODE": "840539006", "START": "2020-01-01"},
+            {"PATIENT": "a2", "CODE": "840539006", "START": "2020-01-01"},
+            {"PATIENT": "a3", "CODE": "840539006", "START": "2020-01-01"},
+        ),
+    )
+    table = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 2"},
+    )
+    result = measure_value(cohort, table, value_outcome(), REF, BANDS)
+    members = value_members(cohort, table, value_outcome(), REF)
+    assert members.patients == frozenset({"a1", "a2"})
+    assert len(members.patients) == result.breakdown.total.patients
+    assert members.values == {
+        "Stage 1": frozenset({"a1"}),
+        "Stage 2": frozenset({"a2"}),
+    }
+
+
+def test_m3_the_death_members_are_the_patients_and_the_cause_of_the_measure():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-02", "GENDER": "M"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+    )
+    causes = observations(
+        {"PATIENT": "a2", "CODE": "69453-9", "DATE": "2020-06-05T10:00:00Z", "VALUE": BREAST}
+    )
+    result = measure_death(cohort, people, causes, death_outcome((BREAST,)), REF, BANDS)
+    members = death_members(cohort, people, causes, death_outcome((BREAST,)), REF)
+    assert members.patients == frozenset({"a1", "a2"})
+    assert len(members.patients) == result.breakdown.total.patients
+    assert members.with_cause == frozenset({"a2"})
+    assert len(members.with_cause) == result.with_cause
+
+
+def test_m4_a_death_without_a_cause_has_no_cause_members():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"}
+    )
+    members = death_members(cohort, people, observations(), death_outcome(), REF)
+    assert members.patients == frozenset({"a1"})
+    assert members.with_cause is None
+
+
+def test_x1_the_strata_of_a_value_cross_are_in_the_order_of_the_values():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-02", "GENDER": "F"},
+        {"Id": "a4", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a3", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 2"},
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, observations(), death_outcome(), REF),
+        value_members(cohort, stage, value_outcome(), REF),
+        "value",
+    )
+    assert (cross.outcome, cross.by, cross.by_type) == ("Death", "Stage group", "value")
+    assert [stratum.label for stratum in cross.strata] == ["Stage 1", "Stage 2", "no value"]
+    assert [(s.numerator, s.denominator) for s in cross.strata] == [(1, 2), (1, 1), (0, 1)]
+    assert cross.patients_in_several_strata == 0
+
+
+def test_x2_the_strata_of_an_event_cross_are_with_and_without_the_event():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-02", "GENDER": "F"},
+        {"Id": "a4", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    table = encounters({"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"})
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Hospital admission"),
+        death_members(cohort, people, observations(), death_outcome(), REF),
+        event_members(cohort, table, event(), REF),
+        "event",
+    )
+    assert [stratum.label for stratum in cross.strata] == [
+        "with Hospital admission",
+        "without Hospital admission",
+    ]
+    assert [(s.numerator, s.denominator) for s in cross.strata] == [(1, 1), (1, 3)]
+    assert cross.patients_in_several_strata == 0
+
+
+def test_x3_a_death_cross_with_a_cause_counts_the_cause_in_every_stratum():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-02", "GENDER": "F"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a4", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a3", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 2"},
+    )
+    causes = observations(
+        {"PATIENT": "a2", "CODE": "69453-9", "DATE": "2020-06-05T10:00:00Z", "VALUE": BREAST}
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, causes, death_outcome((BREAST,)), REF),
+        value_members(cohort, stage, value_outcome(), REF),
+        "value",
+    )
+    assert [
+        (s.label, s.numerator, s.denominator, s.with_cause) for s in cross.strata
+    ] == [
+        ("Stage 1", 2, 2, 1),
+        ("Stage 2", 0, 1, 0),
+        ("no value", 0, 1, 0),
+    ]
+    assert sum(s.with_cause for s in cross.strata) == 1
+
+
+def test_x4_a_value_outcome_counts_the_patients_with_a_value():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+        {"Id": "a4", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+    )
+    table = encounters({"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"})
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Stage group", "Hospital admission"),
+        value_members(cohort, stage, value_outcome(), REF),
+        event_members(cohort, table, event(), REF),
+        "event",
+    )
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("with Hospital admission", 1, 1),
+        ("without Hospital admission", 1, 3),
+    ]
+    assert all(s.with_cause is None for s in cross.strata)
+
+
+def test_x5_a_patient_with_two_values_counts_in_every_stratum():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 2"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, observations(), death_outcome(), REF),
+        value_members(cohort, stage, value_outcome(), REF),
+        "value",
+    )
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("Stage 1", 1, 2),
+        ("Stage 2", 1, 1),
+        ("no value", 0, 1),
+    ]
+    assert cross.patients_in_several_strata == 1
+
+
+def test_x6_each_outcome_keeps_its_own_window():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-06-01", "GENDER": "F"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "DEATHDATE": "2020-01-15", "GENDER": "M"},
+    )
+    stage = observations(
+        {"PATIENT": "a1", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+        {"PATIENT": "a2", "CODE": STAGE, "DATE": "2020-02-01T10:00:00Z", "VALUE": "Stage 1"},
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Death", "Stage group"),
+        death_members(cohort, people, observations(), death_outcome(window=Window(0, 30)), REF),
+        value_members(cohort, stage, value_outcome(window=Window(0, 365)), REF),
+        "value",
+    )
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("Stage 1", 1, 2),
+        ("no value", 0, 0),
+    ]
+
+
+def test_x7_a_skipped_cross_has_no_strata_and_its_reason():
+    cross = skipped_cross(
+        CrossSpec("Death", "Stage group"), "value", "Stage group", "observations.csv is missing"
+    )
+    assert cross.strata == ()
+    assert cross.patients_in_several_strata == 0
+    assert cross.reason == (
+        "outcome 'Stage group' was not computed: observations.csv is missing"
+    )
+
+
+def test_x8_an_unknown_kind_of_strata_is_an_error():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "F"}
+    )
+    with pytest.raises(ValueError):
+        measure_cross(
+            cohort,
+            CrossSpec("Death", "Stage group"),
+            death_members(cohort, people, observations(), death_outcome(), REF),
+            value_members(cohort, observations(), value_outcome(), REF),
+            "death",
+        )

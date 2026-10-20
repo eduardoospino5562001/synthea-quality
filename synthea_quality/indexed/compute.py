@@ -15,20 +15,31 @@ the decisions the outcomes of :mod:`synthea_quality.indexed.definitions` rely on
 5. Nothing is dropped silently. The result counts the condition records of a patient
    unknown to ``patients``, the records whose ``START`` is empty or unparseable, and
    the records after the reference date.
+6. The ``groups`` of a ``value`` outcome are applied **before** anything is counted: a
+   ``VALUE`` text that belongs to a group counts under the label of the group, so a
+   patient with two rows of the same group on the same day counts once. A text outside
+   every group keeps its own text.
+7. A cross of two outcomes is an intersection of patients, never of counts. The members
+   of an outcome come from the same masks its measure uses, so the total of a cross is
+   the total of the outcome it measures, and the strata may add up to more than the
+   cohort when a patient has more than one value.
 
 This module computes; it reads no file and renders nothing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date
+from types import MappingProxyType
 
 import pandas as pd
 
 from synthea_quality.incidence.compute import age_on, band_of
 from synthea_quality.indexed.definitions import (
+    NO_VALUE_LABEL,
+    CrossSpec,
     DeathOutcome,
     EventOutcome,
     ValueOutcome,
@@ -37,6 +48,8 @@ from synthea_quality.indexed.definitions import (
 from synthea_quality.indexed.models import (
     UNKNOWN_SEX,
     Breakdown,
+    CrossResult,
+    CrossStratum,
     DeathResult,
     EventResult,
     Stratum,
@@ -78,6 +91,33 @@ class IndexedCohort:
     def size(self) -> int:
         """How many patients are in the cohort."""
         return len(self.frame)
+
+
+@dataclass(frozen=True, slots=True)
+class OutcomeMembers:
+    """The patients of an outcome, as sets, so that two outcomes can be crossed.
+
+    A cross needs the patients of each outcome and not only their counts: the patients
+    of the crossed outcome are intersected with the strata of the other one. The sets
+    come from the same masks the measures use, so the numerator of a cross is never
+    larger than the total of the outcome it measures.
+
+    ``values`` holds the labels of a ``value`` outcome and the patients under them,
+    already grouped; it is empty for the other kinds of outcome. ``with_cause`` holds
+    the deaths with the recorded cause of a ``death`` outcome, and is ``None`` when the
+    outcome has no cause to count.
+    """
+
+    #: The patients that count in the outcome: the same set as its total numerator.
+    patients: frozenset[str]
+    #: Each label of a ``value`` outcome and the patients under it; empty otherwise.
+    values: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    #: The deaths with the recorded cause of a ``death`` outcome; ``None`` without one.
+    with_cause: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        # The mapping is read-only: the members of an outcome never change once measured.
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
 
 def build_indexed_cohort(
@@ -221,6 +261,41 @@ def _window_masks(
     return in_window, after
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class _EventSelection:
+    """The records of an event outcome and the window they fall in."""
+
+    #: The records of the codes of the outcome, of the patients of the cohort.
+    matched: pd.DataFrame
+    #: The days from the index date to each of those records.
+    days: pd.Series
+    #: Which of those records fall in the window.
+    in_window: pd.Series
+    #: Which of those records are dated after the reference date.
+    after_reference: pd.Series
+    #: The days to the first in-window record, one value per patient.
+    first: pd.Series
+
+
+def _event_selection(
+    cohort: IndexedCohort,
+    table: pd.DataFrame,
+    outcome: EventOutcome,
+    reference: date,
+) -> _EventSelection:
+    """The records of an event outcome and the patients they select.
+
+    The masks are computed once and used by both the measure and the members of the
+    outcome, so the two can never disagree on which patients count.
+    """
+    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(outcome.codes)
+    matched = table[selected]
+    days = record_days(cohort, matched, outcome.table)
+    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
+    first = days[in_window].groupby(matched.loc[in_window, "PATIENT"]).min()
+    return _EventSelection(matched, days, in_window, after, first)
+
+
 def measure_event(
     cohort: IndexedCohort,
     table: pd.DataFrame,
@@ -235,23 +310,136 @@ def measure_event(
     date, and :attr:`~synthea_quality.indexed.models.EventResult.days` describes the days
     to the first record of the window, one value per patient.
     """
-    selected = table["PATIENT"].isin(cohort.frame.index) & table["CODE"].isin(outcome.codes)
-    matched = table[selected]
-    days = record_days(cohort, matched, outcome.table)
-    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
-    first = days[in_window].groupby(matched.loc[in_window, "PATIENT"]).min()
+    selection = _event_selection(cohort, table, outcome, reference)
     return EventResult(
         name=outcome.name,
         table=outcome.table,
         codes=outcome.codes,
         window=outcome.window,
-        breakdown=breakdown(cohort, first.index, age_bands),
-        days=summarise(first),
-        rows_matched=len(matched),
-        rows_date_unusable=int(days.isna().sum()),
-        rows_after_reference=int(after.sum()),
-        rows_outside_window=int((days.notna() & ~after & ~in_window).sum()),
+        breakdown=breakdown(cohort, selection.first.index, age_bands),
+        days=summarise(selection.first),
+        rows_matched=len(selection.matched),
+        rows_date_unusable=int(selection.days.isna().sum()),
+        rows_after_reference=int(selection.after_reference.sum()),
+        rows_outside_window=int(
+            (
+                selection.days.notna()
+                & ~selection.after_reference
+                & ~selection.in_window
+            ).sum()
+        ),
     )
+
+
+def event_members(
+    cohort: IndexedCohort,
+    table: pd.DataFrame,
+    outcome: EventOutcome,
+    reference: date,
+) -> OutcomeMembers:
+    """The patients of an event outcome: those with a record of its codes in its window.
+
+    The set is the one of the total numerator of :func:`measure_event`: a cross of this
+    outcome counts exactly the patients the outcome counts.
+    """
+    selection = _event_selection(cohort, table, outcome, reference)
+    return OutcomeMembers(patients=frozenset(selection.first.index))
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _ValueSelection:
+    """The records of a value outcome and the labels they give to each patient."""
+
+    #: The observations of the code of the outcome, of the patients of the cohort.
+    matched: pd.DataFrame
+    #: The days from the index date to each of those observations.
+    days: pd.Series
+    #: Which of those observations fall in the window.
+    in_window: pd.Series
+    #: Which of those observations are dated after the reference date.
+    after_reference: pd.Series
+    #: The labels of each patient on the picked date, already grouped.
+    values_by_patient: dict[str, frozenset[str]]
+
+
+def _value_selection(
+    cohort: IndexedCohort,
+    observations: pd.DataFrame,
+    outcome: ValueOutcome,
+    reference: date,
+) -> _ValueSelection:
+    """The records of a value outcome and the labels they give to each patient.
+
+    The groups are applied here, before anything is counted, so the shares, the
+    breakdown and the patients with more than one value all speak of the same labels.
+    The masks are computed once and used by both the measure and the members of the
+    outcome, so the two can never disagree on which patients count.
+    """
+    matched = observations[
+        observations["PATIENT"].isin(cohort.frame.index)
+        & (observations["CODE"] == outcome.code)
+    ]
+    days = record_days(cohort, matched, "observations")
+    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
+    valued = in_window & matched["VALUE"].notna()
+    on_picked_date = pd.Series(False, index=matched.index)
+    if valued.any():
+        pick = "min" if outcome.pick == "first" else "max"
+        picked_day = days.where(valued).groupby(matched["PATIENT"]).transform(pick)
+        on_picked_date = valued & (days == picked_day)
+    groups = _group_labels(outcome)
+    values_by_patient = {
+        str(patient): frozenset(_label_of(str(value), groups) for value in values)
+        for patient, values in matched[on_picked_date].groupby("PATIENT")["VALUE"]
+    }
+    return _ValueSelection(matched, days, in_window, after, values_by_patient)
+
+
+def _group_labels(outcome: ValueOutcome) -> dict[str, str]:
+    """Each grouped ``VALUE`` text under the label of its group."""
+    return {text: label for label, texts in outcome.groups for text in texts}
+
+
+def _label_of(value: str, groups: Mapping[str, str]) -> str:
+    """The label of ``value``: the label of its group, or the text itself.
+
+    A group label that is also the text of a value outside every group counts them
+    together: they are the same label.
+    """
+    return groups.get(value, value)
+
+
+def _patients_by_label(
+    values_by_patient: Mapping[str, frozenset[str]],
+) -> dict[str, frozenset[str]]:
+    """Each label of a value outcome and the patients under it."""
+    by_label: dict[str, set[str]] = {}
+    for patient, labels in values_by_patient.items():
+        for label in labels:
+            by_label.setdefault(label, set()).add(patient)
+    return {label: frozenset(patients) for label, patients in by_label.items()}
+
+
+def _value_order(patients_by_label: Mapping[str, frozenset[str]]) -> tuple[str, ...]:
+    """The labels of a value outcome, most patients first and by label on a tie.
+
+    The order is the one of the table of values; the strata of a cross follow it, so
+    both tables of the report speak of the values in the same order.
+    """
+    return tuple(
+        sorted(patients_by_label, key=lambda label: (-len(patients_by_label[label]), label))
+    )
+
+
+def _patients_with_several_labels(
+    patients_by_label: Mapping[str, frozenset[str]],
+) -> int:
+    """How many patients are under more than one label."""
+    counts: dict[str, int] = {}
+    for patients in patients_by_label.values():
+        for patient in patients:
+            counts[patient] = counts.get(patient, 0) + 1
+    return sum(1 for count in counts.values() if count > 1)
 
 
 def measure_value(
@@ -270,46 +458,105 @@ def measure_value(
     and ``patients_with_several_values`` says how many patients do. An empty VALUE is
     not a value, so it is counted and left out; a patient without a value stays in the
     denominator.
+
+    The ``groups`` of the outcome are applied first: a VALUE text that belongs to a
+    group counts under the label of the group, so a patient with two rows of the same
+    group on the same date counts once. A text outside every group keeps its own text,
+    and a label that is also a text outside every group counts both together.
     """
-    matched = observations[
-        observations["PATIENT"].isin(cohort.frame.index)
-        & (observations["CODE"] == outcome.code)
-    ]
-    days = record_days(cohort, matched, "observations")
-    in_window, after = _window_masks(cohort, matched, days, outcome.window, reference)
-    valued = in_window & matched["VALUE"].notna()
-    on_picked_date = pd.Series(False, index=matched.index)
-    if valued.any():
-        pick = "min" if outcome.pick == "first" else "max"
-        picked_day = days.where(valued).groupby(matched["PATIENT"]).transform(pick)
-        on_picked_date = valued & (days == picked_day)
-    values_by_patient: dict[str, set[str]] = {
-        str(patient): {str(value) for value in values}
-        for patient, values in matched[on_picked_date].groupby("PATIENT")["VALUE"]
-    }
-    counts: dict[str, int] = {}
-    for values in values_by_patient.values():
-        for value in values:
-            counts[value] = counts.get(value, 0) + 1
+    selection = _value_selection(cohort, observations, outcome, reference)
+    patients_by_label = _patients_by_label(selection.values_by_patient)
     shares = tuple(
-        ValueShare(value, patients)
-        for value, patients in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ValueShare(label, len(patients_by_label[label]))
+        for label in _value_order(patients_by_label)
     )
     return ValueResult(
         name=outcome.name,
         code=outcome.code,
         pick=outcome.pick,
         window=outcome.window,
-        breakdown=breakdown(cohort, pd.Index(list(values_by_patient)), age_bands),
+        breakdown=breakdown(cohort, pd.Index(list(selection.values_by_patient)), age_bands),
         values=shares,
-        patients_with_several_values=sum(
-            1 for values in values_by_patient.values() if len(values) > 1
+        patients_with_several_values=_patients_with_several_labels(patients_by_label),
+        rows_matched=len(selection.matched),
+        rows_date_unusable=int(selection.days.isna().sum()),
+        rows_after_reference=int(selection.after_reference.sum()),
+        rows_outside_window=int(
+            (
+                selection.days.notna()
+                & ~selection.after_reference
+                & ~selection.in_window
+            ).sum()
         ),
-        rows_matched=len(matched),
-        rows_date_unusable=int(days.isna().sum()),
-        rows_after_reference=int(after.sum()),
-        rows_outside_window=int((days.notna() & ~after & ~in_window).sum()),
-        rows_value_empty=int((in_window & matched["VALUE"].isna()).sum()),
+        rows_value_empty=int(
+            (selection.in_window & selection.matched["VALUE"].isna()).sum()
+        ),
+    )
+
+
+def value_members(
+    cohort: IndexedCohort,
+    observations: pd.DataFrame,
+    outcome: ValueOutcome,
+    reference: date,
+) -> OutcomeMembers:
+    """The patients of a value outcome and the labels they have.
+
+    The set of patients is the one of the total numerator of :func:`measure_value`, and
+    the labels are already grouped: a cross of this outcome counts exactly the patients
+    the outcome counts, under the same labels.
+    """
+    selection = _value_selection(cohort, observations, outcome, reference)
+    return OutcomeMembers(
+        patients=frozenset(selection.values_by_patient),
+        values=_patients_by_label(selection.values_by_patient),
+    )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _DeathSelection:
+    """The deaths of the cohort in the window and their recorded cause."""
+
+    #: The ``DEATHDATE`` of each patient of the cohort.
+    death_dates: pd.Series
+    #: The days from the index date to each of those dates.
+    days: pd.Series
+    #: Which of those deaths are dated after the reference date.
+    after_reference: pd.Series
+    #: Which of those deaths fall in the window.
+    in_window: pd.Series
+    #: The patients who died in the window.
+    dead: pd.Index
+    #: Patients whose ``DEATHDATE`` is present but unparseable.
+    deathdate_unusable: int
+    #: (deaths with the cause, deaths with any cause record); ``None`` without a cause.
+    causes: tuple[frozenset[str], frozenset[str]] | None
+
+
+def _death_selection(
+    cohort: IndexedCohort,
+    patients: pd.DataFrame,
+    observations: pd.DataFrame | None,
+    outcome: DeathOutcome,
+    reference: date,
+) -> _DeathSelection:
+    """The deaths of the cohort in the window and the cause they recorded.
+
+    The masks are computed once and used by both the measure and the members of the
+    outcome, so the two can never disagree on which patients count.
+    """
+    frame = cohort.frame
+    death_dates = frame["DEATH_DATE"]
+    days = (death_dates - frame["INDEX_DATE"]).dt.days.astype("float")
+    after = death_dates > pd.Timestamp(reference)
+    in_window = days.notna() & ~after & (days >= outcome.window.from_days)
+    if outcome.window.to_days is not None:
+        in_window &= days <= outcome.window.to_days
+    dead = frame.index[in_window]
+    unusable = parse_date_only(patients.set_index("Id")["DEATHDATE"].reindex(frame.index))
+    causes = _cause_members(observations, dead, outcome.cause_values)
+    return _DeathSelection(
+        death_dates, days, after, in_window, dead, unusable.unparseable, causes
     )
 
 
@@ -329,47 +576,63 @@ def measure_death(
     description rather than a code, so ``cause_values`` match the exact texts of the
     module file. Every count is a patient, never a row.
     """
-    frame = cohort.frame
-    death_dates = frame["DEATH_DATE"]
-    days = (death_dates - frame["INDEX_DATE"]).dt.days.astype("float")
-    after = death_dates > pd.Timestamp(reference)
-    in_window = days.notna() & ~after & (days >= outcome.window.from_days)
-    if outcome.window.to_days is not None:
-        in_window &= days <= outcome.window.to_days
-    dead = frame.index[in_window]
-    unusable = parse_date_only(patients.set_index("Id")["DEATHDATE"].reindex(frame.index))
-    with_cause, other_cause, no_cause_record = _cause_counts(
-        observations, dead, outcome.cause_values
-    )
+    selection = _death_selection(cohort, patients, observations, outcome, reference)
+    with_cause, other_cause, no_cause_record = _cause_counts(selection)
     return DeathResult(
         name=outcome.name,
         cause_values=outcome.cause_values,
         window=outcome.window,
-        breakdown=breakdown(cohort, dead, age_bands),
-        days=summarise(days[in_window]),
-        deaths_after_reference=int(after.sum()),
-        deaths_outside_window=int((death_dates.notna() & ~after & ~in_window).sum()),
-        deathdate_unusable=unusable.unparseable,
+        breakdown=breakdown(cohort, selection.dead, age_bands),
+        days=summarise(selection.days[selection.in_window]),
+        deaths_after_reference=int(selection.after_reference.sum()),
+        deaths_outside_window=int(
+            (
+                selection.death_dates.notna()
+                & ~selection.after_reference
+                & ~selection.in_window
+            ).sum()
+        ),
+        deathdate_unusable=selection.deathdate_unusable,
         with_cause=with_cause,
         other_cause=other_cause,
         no_cause_record=no_cause_record,
     )
 
 
-def _cause_counts(
+def death_members(
+    cohort: IndexedCohort,
+    patients: pd.DataFrame,
+    observations: pd.DataFrame | None,
+    outcome: DeathOutcome,
+    reference: date,
+) -> OutcomeMembers:
+    """The patients of a death outcome and the deaths with its recorded cause.
+
+    The set of patients is the one of the total numerator of :func:`measure_death`. The
+    cause is ``None`` without ``cause_values`` or without an observations table: there
+    is then no cause to count.
+    """
+    selection = _death_selection(cohort, patients, observations, outcome, reference)
+    return OutcomeMembers(
+        patients=frozenset(selection.dead),
+        with_cause=selection.causes[0] if selection.causes is not None else None,
+    )
+
+
+def _cause_members(
     observations: pd.DataFrame | None,
     dead: pd.Index,
     cause_values: tuple[str, ...],
-) -> tuple[int | None, int | None, int | None]:
-    """(with_cause, other_cause, no_cause_record) of the deceased ``dead``.
+) -> tuple[frozenset[str], frozenset[str]] | None:
+    """(deaths with the cause, deaths with any cause record) of the deceased ``dead``.
 
     A patient has a cause only with a ``69453-9`` row whose ``VALUE`` is not empty, so
-    ``no_cause_record`` counts the deceased without such a row. All three are ``None``
+    the second set leaves out the deceased without such a row. The result is ``None``
     without ``cause_values`` or without an observations table: the outcome then measures
     deaths only.
     """
     if not cause_values or observations is None:
-        return None, None, None
+        return None
     recorded = observations[
         observations["PATIENT"].isin(dead)
         & (observations["CODE"] == CAUSE_OF_DEATH_CODE)
@@ -380,5 +643,124 @@ def _cause_counts(
         if (causes := {str(value) for value in values if pd.notna(value) and str(value).strip()})
     }
     wanted = set(cause_values)
-    with_cause = sum(1 for values in by_patient.values() if values & wanted)
-    return with_cause, len(by_patient) - with_cause, len(dead) - len(by_patient)
+    with_cause = frozenset(
+        patient for patient, causes in by_patient.items() if causes & wanted
+    )
+    return with_cause, frozenset(by_patient)
+
+
+def _cause_counts(
+    selection: _DeathSelection,
+) -> tuple[int | None, int | None, int | None]:
+    """(with_cause, other_cause, no_cause_record) of the deaths of ``selection``.
+
+    The three counts add up to the deaths of the window. All three are ``None`` without
+    a cause to count: the outcome then measures deaths only.
+    """
+    if selection.causes is None:
+        return None, None, None
+    with_cause, recorded = selection.causes
+    return (
+        len(with_cause),
+        len(recorded) - len(with_cause),
+        len(selection.dead) - len(recorded),
+    )
+
+
+def measure_cross(
+    cohort: IndexedCohort,
+    cross: CrossSpec,
+    outcome: OutcomeMembers,
+    by: OutcomeMembers,
+    by_type: str,
+) -> CrossResult:
+    """The patients of ``outcome`` in each stratum of ``by``.
+
+    ``outcome`` and ``by`` are the members of the two outcomes of ``cross``: the one
+    that is measured and the one that gives the strata. ``by_type`` is the kind of the
+    outcome that gives the strata: ``"value"`` gives one stratum per value, plus a last
+    one for the patients without a value, and ``"event"`` gives two, with and without
+    the event.
+
+    The denominator of a stratum is the cohort of the stratum and the numerator the
+    patients of ``outcome`` inside it; the two outcomes keep their own windows, and no
+    order between them is required: the cross does not say that the value was observed
+    before the death. A patient with more than one value counts in every stratum it
+    belongs to, so the denominators may add up to more than the cohort.
+
+    :raises ValueError: ``by_type`` is neither ``"value"`` nor ``"event"``.
+    """
+    if by_type == "value":
+        strata, several = _value_strata(cohort, outcome, by)
+    elif by_type == "event":
+        strata, several = _event_strata(cohort, cross, outcome, by)
+    else:
+        raise ValueError(f"by_type must be 'value' or 'event', not {by_type!r}")
+    return CrossResult(
+        outcome=cross.outcome,
+        by=cross.by,
+        by_type=by_type,
+        strata=tuple(strata),
+        patients_in_several_strata=several,
+    )
+
+
+def skipped_cross(cross: CrossSpec, by_type: str, name: str, reason: str) -> CrossResult:
+    """A cross that could not be computed: no strata and the reason why.
+
+    ``name`` is the outcome that could not be measured, ``X`` or ``Y`` of the crossing.
+    """
+    return CrossResult(
+        outcome=cross.outcome,
+        by=cross.by,
+        by_type=by_type,
+        strata=(),
+        patients_in_several_strata=0,
+        reason=f"outcome '{name}' was not computed: {reason}",
+    )
+
+
+def _value_strata(
+    cohort: IndexedCohort,
+    outcome: OutcomeMembers,
+    by: OutcomeMembers,
+) -> tuple[list[CrossStratum], int]:
+    """One stratum per value of ``by``, and a last one for the patients without a value."""
+    strata = [
+        _cross_stratum(label, by.values[label], outcome) for label in _value_order(by.values)
+    ]
+    valued: set[str] = set()
+    for patients in by.values.values():
+        valued |= patients
+    strata.append(_cross_stratum(NO_VALUE_LABEL, set(cohort.frame.index) - valued, outcome))
+    return strata, _patients_with_several_labels(by.values)
+
+
+def _event_strata(
+    cohort: IndexedCohort,
+    cross: CrossSpec,
+    outcome: OutcomeMembers,
+    by: OutcomeMembers,
+) -> tuple[list[CrossStratum], int]:
+    """Two strata of ``by``: the patients with the event and the ones without it."""
+    with_event = set(by.patients)
+    without = set(cohort.frame.index) - with_event
+    return [
+        _cross_stratum(f"with {cross.by}", with_event, outcome),
+        _cross_stratum(f"without {cross.by}", without, outcome),
+    ], 0
+
+
+def _cross_stratum(
+    label: str,
+    members: set[str] | frozenset[str],
+    outcome: OutcomeMembers,
+) -> CrossStratum:
+    """The cell of ``label``: the patients of ``outcome`` among ``members``."""
+    with_cause = None if outcome.with_cause is None else len(members & outcome.with_cause)
+    return CrossStratum(
+        label=label,
+        numerator=len(members & outcome.patients),
+        denominator=len(members),
+        with_cause=with_cause,
+    )
