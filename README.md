@@ -921,10 +921,13 @@ The decisions the section takes:
 - A patient's index date is the earliest `START` of the index condition on or before the
   reference date.
 - Age is completed years at the index date, not at the reference date.
-- A `value` outcome takes each patient's earliest (`first`) or latest (`last`) date in the
-  window; a patient with several values on that date counts under each of them.
-- Records after the reference date, records with an unusable date and records of a patient
-  absent from `patients.csv` are left out and counted in the report.
+- A `value` outcome takes each patient's earliest (`first`) or latest (`last`) date with a
+  non-empty `VALUE` in the window; a patient with several values on that date counts under
+  each of them.
+- Records of the index condition after the reference date, with an unusable `START` or of a
+  patient absent from `patients.csv` are left out and counted in the report; so are, per
+  outcome, the records after the reference date, with an unusable date or outside the
+  window.
 - A missing table leaves only its outcome `SKIPPED`, with the reason; the other outcomes
   are still measured.
 - Without `index`, the report is the same as before.
@@ -952,8 +955,8 @@ crossing one outcome with another, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 805 unit and component tests, about 15 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 57 end-to-end tests that run the commands as a user would, about 70 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1031 unit and component tests, about 20 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 69 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
