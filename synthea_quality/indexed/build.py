@@ -129,7 +129,7 @@ def indexed_cohort_result(
         if table == OBSERVATIONS and observations is not None:
             frames[table] = observations
             continue
-        frame, table_input = _load_table(context, table, _reads_value(outcomes))
+        frame, table_input = _load_table(context, table)
         frames[table] = frame
         inputs.append(table_input)
         if frame is None:
@@ -154,33 +154,18 @@ def indexed_cohort_result(
     )
 
 
-def _load_table(
-    context: DatasetContext, table: str, reads_value: bool
-) -> tuple[pd.DataFrame | None, TableInput]:
+def _load_table(context: DatasetContext, table: str) -> tuple[pd.DataFrame | None, TableInput]:
     """Read the columns ``table`` needs for the outcomes, and what happened to it.
 
-    ``observations`` is always read with ``VALUE`` when it has one, but only requires it
-    when ``reads_value``: an ``event`` outcome on ``observations`` does not read it.
+    ``observations`` is read with ``VALUE`` when it has one but never requires it: only the
+    outcomes that read ``VALUE`` need it, and :func:`_measure` skips those without it.
     """
     columns: tuple[str, ...]
     if table == OBSERVATIONS:
-        wanted = OBSERVATION_VALUE_COLUMNS
-        if reads_value:
-            columns = wanted
-        else:
-            columns = tuple(c for c in wanted if c != "VALUE")
-        return context.load(table, wanted, columns, INDEXED_USED_FOR)
+        columns = tuple(c for c in OBSERVATION_VALUE_COLUMNS if c != "VALUE")
+        return context.load(table, OBSERVATION_VALUE_COLUMNS, columns, INDEXED_USED_FOR)
     columns = ("PATIENT", "CODE", DATE_COLUMNS.get(table, "START"))
     return context.load(table, columns, columns, INDEXED_USED_FOR)
-
-
-def _reads_value(outcomes: Sequence[Outcome]) -> bool:
-    """Whether an outcome reads ``VALUE``: a ``value``, or a ``death`` with ``cause_values``."""
-    return any(
-        isinstance(outcome, ValueOutcome)
-        or (isinstance(outcome, DeathOutcome) and bool(outcome.cause_values))
-        for outcome in outcomes
-    )
 
 
 def _measure(
@@ -199,6 +184,9 @@ def _measure(
     frame = frames.get(table)
     if frame is None:
         return SkippedOutcome(outcome.name, _outcome_type(outcome), reasons[table])
+    if not isinstance(outcome, EventOutcome) and "VALUE" not in frame.columns:
+        reason = f"{OBSERVATIONS}.csv has no VALUE column(s)"
+        return SkippedOutcome(outcome.name, _outcome_type(outcome), reason)
     if isinstance(outcome, EventOutcome):
         return measure_event(cohort, frame, outcome, reference, age_bands)
     if isinstance(outcome, ValueOutcome):

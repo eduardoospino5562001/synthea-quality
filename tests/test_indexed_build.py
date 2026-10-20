@@ -292,3 +292,25 @@ def test_b13_a_table_not_read_states_its_use(tmp_path):
         "observations.csv has no VALUE column(s)"
     ) in text
     assert "- `observations`: 1 rows, for indexed cohort outcomes" in text
+
+
+def test_b14_an_event_is_measured_when_another_outcome_lacks_value(tmp_path):
+    directory = covid_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "observations",
+        [{"DATE": "2023-02-01T00:00:00Z", "PATIENT": "p1", "CODE": "21908-9"}],
+        columns=("DATE", "PATIENT", "CODE"),
+    )
+    outcomes = [
+        {"name": "Stage recorded", "type": "event", "table": "observations", "codes": ["21908-9"]},
+        {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"},
+        {"name": "Death", "type": "death", "cause_values": ["Cause"]},
+    ]
+    report = validate(directory, write_module(tmp_path, outcomes), reference_date="2026-01-01")
+    measured = {o["name"]: o for o in report.to_dict()["indexed_cohort"]["outcomes"]}
+    assert measured["Stage recorded"]["status"] == "COMPUTED"
+    assert measured["Stage recorded"]["breakdown"]["total"]["numerator"] == 1
+    for name in ("Stage group", "Death"):
+        assert measured[name]["status"] == "SKIPPED"
+        assert measured[name]["reason"] == "observations.csv has no VALUE column(s)"
