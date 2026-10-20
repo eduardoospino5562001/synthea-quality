@@ -7,10 +7,12 @@ import json
 import pytest
 
 from synthea_quality.indexed.definitions import (
+    CrossSpec,
     DeathOutcome,
     IndexSpec,
     ValueOutcome,
     Window,
+    load_crosses,
     load_indexed,
 )
 from synthea_quality.prevalence.definitions import DefinitionError
@@ -19,10 +21,26 @@ from synthea_quality.validate.models import load_module
 NAMES = {"COVID-19", "Breast cancer"}
 
 DEATH = {"name": "Death", "type": "death"}
+STAGE = {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"}
+#: A file with a ``value`` outcome to cross and a ``death`` outcome to cross with.
+BY_FILE = {"index": {"condition": "Breast cancer"}, "outcomes": [STAGE, DEATH]}
 
 
 def load(data):
     return load_indexed(data, origin="f", condition_names=NAMES)
+
+
+def load_by(data):
+    """The crossings of a file, read after its outcomes."""
+    _, outcomes = load(data)
+    return load_crosses(data, origin="f", outcomes=outcomes)
+
+
+def groups_file(groups):
+    """A file with one ``value`` outcome that has the given groups."""
+    return {"index": {"condition": "Breast cancer"},
+            "outcomes": [{"name": "Stage group", "type": "value", "code": "21908-9",
+                          "groups": groups}]}
 
 
 def test_a_index_names_a_condition_the_file_does_not_define():
@@ -201,3 +219,161 @@ def test_repeated_code_in_an_outcome_is_rejected():
                           "codes": ["1505002", "1505002"]}]}
     with pytest.raises(DefinitionError, match="repeats code '1505002'"):
         load(data)
+
+
+def test_groups_must_be_an_object():
+    with pytest.raises(DefinitionError, match="must be a non-empty object"):
+        load(groups_file(["Stage 1"]))
+
+
+def test_empty_groups_are_rejected():
+    with pytest.raises(DefinitionError, match="must be a non-empty object"):
+        load(groups_file({}))
+
+
+def test_a_group_label_cannot_be_empty():
+    with pytest.raises(DefinitionError, match="needs a non-empty label"):
+        load(groups_file({"   ": ["Stage 1 (qualifier value)"]}))
+
+
+def test_a_group_cannot_use_the_no_value_label():
+    with pytest.raises(DefinitionError, match="cannot use the label 'no value'"):
+        load(groups_file({"no value": ["Stage 1 (qualifier value)"]}))
+
+
+def test_a_group_needs_a_non_empty_list_of_texts():
+    with pytest.raises(DefinitionError, match="needs a non-empty list of texts"):
+        load(groups_file({"Stage 1": []}))
+
+
+def test_group_texts_must_be_non_empty_strings():
+    with pytest.raises(DefinitionError, match="texts must be non-empty strings"):
+        load(groups_file({"Stage 1": [""]}))
+    with pytest.raises(DefinitionError, match="texts must be non-empty strings"):
+        load(groups_file({"Stage 1": ["Stage 1 (qualifier value)", 7]}))
+
+
+def test_a_group_cannot_repeat_a_text():
+    groups = {"Stage 1": ["Stage 1 (qualifier value)", "Stage 1 (qualifier value)"]}
+    with pytest.raises(DefinitionError, match="repeats the text 'Stage 1"):
+        load(groups_file(groups))
+
+
+def test_a_text_cannot_be_in_two_groups():
+    groups = {"Stage 1": ["Stage 1 (qualifier value)"],
+              "Stage 2": ["Stage 1 (qualifier value)"]}
+    with pytest.raises(DefinitionError, match="in more than one group"):
+        load(groups_file(groups))
+
+
+def test_groups_are_read_in_the_order_of_the_file_and_stripped():
+    groups = {
+        " Stage 1 ": ["Stage 1 (qualifier value) ",
+                      "Stage 1A (qualifier value)"],
+        "Stage 2": ["Stage 2 (qualifier value)"],
+    }
+    _, (outcome,) = load(groups_file(groups))
+    assert outcome == ValueOutcome(
+        "Stage group",
+        "21908-9",
+        "first",
+        Window(0, None),
+        (("Stage 1", ("Stage 1 (qualifier value)", "Stage 1A (qualifier value)")),
+         ("Stage 2", ("Stage 2 (qualifier value)",))),
+    )
+
+
+def test_by_needs_an_index():
+    with pytest.raises(DefinitionError, match="needs an 'index'"):
+        load_crosses(
+            {"by": [{"outcome": "Death", "by": "Stage group"}]}, origin="f", outcomes=()
+        )
+
+
+def test_by_must_be_a_list():
+    with pytest.raises(DefinitionError, match="must be a non-empty list"):
+        load_by({**BY_FILE, "by": {"outcome": "Death", "by": "Stage group"}})
+
+
+def test_by_must_not_be_empty():
+    with pytest.raises(DefinitionError, match="must be a non-empty list"):
+        load_by({**BY_FILE, "by": []})
+
+
+def test_a_by_entry_must_be_an_object():
+    with pytest.raises(DefinitionError, match="is not an object"):
+        load_by({**BY_FILE, "by": ["Death"]})
+
+
+def test_a_by_entry_rejects_unknown_keys():
+    entry = {"outcome": "Death", "by": "Stage group", "label": "x"}
+    with pytest.raises(DefinitionError, match="unknown key"):
+        load_by({**BY_FILE, "by": [entry]})
+
+
+def test_a_by_entry_needs_both_names():
+    with pytest.raises(DefinitionError, match="needs the 'outcome' name"):
+        load_by({**BY_FILE, "by": [{"by": "Stage group"}]})
+    with pytest.raises(DefinitionError, match="needs the 'by' name"):
+        load_by({**BY_FILE, "by": [{"outcome": "Death"}]})
+
+
+def test_by_names_an_outcome_the_file_does_not_define():
+    with pytest.raises(DefinitionError, match="'Survival' is not an outcome of the file"):
+        load_by({**BY_FILE, "by": [{"outcome": "Survival", "by": "Stage group"}]})
+
+
+def test_an_outcome_cannot_be_crossed_with_itself():
+    with pytest.raises(DefinitionError, match="cannot be crossed with itself"):
+        load_by({**BY_FILE, "by": [{"outcome": "Stage group", "by": "Stage group"}]})
+
+
+def test_a_death_outcome_cannot_give_the_strata():
+    with pytest.raises(DefinitionError, match="need a 'value' or an 'event'"):
+        load_by({**BY_FILE, "by": [{"outcome": "Stage group", "by": "Death"}]})
+
+
+def test_the_same_pair_cannot_be_crossed_twice():
+    entry = {"outcome": "Death", "by": "Stage group"}
+    with pytest.raises(DefinitionError, match="crossed more than once"):
+        load_by({**BY_FILE, "by": [entry, entry]})
+
+
+def test_by_is_read():
+    data = {**BY_FILE, "by": [{"outcome": "Death", "by": "Stage group"}]}
+    assert load_by(data) == (CrossSpec("Death", "Stage group"),)
+
+
+def test_load_module_reads_groups_and_crosses(tmp_path):
+    data = {
+        "conditions": [{"name": "Breast cancer", "codes": ["254837009"]}],
+        "index": {"condition": "Breast cancer"},
+        "outcomes": [
+            {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first",
+             "groups": {"Stage 1": ["Stage 1 (qualifier value)"]}},
+            {"name": "Death", "type": "death",
+             "cause_values": ["Malignant neoplasm of breast (disorder)"]},
+        ],
+        "by": [{"outcome": "Death", "by": "Stage group"}],
+    }
+    path = tmp_path / "module.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    module = load_module(path)
+    assert module.crosses == (CrossSpec("Death", "Stage group"),)
+    assert module.outcomes[0].groups == (("Stage 1", ("Stage 1 (qualifier value)",)),)
+
+
+def test_a_file_without_by_or_groups_has_neither(tmp_path):
+    data = {
+        "conditions": [{"name": "Breast cancer", "codes": ["254837009"]}],
+        "index": {"condition": "Breast cancer"},
+        "outcomes": [
+            {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"},
+            {"name": "Death", "type": "death"},
+        ],
+    }
+    path = tmp_path / "module.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    module = load_module(path)
+    assert module.crosses == ()
+    assert module.outcomes[0].groups == ()

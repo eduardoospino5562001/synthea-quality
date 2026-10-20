@@ -32,7 +32,13 @@ from typing import Any
 from synthea_quality import __version__
 from synthea_quality.export_history import ExportHistory
 from synthea_quality.incidence.models import ConditionIncidence, Window
-from synthea_quality.indexed.definitions import IndexSpec, Outcome, load_indexed
+from synthea_quality.indexed.definitions import (
+    CrossSpec,
+    IndexSpec,
+    Outcome,
+    load_crosses,
+    load_indexed,
+)
 from synthea_quality.indexed.models import IndexedCohortResult
 from synthea_quality.medications.definitions import MedicationDefinition, load_medications
 from synthea_quality.medications.models import DEFINITIONS as MEDICATION_DEFINITIONS
@@ -82,6 +88,7 @@ class ModuleFile:
     medications: tuple[MedicationDefinition, ...] = ()
     index: IndexSpec | None = None
     outcomes: tuple[Outcome, ...] = ()
+    crosses: tuple[CrossSpec, ...] = ()
 
 
 def load_module(path: str | Path) -> ModuleFile:
@@ -107,6 +114,7 @@ def load_module(path: str | Path) -> ModuleFile:
     index, outcomes = load_indexed(
         data, origin=str(file_path), condition_names={c.name for c in definitions}
     )
+    crosses = load_crosses(data, origin=str(file_path), outcomes=outcomes)
     block = data.get("module", {})
     if not isinstance(block, dict):
         raise DefinitionError(f"{file_path}: 'module' must be an object")
@@ -131,6 +139,7 @@ def load_module(path: str | Path) -> ModuleFile:
         medications,
         index=index,
         outcomes=outcomes,
+        crosses=crosses,
     )
 
 

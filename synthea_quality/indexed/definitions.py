@@ -24,19 +24,25 @@
     ``table`` and ``codes``: patients with a record of one of the codes in the window.
 ``type: value``
     ``code`` of ``observations`` and ``pick`` (``first`` or ``last``): the value on the
-    earliest or latest date of the window.
+    earliest or latest date of the window. ``groups`` (optional) joins several exact
+    ``VALUE`` texts under one label, so that a patient with two rows of the same day
+    counts once.
 ``type: death``
     ``cause_values`` (optional): exact ``VALUE`` texts of observation ``69453-9``.
+``by`` (optional)
+    A list of ``{"outcome": X, "by": Y}``: the patients of X in each stratum of Y. Y
+    has to be a ``value`` or an ``event``; X can be of any type.
 
 Anything ambiguous is an input error, never a guess: an ``index`` without ``outcomes``
 or the reverse, an empty ``outcomes`` list, a repeated name, an unknown key or type, a
-table outside :data:`EVENT_TABLES`, an empty ``codes`` list, a bad ``pick``, or a window
-whose ``from_days`` is after its ``to_days``.
+table outside :data:`EVENT_TABLES`, an empty ``codes`` list, a bad ``pick``, a window
+whose ``from_days`` is after its ``to_days``, a malformed ``groups`` object, or a
+malformed ``by`` list.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -58,11 +64,14 @@ EVENT_TABLES = (
 #: How a ``value`` outcome picks one date per patient.
 PICKS = ("first", "last")
 DEFAULT_PICK = "first"
+#: The label of the stratum with no value; a group of a ``value`` outcome cannot use it,
+#: because the report would show two different strata with the same name.
+NO_VALUE_LABEL = "no value"
 
 _COMMON_KEYS = {"name", "type", "window"}
 _TYPE_KEYS = {
     "event": {"table", "codes"},
-    "value": {"code", "pick"},
+    "value": {"code", "pick", "groups"},
     "death": {"cause_values"},
 }
 
@@ -100,6 +109,8 @@ class ValueOutcome:
     code: str
     pick: str = DEFAULT_PICK
     window: Window = field(default_factory=Window)
+    #: The exact ``VALUE`` texts of each group, in the order of the module file.
+    groups: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +120,14 @@ class DeathOutcome:
     name: str
     cause_values: tuple[str, ...] = ()
     window: Window = field(default_factory=Window)
+
+
+@dataclass(frozen=True, slots=True)
+class CrossSpec:
+    """One crossing: the patients of ``outcome`` in each stratum of ``by``."""
+
+    outcome: str
+    by: str
 
 
 Outcome = EventOutcome | ValueOutcome | DeathOutcome
@@ -133,6 +152,39 @@ def load_indexed(
     if "outcomes" not in data:
         raise DefinitionError(f"{origin}: 'index' needs a non-empty 'outcomes' list")
     return index, _outcomes(data["outcomes"], origin=origin)
+
+
+def load_crosses(
+    data: Mapping[str, Any], *, origin: str, outcomes: Sequence[Outcome]
+) -> tuple[CrossSpec, ...]:
+    """The ``by`` crossings of a parsed module file (none without the key).
+
+    ``outcomes`` are the outcomes of the same file: a crossing names two of them, and
+    the one that gives the strata has to be a ``value`` or an ``event``.
+
+    :raises DefinitionError: a crossing cannot be used as given.
+    """
+    if "by" not in data:
+        return ()
+    if not outcomes:
+        raise DefinitionError(f"{origin}: 'by' needs an 'index' and its 'outcomes'")
+    raw = data["by"]
+    if not isinstance(raw, list) or not raw:
+        raise DefinitionError(f"{origin}: 'by' must be a non-empty list")
+    defined = {outcome.name: outcome for outcome in outcomes}
+    crosses: list[CrossSpec] = []
+    seen: set[tuple[str, str]] = set()
+    for index, item in enumerate(raw):
+        cross = _cross(item, origin=f"{origin} by[{index}]", outcomes=defined)
+        pair = (cross.outcome, cross.by)
+        if pair in seen:
+            raise DefinitionError(
+                f"{origin}: the pair ({cross.outcome!r}, {cross.by!r}) is crossed more "
+                f"than once"
+            )
+        seen.add(pair)
+        crosses.append(cross)
+    return tuple(crosses)
 
 
 def _index(
@@ -254,7 +306,63 @@ def _value_outcome(
         raise DefinitionError(
             f"{origin}: outcome {name!r} pick must be one of {list(PICKS)}, not {pick!r}"
         )
-    return ValueOutcome(name, code.strip(), pick, window)
+    groups = _groups(item.get("groups"), origin=origin, name=name)
+    return ValueOutcome(name, code.strip(), pick, window, groups)
+
+
+def _groups(
+    raw: Any, *, origin: str, name: str
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """The groups of a ``value`` outcome: a label and the exact ``VALUE`` texts it joins.
+
+    The groups keep the order of the module file, so that the report lists them the way
+    the file does. A text belongs to one group only, and a group cannot be empty.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, Mapping) or not raw:
+        raise DefinitionError(
+            f"{origin}: outcome {name!r} 'groups' must be a non-empty object"
+        )
+    groups: list[tuple[str, tuple[str, ...]]] = []
+    owner: dict[str, str] = {}
+    for label, texts in raw.items():
+        if not isinstance(label, str) or not label.strip():
+            raise DefinitionError(
+                f"{origin}: outcome {name!r} 'groups' needs a non-empty label"
+            )
+        label = label.strip()
+        if label == NO_VALUE_LABEL:
+            raise DefinitionError(
+                f"{origin}: outcome {name!r} 'groups' cannot use the label "
+                f"{NO_VALUE_LABEL!r}"
+            )
+        if not isinstance(texts, list) or not texts:
+            raise DefinitionError(
+                f"{origin}: outcome {name!r} group {label!r} needs a non-empty list of "
+                f"texts"
+            )
+        cleaned: list[str] = []
+        for text in texts:
+            if not isinstance(text, str) or not text.strip():
+                raise DefinitionError(
+                    f"{origin}: outcome {name!r} group {label!r} texts must be non-empty "
+                    f"strings"
+                )
+            text = text.strip()
+            if text in cleaned:
+                raise DefinitionError(
+                    f"{origin}: outcome {name!r} group {label!r} repeats the text {text!r}"
+                )
+            if text in owner:
+                raise DefinitionError(
+                    f"{origin}: outcome {name!r} 'groups' uses the text {text!r} in more "
+                    f"than one group"
+                )
+            owner[text] = label
+            cleaned.append(text)
+        groups.append((label, tuple(cleaned)))
+    return tuple(groups)
 
 
 def _death_outcome(
@@ -268,3 +376,35 @@ def _death_outcome(
             f"{origin}: outcome {name!r} 'cause_values' must be a list of non-empty strings"
         )
     return DeathOutcome(name, tuple(value.strip() for value in raw), window)
+
+
+def _cross(
+    item: Any, *, origin: str, outcomes: Mapping[str, Outcome]
+) -> CrossSpec:
+    """One crossing of the ``by`` list, with the two outcomes it names."""
+    if not isinstance(item, Mapping):
+        raise DefinitionError(f"{origin} is not an object")
+    unknown = sorted(set(item) - {"outcome", "by"})
+    if unknown:
+        raise DefinitionError(f"{origin}: unknown key(s): {unknown}")
+    outcome = _cross_name(item.get("outcome"), origin=origin, key="outcome")
+    by = _cross_name(item.get("by"), origin=origin, key="by")
+    for name in (outcome, by):
+        if name not in outcomes:
+            raise DefinitionError(f"{origin}: {name!r} is not an outcome of the file")
+    if outcome == by:
+        raise DefinitionError(
+            f"{origin}: an outcome cannot be crossed with itself ({outcome!r})"
+        )
+    if not isinstance(outcomes[by], (EventOutcome, ValueOutcome)):
+        raise DefinitionError(
+            f"{origin}: {by!r} cannot give the strata of a cross, which need a 'value' "
+            f"or an 'event'"
+        )
+    return CrossSpec(outcome, by)
+
+
+def _cross_name(raw: Any, *, origin: str, key: str) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise DefinitionError(f"{origin} needs the {key!r} name")
+    return raw.strip()
