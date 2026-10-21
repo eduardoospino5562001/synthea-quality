@@ -361,8 +361,12 @@ def _load_table(
     The optional columns of the table are asked for and never required.
     """
     if table == OBSERVATIONS:
-        columns = tuple(c for c in OBSERVATION_VALUE_COLUMNS if c != VALUE_COLUMN)
-        return context.load(table, OBSERVATION_VALUE_COLUMNS, columns, INDEXED_USED_FOR)
+        required = tuple(c for c in OBSERVATION_VALUE_COLUMNS if c != VALUE_COLUMN)
+        wanted = list(required)
+        for column in (*optional, VALUE_COLUMN):
+            if column not in wanted:
+                wanted.append(column)
+        return context.load(table, wanted, required, INDEXED_USED_FOR)
     columns = ("PATIENT", "CODE", DATE_COLUMNS.get(table, "START"))
     return context.load(table, (*columns, *optional), columns, INDEXED_USED_FOR)
 
