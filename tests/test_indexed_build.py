@@ -135,7 +135,7 @@ def cross_dataset(directory: Path) -> Path:
 
 STAGE = {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"}
 DEATH = {"name": "Death", "type": "death", "cause_values": ["Cause"]}
-#: The "Recovered" event of the plan: two parts, which are not measured yet.
+#: The "Recovered" event of the plan: two parts.
 RECOVERED = {
     "name": "Recovered",
     "type": "event",
@@ -780,6 +780,9 @@ def test_b29_another_outcome_of_the_same_table_is_still_measured(tmp_path):
     assert report.indexed is not None
     recovered, isolation = report.indexed.outcomes
     assert isinstance(recovered, SkippedOutcome)
+    assert recovered.reason == (
+        "careplans.csv has no REASONCODE column(s), which part 'Isolation ended' needs"
+    )
     assert isinstance(isolation, EventResult)
     assert isolation.breakdown.total.patients == 3
 

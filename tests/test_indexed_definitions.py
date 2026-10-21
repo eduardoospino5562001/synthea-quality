@@ -458,6 +458,12 @@ def test_an_event_can_use_the_all_op():
     assert outcome.op == "all"
 
 
+def test_a_match_without_an_op_is_read_as_any():
+    without_op = {key: value for key, value in RECOVERED.items() if key != "op"}
+    _, (outcome,) = load(event_file(without_op))
+    assert outcome.op == "any"
+
+
 def test_an_event_of_one_table_is_read_as_it_was():
     _, (outcome,) = load(
         event_file(

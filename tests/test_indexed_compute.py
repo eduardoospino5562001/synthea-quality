@@ -1413,14 +1413,17 @@ def test_p9_a_record_left_out_by_two_steps_counts_in_the_first_one():
         single_patient_cohort("2020-01-01"),
         careplans(
             {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
-             "STOP": "", "REASONCODE": SUSPECTED_CODE},
+             "STOP": "", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2020-01-20", "REASONCODE": SUSPECTED_CODE},
         ),
         filtered_event("careplans", (CAREPLAN,), reasons=(COVID_CODE,), at="stop"),
         REF,
         BANDS,
     )
+    assert result.rows_matched == 2
     assert result.rows_filtered_out == 1
-    assert result.rows_not_ended == 0
+    assert result.rows_not_ended == 1
     assert result.breakdown.total.patients == 0
 
 
@@ -1537,10 +1540,24 @@ def test_p15_an_all_outcome_needs_every_part():
         {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
         {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
     )
-    tables = recovered_tables()
-    result = measure_event(cohort, tables, recovered_outcome("all"), REF, BANDS)
-    assert result.breakdown.total.patients == 2
-    assert result.op == "all"
+    tables = {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a2", "CODE": NEGATIVE_TEST, "DATE": "2020-01-05T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+    every = measure_event(cohort, tables, recovered_outcome("all"), REF, BANDS)
+    assert every.op == "all"
+    assert every.breakdown.total.patients == 0
+    assert every.days.n == 0
+    assert [match.patients for match in every.matches] == [1, 1]
+    one = measure_event(cohort, tables, recovered_outcome("any"), REF, BANDS)
+    assert one.op == "any"
+    assert one.breakdown.total.patients == 2
 
 
 def test_p16_an_all_outcome_needs_a_patient_of_every_part():

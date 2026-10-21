@@ -477,6 +477,11 @@ def test_i12_the_recovered_outcome_is_the_independent_recount(sample, covid):
 def test_i13_the_recovered_outcome_of_every_part_is_the_independent_recount(
     sample, tmp_path
 ):
+    """The ``all`` outcome of both parts, recounted with the ``csv`` module.
+
+    The official sample has no patient with both parts, so the recount and the tool
+    both say 0: the test checks that the two agree, not that the figure is not zero.
+    """
     index_dates = _index_dates(sample, COVID_CODE)
     parts = _recovered_parts(COVID)
     recounted = [_part_days(sample, part, index_dates) for part in parts]
