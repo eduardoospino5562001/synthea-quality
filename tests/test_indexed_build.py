@@ -1010,3 +1010,34 @@ def test_b36_a_module_without_an_event_on_those_tables_lists_them_as_before(tmp_
         ("medications", "medication records", 1),
         ("encounters", "indexed cohort outcomes", 1),
     ]
+
+
+def test_b37_the_cohort_does_not_change_the_frame_of_the_report(tmp_path, monkeypatch):
+    """The frame the report read reaches the cohort as it was read.
+
+    The cohort measures its outcomes from that frame: if any step changed it in place,
+    the figures of the outcomes would change without anything saying so.
+    """
+    directory = ended_covid_dataset(tmp_path / "csv")
+    frames: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+    original = DatasetContext.load
+
+    def counted(
+        self: DatasetContext,
+        name: str,
+        wanted: Sequence[str],
+        required: Sequence[str],
+        used_for: str,
+    ) -> tuple[pd.DataFrame | None, TableInput]:
+        frame, table_input = original(self, name, wanted, required, used_for)
+        if name == "conditions" and frame is not None:
+            frames[name] = (frame, frame.copy(deep=True))
+        return frame, table_input
+
+    monkeypatch.setattr(DatasetContext, "load", counted)
+    validate(
+        directory, write_module(tmp_path, [CONDITION_ENDED]), reference_date="2026-01-01"
+    )
+    assert "conditions" in frames
+    frame, read = frames["conditions"]
+    pd.testing.assert_frame_equal(frame, read)
