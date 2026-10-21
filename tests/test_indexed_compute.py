@@ -1416,13 +1416,15 @@ def test_p9_a_record_left_out_by_two_steps_counts_in_the_first_one():
              "STOP": "", "REASONCODE": COVID_CODE},
             {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
              "STOP": "2020-01-20", "REASONCODE": SUSPECTED_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "", "REASONCODE": SUSPECTED_CODE},
         ),
         filtered_event("careplans", (CAREPLAN,), reasons=(COVID_CODE,), at="stop"),
         REF,
         BANDS,
     )
-    assert result.rows_matched == 2
-    assert result.rows_filtered_out == 1
+    assert result.rows_matched == 3
+    assert result.rows_filtered_out == 2
     assert result.rows_not_ended == 1
     assert result.breakdown.total.patients == 0
 
