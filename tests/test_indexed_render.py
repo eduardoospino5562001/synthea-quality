@@ -11,6 +11,7 @@ from synthea_quality.indexed.models import (
     CrossResult,
     CrossStratum,
     DeathResult,
+    EventMatchResult,
     EventResult,
     IndexedCohortResult,
     SkippedOutcome,
@@ -43,6 +44,69 @@ def event() -> EventResult:
         rows_date_unusable=0,
         rows_after_reference=1,
         rows_outside_window=1,
+    )
+
+
+def match(
+    name: str,
+    table: str,
+    codes: tuple[str, ...],
+    *,
+    values: tuple[str, ...] = (),
+    reasons: tuple[str, ...] = (),
+    at: str = "start",
+    patients: int = 1,
+) -> EventMatchResult:
+    """A part of an event outcome, with what it found."""
+    return EventMatchResult(
+        name=name,
+        table=table,
+        codes=codes,
+        values=values,
+        reasons=reasons,
+        at=at,
+        patients=patients,
+        rows_matched=3,
+        rows_filtered_out=1,
+        rows_not_ended=1,
+        rows_date_unusable=0,
+        rows_after_reference=1,
+        rows_outside_window=0,
+    )
+
+
+def composite() -> EventResult:
+    """An event of two parts with filters, as the report shows it."""
+    return EventResult(
+        name="Recovered",
+        table=None,
+        codes=(),
+        window=Window(),
+        breakdown=breakdown(),
+        days=ValueSummary(2, 7, None, None, 7, None, None, 9),
+        rows_matched=6,
+        rows_date_unusable=0,
+        rows_after_reference=2,
+        rows_outside_window=2,
+        rows_filtered_out=2,
+        rows_not_ended=2,
+        op="any",
+        matches=(
+            match(
+                "Isolation | ended",
+                "careplans",
+                ("736376001",),
+                reasons=("840539006",),
+                at="stop",
+            ),
+            match(
+                "Negative test",
+                "observations",
+                ("94531-1",),
+                values=("Not detected (qualifier value)",),
+                patients=2,
+            ),
+        ),
     )
 
 
@@ -248,3 +312,93 @@ def test_r19_without_a_cross_the_text_has_no_crossing():
 def test_r20_no_verdict_words_in_a_crossing():
     text = render_indexed(replace(result(), crosses=(cross(), cross_without_cause())))
     assert re.search(r"\b(pass|fail|ok|match)\b", text, re.I) is None
+
+
+def test_r21_an_event_of_one_table_without_filters_is_shown_as_it_was():
+    text = render_indexed(result())
+    assert "| Part | Table | Codes | Filter | Patients |" not in text
+    assert "Days from the index date to the first record" in text
+    assert "Records left out: 0 with an unusable date, 1 after the reference date, " \
+        "1 outside the window (of 3 records of the codes)." in text
+
+
+def test_r22_an_event_of_several_parts_says_how_they_combine():
+    text = render_indexed(replace(result(), outcomes=(composite(),)))
+    assert "Any of the 2 parts counts; the outcome is on the earliest of them." in text
+
+
+def test_r23_an_event_that_needs_every_part_says_so():
+    every = replace(composite(), op="all")
+    text = render_indexed(replace(result(), outcomes=(every,)))
+    assert (
+        "All the 2 parts are needed; the outcome is on the day the last of them is met."
+        in text
+    )
+
+
+def test_r24_an_event_of_one_part_with_a_filter_says_it():
+    one = replace(
+        composite(),
+        matches=(match("Negative test", "observations", ("94531-1",),
+                       values=("Not detected (qualifier value)",)),),
+    )
+    text = render_indexed(replace(result(), outcomes=(one,)))
+    assert "One part." in text
+
+
+def test_r25_the_parts_of_an_event_are_shown_in_a_table():
+    text = render_indexed(replace(result(), outcomes=(composite(),)))
+    assert "| Part | Table | Codes | Filter | Patients |" in text
+    assert "| Isolation \\| ended | careplans | 736376001 | " \
+        "REASONCODE is 840539006; on STOP | 1 |" in text
+    assert "| Negative test | observations | 94531-1 | " \
+        "VALUE is Not detected (qualifier value) | 2 |" in text
+
+
+def test_r26_a_part_without_a_filter_shows_no_filter():
+    mixed = replace(
+        composite(),
+        matches=(
+            match("Isolation started", "careplans", ("736376001",)),
+            match("Negative test", "observations", ("94531-1",),
+                  values=("Not detected (qualifier value)",)),
+        ),
+    )
+    text = render_indexed(replace(result(), outcomes=(mixed,)))
+    assert "| Isolation started | careplans | 736376001 | — | 1 |" in text
+
+
+def test_r27_an_event_of_several_parts_says_the_days_to_the_outcome():
+    text = render_indexed(replace(result(), outcomes=(composite(),)))
+    assert "Days from the index date to the outcome: n 2, median 7" in text
+    assert "Days from the index date to the first record" not in text
+
+
+def test_r28_the_records_left_out_by_the_filters_are_counted():
+    text = render_indexed(replace(result(), outcomes=(composite(),)))
+    assert (
+        "Records left out: 2 left out by the filters, 2 not ended, 0 with an unusable "
+        "date, 2 after the reference date, 2 outside the window (of 6 records of the "
+        "codes)."
+    ) in text
+
+
+def test_r29_no_verdict_words_in_an_event_of_several_parts():
+    text = render_indexed(replace(result(), outcomes=(composite(),)))
+    assert re.search(r"\b(pass|fail|ok|match)\b", text, re.I) is None
+
+
+def test_r30_an_event_of_one_part_with_a_filter_says_the_days_to_the_outcome():
+    one = replace(
+        composite(),
+        matches=(match("COVID-19 ended", "conditions", ("840539006",), at="stop"),),
+    )
+    text = render_indexed(replace(result(), outcomes=(one,)))
+    assert "Days from the index date to the outcome: n 2, median 7" in text
+    assert "Days from the index date to the first record" not in text
+
+
+def test_r31_an_event_of_one_table_without_filters_keeps_the_days_to_the_first_record():
+    text = render_indexed(result())
+    assert "Days from the index date to the first record: n 1, median 0" in text
+    assert "Days from the index date to the outcome" not in text

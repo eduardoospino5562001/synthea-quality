@@ -23,6 +23,7 @@ from synthea_quality.indexed.models import (
     CrossResult,
     CrossStratum,
     DeathResult,
+    EventMatchResult,
     EventResult,
     IndexedCohortResult,
     SkippedOutcome,
@@ -123,15 +124,7 @@ def _outcome_blocks(
         return [f"`SKIPPED` — {outcome.reason}"]
     blocks = _breakdown_tables(outcome.breakdown)
     if isinstance(outcome, EventResult):
-        blocks.append(
-            _days_line("Days from the index date to the first record", outcome.days)
-        )
-        blocks.append(
-            f"Records left out: {outcome.rows_date_unusable} with an unusable date, "
-            f"{outcome.rows_after_reference} after the reference date, "
-            f"{outcome.rows_outside_window} outside the window "
-            f"(of {_count(outcome.rows_matched, 'record')} of the codes)."
-        )
+        blocks.extend(_event_blocks(outcome))
         return blocks
     if isinstance(outcome, ValueResult):
         blocks.append(
@@ -175,6 +168,104 @@ def _outcome_blocks(
         f"{outcome.deathdate_unusable} with an unusable `DEATHDATE`."
     )
     return blocks
+
+
+def _event_blocks(outcome: EventResult) -> list[str]:
+    """The blocks of an event outcome: its parts, its days and the records left out.
+
+    An event of one table without filters is shown as it was before: no rule, no table
+    of parts and no extra counter. An event of several parts, or with a filter, says how
+    its parts combine and shows what each of them found.
+    """
+    blocks: list[str] = []
+    if not _is_plain_event(outcome):
+        blocks.append(_rule_line(outcome))
+        blocks.append(_parts_table(outcome))
+    days = (
+        "Days from the index date to the first record"
+        if _is_plain_event(outcome)
+        else "Days from the index date to the outcome"
+    )
+    blocks.append(_days_line(days, outcome.days))
+    blocks.append(_left_out_line(outcome))
+    return blocks
+
+
+def _is_plain_event(outcome: EventResult) -> bool:
+    """Whether the event is one part without filters, as it was before.
+
+    An event of before has no parts of its own: its single part is the one of its table.
+    """
+    if not outcome.matches:
+        return True
+    if len(outcome.matches) > 1:
+        return False
+    part = outcome.matches[0]
+    return not part.values and not part.reasons and part.at == "start"
+
+
+def _rule_line(outcome: EventResult) -> str:
+    """The line that says how the parts of the outcome combine."""
+    parts = len(outcome.matches)
+    if parts == 1:
+        return "One part."
+    if outcome.op == "all":
+        return (
+            f"All the {parts} parts are needed; the outcome is on the day the last of "
+            "them is met."
+        )
+    return f"Any of the {parts} parts counts; the outcome is on the earliest of them."
+
+
+def _parts_table(outcome: EventResult) -> str:
+    """The table of the parts of the outcome: its rule and the patients it found."""
+    return "\n".join(
+        _table(
+            ("Part", "Table", "Codes", "Filter", "Patients"),
+            [_part_row(part) for part in outcome.matches],
+            align=("", "", "", "", "r"),
+        )
+    )
+
+
+def _part_row(part: EventMatchResult) -> tuple[str, str, str, str, int]:
+    """One row of the table of parts: its name, its table, its codes and its filter."""
+    return (
+        table_cell(part.name),
+        part.table,
+        ", ".join(table_cell(code) for code in part.codes),
+        _filter_text(part),
+        part.patients,
+    )
+
+
+def _filter_text(part: EventMatchResult) -> str:
+    """What the part filters on: its values, its reasons and the end it counts on."""
+    filters: list[str] = []
+    if part.values:
+        filters.append(f"VALUE is {', '.join(table_cell(value) for value in part.values)}")
+    if part.reasons:
+        filters.append(
+            f"REASONCODE is {', '.join(table_cell(reason) for reason in part.reasons)}"
+        )
+    if part.at == "stop":
+        filters.append("on STOP")
+    return "; ".join(filters) if filters else EMPTY
+
+
+def _left_out_line(outcome: EventResult) -> str:
+    """The line of the records left out, with the counters of the filters."""
+    left_out = []
+    if not _is_plain_event(outcome):
+        left_out.append(f"{outcome.rows_filtered_out} left out by the filters")
+        left_out.append(f"{outcome.rows_not_ended} not ended")
+    left_out.append(f"{outcome.rows_date_unusable} with an unusable date")
+    left_out.append(f"{outcome.rows_after_reference} after the reference date")
+    left_out.append(f"{outcome.rows_outside_window} outside the window")
+    return (
+        f"Records left out: {', '.join(left_out)} "
+        f"(of {_count(outcome.rows_matched, 'record')} of the codes)."
+    )
 
 
 def _cross_blocks(cross: CrossResult) -> list[str]:

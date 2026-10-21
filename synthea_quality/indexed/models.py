@@ -1,5 +1,8 @@
 """[INDEXED] Results of the indexed cohort: counts of distinct patients, never rows.
 
+An event of several parts (:class:`EventMatchResult`) keeps the rule of every part and
+what each of them found, so the report says which rule selected which patients.
+
 A cross of two outcomes (:class:`CrossResult`) is an intersection of patients, so its
 numerator can never be larger than its denominator: the denominator is the cohort of
 the stratum and the numerator the patients of the crossed outcome inside it. A cross
@@ -12,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from synthea_quality.indexed.definitions import Window
+from synthea_quality.indexed.definitions import DEFAULT_OP, Window
 from synthea_quality.observations.models import ValueSummary
 from synthea_quality.prevalence.models import Rate
 from synthea_quality.profile.models import SectionStatus
@@ -61,16 +64,78 @@ class Breakdown:
 
 
 @dataclass(frozen=True, slots=True)
+class EventMatchResult:
+    """One part of an event outcome: the patients it selects and the records left out.
+
+    The part is the rule itself (its table, its codes and its filters) plus what it
+    found: its distinct patients and the records that did not count. Every record left
+    out is counted in exactly one of the left-out counters; ``rows_matched`` is the
+    total of the part.
+    """
+
+    #: The label of the part in the report.
+    name: str
+    #: The table the part reads.
+    table: str
+    #: The codes that select a record.
+    codes: tuple[str, ...]
+    #: The exact ``VALUE`` texts a record must have.
+    values: tuple[str, ...]
+    #: The exact ``REASONCODE`` codes a record must have.
+    reasons: tuple[str, ...]
+    #: When the record counts: on its ``START`` or on its ``STOP`` date.
+    at: str
+    #: Distinct patients the part selects, never rows.
+    patients: int
+    #: Records of the codes of the part, of the patients of the cohort, any date.
+    rows_matched: int
+    #: Of those, records left out by the filters of the part.
+    rows_filtered_out: int
+    #: Of those, records without a ``STOP``: the part counts on their end date.
+    rows_not_ended: int
+    #: Of those, records whose date is empty or unparseable.
+    rows_date_unusable: int
+    #: Of those, records dated after the reference date.
+    rows_after_reference: int
+    #: Of those, records with a usable date, not after the reference date and outside
+    #: the window.
+    rows_outside_window: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """The part as JSON: its rule, its patients and the records left out."""
+        return {
+            "name": self.name,
+            "table": self.table,
+            "codes": list(self.codes),
+            "values": list(self.values),
+            "reasons": list(self.reasons),
+            "at": self.at,
+            "patients": self.patients,
+            "rows_matched": self.rows_matched,
+            "rows_filtered_out": self.rows_filtered_out,
+            "rows_not_ended": self.rows_not_ended,
+            "rows_date_unusable": self.rows_date_unusable,
+            "rows_after_reference": self.rows_after_reference,
+            "rows_outside_window": self.rows_outside_window,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class EventResult:
     """Patients of the cohort with one record of the codes within the window.
 
     The ``rows_*`` counts are records, not patients: they say what was left out on the
-    way to the distinct patients of :attr:`breakdown`. ``days`` describes one value per
-    patient, the days from the index date to their first record of the window.
+    way to the distinct patients of :attr:`breakdown`. They are the sum of the counters
+    of the parts of :attr:`matches`. ``days`` describes one value per patient, the days
+    from the index date to the outcome: with ``any`` the earliest of its parts, with
+    ``all`` the latest, the day the last part is met.
+
+    An ``event`` of several parts has no table of its own: its ``table`` is ``None`` and
+    its ``codes`` is empty, and its parts are in :attr:`matches`.
     """
 
     name: str
-    table: str
+    table: str | None
     codes: tuple[str, ...]
     window: Window
     breakdown: Breakdown
@@ -84,6 +149,14 @@ class EventResult:
     #: Of those, records with a usable date, not after the reference date and outside
     #: the window.
     rows_outside_window: int
+    #: Of those, records left out by the filters of the parts.
+    rows_filtered_out: int = 0
+    #: Of those, records without a ``STOP``: a part counts on its end date.
+    rows_not_ended: int = 0
+    #: How the parts combine: ``any`` or ``all``.
+    op: str = DEFAULT_OP
+    #: The parts of the outcome, with what each of them found.
+    matches: tuple[EventMatchResult, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """The event outcome as JSON: patients by stratum and the records left out."""
@@ -100,6 +173,10 @@ class EventResult:
             "rows_date_unusable": self.rows_date_unusable,
             "rows_after_reference": self.rows_after_reference,
             "rows_outside_window": self.rows_outside_window,
+            "rows_filtered_out": self.rows_filtered_out,
+            "rows_not_ended": self.rows_not_ended,
+            "op": self.op,
+            "matches": [match.to_dict() for match in self.matches],
         }
 
 

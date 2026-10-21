@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 from csv_tables import write_table
 
+from synthea_quality.dataset import DatasetContext
 from synthea_quality.indexed import build as indexed_build
 from synthea_quality.indexed.compute import IndexedCohort, OutcomeMembers
 from synthea_quality.indexed.definitions import ValueOutcome
 from synthea_quality.indexed.models import DeathResult, EventResult, SkippedOutcome, ValueResult
+from synthea_quality.profile.models import TableInput
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.cli import print_summary
 from synthea_quality.validate.models import ModuleValidationReport, load_module
@@ -132,6 +135,103 @@ def cross_dataset(directory: Path) -> Path:
 
 STAGE = {"name": "Stage group", "type": "value", "code": "21908-9", "pick": "first"}
 DEATH = {"name": "Death", "type": "death", "cause_values": ["Cause"]}
+#: The "Recovered" event of the plan: two parts.
+RECOVERED = {
+    "name": "Recovered",
+    "type": "event",
+    "op": "any",
+    "match": [
+        {"name": "Isolation ended", "table": "careplans", "codes": ["736376001"],
+         "reasons": ["840539006"], "at": "stop"},
+        {"name": "Negative test", "table": "observations", "codes": ["94531-1"],
+         "values": ["Not detected (qualifier value)"]},
+    ],
+}
+#: The same two parts, and every one of them needed.
+RECOVERED_ALL = {**RECOVERED, "name": "Recovered from both", "op": "all"}
+#: An event of one table without filters, of the same table of the first part.
+ISOLATION = {"name": "Isolation", "type": "event", "table": "careplans",
+             "codes": ["736376001"]}
+#: An event of two parts of the same table.
+ISOLATION_TWICE = {
+    "name": "Isolation twice",
+    "type": "event",
+    "op": "any",
+    "match": [
+        {"name": "Isolation ended", "table": "careplans", "codes": ["736376001"],
+         "reasons": ["840539006"], "at": "stop"},
+        {"name": "Isolation started", "table": "careplans", "codes": ["736376001"]},
+    ],
+}
+#: The careplans of the dataset of the recovered outcome.
+CAREPLANS = [
+    {"Id": "c1", "PATIENT": "p1", "CODE": "736376001", "START": "2023-01-01",
+     "STOP": "2023-01-10", "REASONCODE": "840539006"},
+    {"Id": "c2", "PATIENT": "p2", "CODE": "736376001", "START": "2023-03-01",
+     "STOP": "2023-03-05", "REASONCODE": "840544004"},
+    {"Id": "c3", "PATIENT": "p3", "CODE": "736376001", "START": "2023-04-01",
+     "STOP": "", "REASONCODE": "840539006"},
+]
+#: The header of ``careplans.csv`` without its ``STOP`` column.
+CAREPLANS_WITHOUT_STOP = (
+    "Id", "START", "PATIENT", "ENCOUNTER", "CODE", "DESCRIPTION", "REASONCODE",
+    "REASONDESCRIPTION",
+)
+#: The header of ``careplans.csv`` without its ``REASONCODE`` column.
+CAREPLANS_WITHOUT_REASON = (
+    "Id", "START", "STOP", "PATIENT", "ENCOUNTER", "CODE", "DESCRIPTION",
+    "REASONDESCRIPTION",
+)
+#: The observations of the dataset of the recovered outcome.
+OBSERVATIONS = [
+    {"DATE": "2023-01-05T00:00:00Z", "PATIENT": "p1", "CODE": "94531-1",
+     "VALUE": "Detected (qualifier value)"},
+    {"DATE": "2023-01-08T00:00:00Z", "PATIENT": "p1", "CODE": "94531-1",
+     "VALUE": "Not detected (qualifier value)"},
+    {"DATE": "2023-04-10T00:00:00Z", "PATIENT": "p3", "CODE": "94531-1",
+     "VALUE": "Not detected (qualifier value)"},
+]
+#: The header of ``observations.csv`` without its ``VALUE`` column.
+OBSERVATIONS_WITHOUT_VALUE = (
+    "DATE", "PATIENT", "ENCOUNTER", "CATEGORY", "CODE", "DESCRIPTION", "UNITS", "TYPE",
+)
+
+
+def recovered_dataset(directory: Path) -> Path:
+    """Three patients with COVID-19: one recovered, one isolated, one with a test.
+
+    The first patient ends the isolation of COVID-19 and has a negative test; the
+    second one has an isolation of another reason and no end; the third one has an
+    isolation of COVID-19 that never ends and a negative test.
+    """
+    write_table(
+        directory,
+        "patients",
+        [
+            {"Id": "p1", "BIRTHDATE": "1950-01-01", "GENDER": "M"},
+            {"Id": "p2", "BIRTHDATE": "1990-06-01", "GENDER": "F"},
+            {"Id": "p3", "BIRTHDATE": "2000-01-01", "GENDER": "M"},
+        ],
+    )
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "p1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01",
+             "STOP": "2023-01-10"},
+            {"PATIENT": "p2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-03-01"},
+            {"PATIENT": "p3", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-04-01",
+             "STOP": "2023-04-10"},
+        ],
+    )
+    write_table(directory, "careplans", CAREPLANS)
+    write_table(directory, "observations", OBSERVATIONS)
+    return directory
+
+
+def without(rows: list[dict[str, str]], column: str) -> list[dict[str, str]]:
+    """The rows of a table without the column ``column``."""
+    return [{key: value for key, value in row.items() if key != column} for row in rows]
 
 
 def write_module(
@@ -508,3 +608,218 @@ def test_b21_the_two_examples_are_loaded_without_error():
         assert loaded.index is not None
         assert loaded.crosses
         assert all(cross.outcome and cross.by for cross in loaded.crosses)
+
+
+def test_b22_an_event_of_several_parts_is_measured_with_its_parts(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.op == "any"
+    assert outcome.table is None
+    assert outcome.codes == ()
+    assert outcome.breakdown.total.patients == 2
+    assert outcome.days.median == 8
+    isolation, negative = outcome.matches
+    assert (isolation.name, isolation.patients) == ("Isolation ended", 1)
+    assert (negative.name, negative.patients) == ("Negative test", 2)
+    assert (isolation.rows_matched, isolation.rows_filtered_out) == (3, 1)
+    assert (isolation.rows_not_ended, isolation.rows_date_unusable) == (1, 0)
+    data = report.to_dict()["indexed_cohort"]["outcomes"][0]
+    assert data["table"] is None
+    assert data["codes"] == []
+    assert data["op"] == "any"
+    assert [match["name"] for match in data["matches"]] == [
+        "Isolation ended",
+        "Negative test",
+    ]
+    assert data["matches"][0]["reasons"] == ["840539006"]
+    assert data["matches"][0]["at"] == "stop"
+
+
+def test_b23_an_event_of_several_parts_reads_each_table_once(tmp_path, monkeypatch):
+    directory = recovered_dataset(tmp_path / "csv")
+    calls: list[str] = []
+    original = DatasetContext.load
+
+    def counted(
+        self: DatasetContext,
+        name: str,
+        wanted: Sequence[str],
+        required: Sequence[str],
+        used_for: str,
+    ) -> tuple[pd.DataFrame | None, TableInput]:
+        calls.append(name)
+        return original(self, name, wanted, required, used_for)
+
+    monkeypatch.setattr(DatasetContext, "load", counted)
+    report = validate(
+        directory,
+        write_module(tmp_path, [ISOLATION_TWICE]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    assert calls.count("careplans") == 1
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.breakdown.total.patients == 3
+
+
+def test_b24_the_optional_columns_are_asked_for_but_not_required(tmp_path, monkeypatch):
+    directory = recovered_dataset(tmp_path / "csv")
+    asked: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
+    original = DatasetContext.load
+
+    def counted(
+        self: DatasetContext,
+        name: str,
+        wanted: Sequence[str],
+        required: Sequence[str],
+        used_for: str,
+    ) -> tuple[pd.DataFrame | None, TableInput]:
+        asked[name] = (tuple(wanted), tuple(required))
+        return original(self, name, wanted, required, used_for)
+
+    monkeypatch.setattr(DatasetContext, "load", counted)
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    wanted, required = asked["careplans"]
+    assert "STOP" in wanted
+    assert "REASONCODE" in wanted
+    assert "STOP" not in required
+    assert "REASONCODE" not in required
+    wanted, required = asked["observations"]
+    assert "VALUE" in wanted
+    assert "VALUE" not in required
+
+
+def test_b25_an_event_without_the_stop_column_is_skipped(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    write_table(
+        directory, "careplans", without(CAREPLANS, "STOP"), columns=CAREPLANS_WITHOUT_STOP
+    )
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.reason == (
+        "careplans.csv has no STOP column(s), which part 'Isolation ended' needs"
+    )
+
+
+def test_b26_an_event_without_the_reason_code_column_is_skipped(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "careplans",
+        without(CAREPLANS, "REASONCODE"),
+        columns=CAREPLANS_WITHOUT_REASON,
+    )
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.reason == (
+        "careplans.csv has no REASONCODE column(s), which part 'Isolation ended' needs"
+    )
+
+
+def test_b27_an_event_without_the_value_column_is_skipped(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "observations",
+        without(OBSERVATIONS, "VALUE"),
+        columns=OBSERVATIONS_WITHOUT_VALUE,
+    )
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.reason == (
+        "observations.csv has no VALUE column(s), which part 'Negative test' needs"
+    )
+
+
+def test_b28_an_event_without_its_table_is_skipped(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    (directory / "careplans.csv").unlink()
+    report = validate(
+        directory, write_module(tmp_path, [RECOVERED]), reference_date="2026-01-01"
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, SkippedOutcome)
+    assert outcome.reason == "careplans.csv is not in the dataset"
+
+
+def test_b29_another_outcome_of_the_same_table_is_still_measured(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "careplans",
+        without(CAREPLANS, "REASONCODE"),
+        columns=CAREPLANS_WITHOUT_REASON,
+    )
+    report = validate(
+        directory,
+        write_module(tmp_path, [RECOVERED, ISOLATION]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    recovered, isolation = report.indexed.outcomes
+    assert isinstance(recovered, SkippedOutcome)
+    assert recovered.reason == (
+        "careplans.csv has no REASONCODE column(s), which part 'Isolation ended' needs"
+    )
+    assert isinstance(isolation, EventResult)
+    assert isolation.breakdown.total.patients == 3
+
+
+def test_b30_a_cross_can_use_an_event_of_several_parts_as_its_strata(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    report = validate(
+        directory,
+        write_module(
+            tmp_path,
+            [RECOVERED, {"name": "Death", "type": "death"}],
+            [{"outcome": "Death", "by": "Recovered"}],
+        ),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    (cross,) = report.indexed.crosses
+    assert cross.by_type == "event"
+    assert [
+        (stratum.label, stratum.numerator, stratum.denominator)
+        for stratum in cross.strata
+    ] == [
+        ("with Recovered", 0, 2),
+        ("without Recovered", 0, 1),
+    ]
+
+
+def test_b31_the_all_op_needs_every_part(tmp_path):
+    directory = recovered_dataset(tmp_path / "csv")
+    report = validate(
+        directory,
+        write_module(tmp_path, [RECOVERED_ALL]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.op == "all"
+    assert outcome.breakdown.total.patients == 1
+    assert outcome.days.median == 9

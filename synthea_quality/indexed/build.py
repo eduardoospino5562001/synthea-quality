@@ -3,9 +3,14 @@
 The only file of the package that touches the file system. It opens no dataset of its
 own: the caller (``synthea-validate-module``) has already opened it and read ``patients``
 and ``conditions``, so this module only loads what the outcomes add — the table of each
-``event`` outcome (``PATIENT``, ``CODE`` and the table's date column) and
+part of each ``event`` outcome (``PATIENT``, ``CODE`` and the table's date column) and
 ``observations.csv`` when a ``value`` outcome or a ``death`` outcome with ``cause_values``
-needs it. Each table is loaded once, however many outcomes read it.
+needs it. Each table is loaded once, however many outcomes or parts read it.
+
+A part of an ``event`` outcome can filter on a column its table has: ``VALUE``,
+``REASONCODE`` or the ``STOP`` it counts on. Those columns are asked for, never
+required: a table without them still serves the outcomes that do not need them, and only
+the outcome whose part needs the missing column comes out ``SKIPPED``.
 
 A table that cannot be loaded does not sink the report: the outcome that needed it comes
 out ``SKIPPED`` with the table and the reason, and the other outcomes are still measured
@@ -29,6 +34,7 @@ import pandas as pd
 from synthea_quality.dataset import DatasetContext
 from synthea_quality.indexed.compute import (
     DATE_COLUMNS,
+    STOP_COLUMN,
     IndexedCohort,
     OutcomeMembers,
     build_indexed_cohort,
@@ -44,6 +50,7 @@ from synthea_quality.indexed.compute import (
 from synthea_quality.indexed.definitions import (
     CrossSpec,
     DeathOutcome,
+    EventMatch,
     EventOutcome,
     IndexSpec,
     Outcome,
@@ -66,6 +73,10 @@ OBSERVATION_VALUE_COLUMNS = ("DATE", "PATIENT", "CODE", "VALUE")
 OBSERVATIONS = "observations"
 #: What the report says the extra tables were read for.
 INDEXED_USED_FOR = "indexed cohort outcomes"
+#: The column of a record that holds its reason; a part can filter on it.
+REASON_COLUMN = "REASONCODE"
+#: The column of an observation that holds its value; a part can filter on it.
+VALUE_COLUMN = "VALUE"
 
 OutcomeResult = EventResult | ValueResult | DeathResult | SkippedOutcome
 
@@ -73,21 +84,54 @@ OutcomeResult = EventResult | ValueResult | DeathResult | SkippedOutcome
 def indexed_tables(outcomes: Sequence[Outcome]) -> tuple[str, ...]:
     """The tables the outcomes need, without repeats and in the order they appear.
 
-    An ``event`` outcome names its table; a ``value`` outcome and a ``death`` outcome
-    with ``cause_values`` read ``observations``. A ``death`` outcome without a cause
-    needs no table at all: its dates come from ``patients``.
+    An ``event`` outcome reads the table of each of its parts; a ``value`` outcome and
+    a ``death`` outcome with ``cause_values`` read ``observations``. A ``death`` outcome
+    without a cause needs no table at all: its dates come from ``patients``.
     """
     tables: list[str] = []
     for outcome in outcomes:
         if isinstance(outcome, EventOutcome):
-            table = outcome.table
+            candidates = [part.table for part in outcome.parts]
         elif isinstance(outcome, ValueOutcome) or outcome.cause_values:
-            table = OBSERVATIONS
+            candidates = [OBSERVATIONS]
         else:
             continue
-        if table not in tables:
-            tables.append(table)
+        for table in candidates:
+            if table not in tables:
+                tables.append(table)
     return tuple(tables)
+
+
+def _wanted_columns(outcomes: Sequence[Outcome]) -> dict[str, tuple[str, ...]]:
+    """The optional columns each table needs, asked for but never required.
+
+    A part of an event filters on ``VALUE`` or on ``REASONCODE``, or counts on the
+    ``STOP`` of its record: the table of that part is asked for that column. The column
+    is never required, so a table without it still serves the outcomes that do not need
+    it, and only the outcome whose part needs it is left out.
+    """
+    columns: dict[str, list[str]] = {}
+    for outcome in outcomes:
+        if not isinstance(outcome, EventOutcome):
+            continue
+        for part in outcome.parts:
+            wanted = columns.setdefault(part.table, [])
+            for column in _part_columns(part):
+                if column not in wanted:
+                    wanted.append(column)
+    return {table: tuple(wanted) for table, wanted in columns.items()}
+
+
+def _part_columns(part: EventMatch) -> tuple[str, ...]:
+    """The optional columns a part of an event needs to be measured."""
+    columns: list[str] = []
+    if part.values:
+        columns.append(VALUE_COLUMN)
+    if part.reasons:
+        columns.append(REASON_COLUMN)
+    if part.at == "stop":
+        columns.append(STOP_COLUMN)
+    return tuple(columns)
 
 
 def skipped_indexed(
@@ -154,11 +198,12 @@ def indexed_cohort_result(
     frames: dict[str, pd.DataFrame | None] = {}
     reasons: dict[str, str] = {}
     inputs: list[TableInput] = []
+    wanted = _wanted_columns(outcomes)
     for table in indexed_tables(outcomes):
         if table == OBSERVATIONS and observations is not None:
             frames[table] = observations
             continue
-        frame, table_input = _load_table(context, table)
+        frame, table_input = _load_table(context, table, wanted.get(table, ()))
         frames[table] = frame
         inputs.append(table_input)
         if frame is None:
@@ -279,9 +324,7 @@ def _outcome_members(
     table of its own, so the numbers of a crossing and of its outcome cannot disagree.
     """
     if isinstance(outcome, EventOutcome):
-        frame = frames[outcome.table]
-        assert frame is not None
-        return event_members(cohort, frame, outcome, reference)
+        return event_members(cohort, _tables_of_parts(outcome, frames), outcome, reference)
     if isinstance(outcome, ValueOutcome):
         frame = frames[OBSERVATIONS]
         assert frame is not None
@@ -308,18 +351,24 @@ def _by_type(by: Outcome) -> str:
     raise ValueError(f"outcome {by.name!r} is a death and cannot give the strata of a cross")
 
 
-def _load_table(context: DatasetContext, table: str) -> tuple[pd.DataFrame | None, TableInput]:
+def _load_table(
+    context: DatasetContext, table: str, optional: Sequence[str]
+) -> tuple[pd.DataFrame | None, TableInput]:
     """Read the columns ``table`` needs for the outcomes, and what happened to it.
 
     ``observations`` is read with ``VALUE`` when it has one but never requires it: only the
     outcomes that read ``VALUE`` need it, and :func:`_measure` skips those without it.
+    The optional columns of the table are asked for and never required.
     """
-    columns: tuple[str, ...]
     if table == OBSERVATIONS:
-        columns = tuple(c for c in OBSERVATION_VALUE_COLUMNS if c != "VALUE")
-        return context.load(table, OBSERVATION_VALUE_COLUMNS, columns, INDEXED_USED_FOR)
+        required = tuple(c for c in OBSERVATION_VALUE_COLUMNS if c != VALUE_COLUMN)
+        wanted = list(required)
+        for column in (*optional, VALUE_COLUMN):
+            if column not in wanted:
+                wanted.append(column)
+        return context.load(table, wanted, required, INDEXED_USED_FOR)
     columns = ("PATIENT", "CODE", DATE_COLUMNS.get(table, "START"))
-    return context.load(table, columns, columns, INDEXED_USED_FOR)
+    return context.load(table, (*columns, *optional), columns, INDEXED_USED_FOR)
 
 
 def _measure(
@@ -331,26 +380,73 @@ def _measure(
     reference: date,
     age_bands: Sequence[int],
 ) -> OutcomeResult:
-    """One outcome, or ``SKIPPED`` with the reason when its table is not available."""
+    """One outcome, or ``SKIPPED`` with the reason when it could not be measured."""
     if isinstance(outcome, DeathOutcome) and not outcome.cause_values:
         return measure_death(cohort, patients, None, outcome, reference, age_bands)
-    table = _table_of(outcome)
-    frame = frames.get(table)
+    if isinstance(outcome, EventOutcome):
+        skipped = _skipped_event(outcome, frames, reasons)
+        if skipped is not None:
+            return skipped
+        tables = _tables_of_parts(outcome, frames)
+        return measure_event(cohort, tables, outcome, reference, age_bands)
+    frame = frames.get(OBSERVATIONS)
     if frame is None:
-        return SkippedOutcome(outcome.name, _outcome_type(outcome), reasons[table])
-    if not isinstance(outcome, EventOutcome) and "VALUE" not in frame.columns:
+        return SkippedOutcome(outcome.name, _outcome_type(outcome), reasons[OBSERVATIONS])
+    if VALUE_COLUMN not in frame.columns:
         reason = f"{OBSERVATIONS}.csv has no VALUE column(s)"
         return SkippedOutcome(outcome.name, _outcome_type(outcome), reason)
-    if isinstance(outcome, EventOutcome):
-        return measure_event(cohort, frame, outcome, reference, age_bands)
     if isinstance(outcome, ValueOutcome):
         return measure_value(cohort, frame, outcome, reference, age_bands)
     return measure_death(cohort, patients, frame, outcome, reference, age_bands)
 
 
-def _table_of(outcome: Outcome) -> str:
-    """The table ``outcome`` reads: its own for an event, ``observations`` otherwise."""
-    return outcome.table if isinstance(outcome, EventOutcome) else OBSERVATIONS
+def _skipped_event(
+    outcome: EventOutcome,
+    frames: Mapping[str, pd.DataFrame | None],
+    reasons: Mapping[str, str],
+) -> SkippedOutcome | None:
+    """Why an event could not be measured, or ``None`` when it can be.
+
+    The parts are read in order: the first part whose table is missing, or whose table
+    lacks the column that part filters on, leaves the whole outcome out with its reason.
+    """
+    for part in outcome.parts:
+        frame = frames.get(part.table)
+        if frame is None:
+            return SkippedOutcome(outcome.name, "event", reasons[part.table])
+        column = _missing_column(part, frame)
+        if column is not None:
+            return SkippedOutcome(
+                outcome.name,
+                "event",
+                f"{part.table}.csv has no {column} column(s), which part {part.name!r} "
+                "needs",
+            )
+    return None
+
+
+def _missing_column(part: EventMatch, frame: pd.DataFrame) -> str | None:
+    """The column a part filters on that its table does not have, if there is one."""
+    for column, needed in (
+        (VALUE_COLUMN, bool(part.values)),
+        (REASON_COLUMN, bool(part.reasons)),
+        (STOP_COLUMN, part.at == "stop"),
+    ):
+        if needed and column not in frame.columns:
+            return column
+    return None
+
+
+def _tables_of_parts(
+    outcome: EventOutcome, frames: Mapping[str, pd.DataFrame | None]
+) -> dict[str, pd.DataFrame]:
+    """The table of every part of ``outcome``, ready to measure it."""
+    tables: dict[str, pd.DataFrame] = {}
+    for part in outcome.parts:
+        frame = frames[part.table]
+        assert frame is not None
+        tables[part.table] = frame
+    return tables
 
 
 def _outcome_type(outcome: Outcome) -> str:

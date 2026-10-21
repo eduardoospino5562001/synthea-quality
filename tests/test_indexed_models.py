@@ -12,6 +12,7 @@ from synthea_quality.indexed.models import (
     CrossResult,
     CrossStratum,
     DeathResult,
+    EventMatchResult,
     EventResult,
     IndexedCohortResult,
     SkippedOutcome,
@@ -78,6 +79,45 @@ def death(with_cause: int | None) -> DeathResult:
         with_cause=with_cause,
         other_cause=None,
         no_cause_record=None,
+    )
+
+
+def match() -> EventMatchResult:
+    """A part that ended an isolation, with the records it left out."""
+    return EventMatchResult(
+        name="Isolation ended",
+        table="careplans",
+        codes=("736376001",),
+        values=(),
+        reasons=("840539006",),
+        at="stop",
+        patients=1551,
+        rows_matched=1611,
+        rows_filtered_out=0,
+        rows_not_ended=60,
+        rows_date_unusable=0,
+        rows_after_reference=0,
+        rows_outside_window=0,
+    )
+
+
+def composite() -> EventResult:
+    """An event of two parts, with no table and no codes of its own."""
+    return EventResult(
+        name="Recovered",
+        table=None,
+        codes=(),
+        window=Window(),
+        breakdown=breakdown(),
+        days=ValueSummary(0),
+        rows_matched=3222,
+        rows_date_unusable=0,
+        rows_after_reference=0,
+        rows_outside_window=0,
+        rows_filtered_out=0,
+        rows_not_ended=120,
+        op="all",
+        matches=(match(), match()),
     )
 
 
@@ -226,3 +266,85 @@ def test_m13_a_cross_is_serialisable():
     )
     text = json.dumps(result.to_dict())
     assert json.loads(text)["strata"][0]["label"] == "Stage 1"
+
+
+def test_m14_a_part_lists_its_rule_and_its_records():
+    data = match().to_dict()
+    assert list(data) == [
+        "name",
+        "table",
+        "codes",
+        "values",
+        "reasons",
+        "at",
+        "patients",
+        "rows_matched",
+        "rows_filtered_out",
+        "rows_not_ended",
+        "rows_date_unusable",
+        "rows_after_reference",
+        "rows_outside_window",
+    ]
+    assert data["name"] == "Isolation ended"
+    assert data["table"] == "careplans"
+    assert data["codes"] == ["736376001"]
+    assert data["values"] == []
+    assert data["reasons"] == ["840539006"]
+    assert data["at"] == "stop"
+    assert data["patients"] == 1551
+    assert data["rows_not_ended"] == 60
+
+
+def test_m15_an_event_keeps_its_keys_and_adds_the_new_ones():
+    data = event().to_dict()
+    assert list(data) == [
+        "type",
+        "status",
+        "name",
+        "table",
+        "codes",
+        "window",
+        "breakdown",
+        "days_to_first_record",
+        "rows_matched",
+        "rows_date_unusable",
+        "rows_after_reference",
+        "rows_outside_window",
+        "rows_filtered_out",
+        "rows_not_ended",
+        "op",
+        "matches",
+    ]
+    assert data["table"] == "encounters"
+    assert data["codes"] == ["1505002"]
+    assert data["rows_filtered_out"] == 0
+    assert data["rows_not_ended"] == 0
+    assert data["op"] == "any"
+    assert data["matches"] == []
+
+
+def test_m16_an_event_of_several_parts_has_no_table_and_lists_its_parts():
+    data = composite().to_dict()
+    assert data["table"] is None
+    assert data["codes"] == []
+    assert data["op"] == "all"
+    assert len(data["matches"]) == 2
+    assert data["matches"][0] == match().to_dict()
+
+
+def test_m17_the_rows_of_an_event_are_the_sum_of_the_rows_of_its_parts():
+    data = composite().to_dict()
+    for key in (
+        "rows_matched",
+        "rows_filtered_out",
+        "rows_not_ended",
+        "rows_date_unusable",
+        "rows_after_reference",
+        "rows_outside_window",
+    ):
+        assert data[key] == sum(part[key] for part in data["matches"])
+
+
+def test_m18_the_new_keys_of_an_event_are_serialisable():
+    text = json.dumps(composite().to_dict())
+    assert json.loads(text)["matches"][0]["at"] == "stop"

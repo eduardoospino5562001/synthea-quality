@@ -196,6 +196,100 @@ def _stage_groups(module_path: Path) -> dict[str, str]:
     return {text: label for label, texts in groups.items() for text in texts}
 
 
+def _recovered_parts(module_path: Path) -> list[dict]:
+    """The parts of the "Recovered" event of the example, read from the file.
+
+    The parts are input data of the example, so the recount below does not share any
+    logic with the tool.
+    """
+    with module_path.open(encoding="utf-8") as handle:
+        module = json.load(handle)
+    outcome = next(o for o in module["outcomes"] if o["name"] == "Recovered")
+    return outcome["match"]
+
+
+def _module_with_op(directory: Path, op: str) -> Path:
+    """The COVID-19 example with the "Recovered" event in the given ``op``."""
+    with COVID.open(encoding="utf-8") as handle:
+        module = json.load(handle)
+    for outcome in module["outcomes"]:
+        if outcome["name"] == "Recovered":
+            outcome["op"] = op
+    path = directory / f"covid19-{op}.json"
+    path.write_text(json.dumps(module), encoding="utf-8")
+    return path
+
+
+def _part_days(
+    sample: Path, part: dict, index_dates: dict[str, date]
+) -> dict[str, int]:
+    """The cohort patients of a part of an event, and the days to their first record.
+
+    A record counts when it is of one of the codes, of a patient of the cohort, and
+    inside the window: on or after the index date and on or before the reference date.
+    The filters are exact texts of ``VALUE`` and of ``REASONCODE``, and a part that
+    counts on the end of its record needs a ``STOP`` and counts on that date.
+    """
+    reference = date.fromisoformat(REFERENCE_DATE)
+    table = part["table"]
+    column = "STOP" if part.get("at") == "stop" else DATE_COLUMNS.get(table, "START")
+    values = set(part.get("values", ()))
+    reasons = set(part.get("reasons", ()))
+    days: dict[str, int] = {}
+    for row in _rows(sample / f"{table}.csv"):
+        if row["CODE"] not in part["codes"]:
+            continue
+        index = index_dates.get(row["PATIENT"])
+        if index is None:
+            continue
+        if values and row.get("VALUE", "") not in values:
+            continue
+        if reasons and row.get("REASONCODE", "") not in reasons:
+            continue
+        recorded = _day(row[column])
+        if recorded is None or recorded > reference:
+            continue
+        day = (recorded - index).days
+        if day < 0:
+            continue
+        patient = row["PATIENT"]
+        if patient not in days or day < days[patient]:
+            days[patient] = day
+    return days
+
+
+def _outcome_days(parts: list[dict[str, int]], op: str) -> dict[str, int]:
+    """The patients of an event of several parts, and the day each of them reaches it.
+
+    With ``any`` a patient counts with one part and reaches the outcome on the earliest
+    of them; with ``all`` the patient needs every part and reaches it on the latest.
+    """
+    if op == "all":
+        common = set(parts[0])
+        for part in parts[1:]:
+            common &= set(part)
+        return {
+            patient: max(part[patient] for part in parts) for patient in common
+        }
+    days: dict[str, int] = {}
+    for part in parts:
+        for patient, day in part.items():
+            if patient not in days or day < days[patient]:
+                days[patient] = day
+    return days
+
+
+def _median(days: list[int]) -> float | None:
+    """The median of the days of some patients, or ``None`` when there are none."""
+    if not days:
+        return None
+    ordered = sorted(days)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[middle])
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
 def _validate(sample: Path, module_path: Path) -> dict:
     """Run the command's builder over ``sample`` with the example, as the command does."""
     loaded = load_module(module_path)
@@ -259,6 +353,7 @@ def test_i2_every_covid_outcome_is_the_independent_recount(sample, covid):
     measured = {
         outcome["name"]: outcome["breakdown"]["total"]["numerator"]
         for outcome in covid["indexed_cohort"]["outcomes"]
+        if outcome["name"] in recount
     }
     assert measured == recount
     assert recount == {
@@ -354,3 +449,59 @@ def test_i10_the_denominators_of_a_cross_add_up_to_the_cohort(sample, covid, bre
         assert cross["patients_in_several_strata"] == 0
         denominators = sum(stratum["denominator"] for stratum in cross["strata"])
         assert denominators == report["indexed_cohort"]["patients"]
+
+
+def test_i11_the_parts_of_the_recovered_outcome_are_the_independent_recount(sample, covid):
+    index_dates = _index_dates(sample, COVID_CODE)
+    parts = _recovered_parts(COVID)
+    recounted = [_part_days(sample, part, index_dates) for part in parts]
+    measured = _outcome(covid, "Recovered")["matches"]
+    assert [(match["name"], match["patients"]) for match in measured] == [
+        (part["name"], len(days)) for part, days in zip(parts, recounted)
+    ]
+
+
+def test_i12_the_recovered_outcome_is_the_independent_recount(sample, covid):
+    index_dates = _index_dates(sample, COVID_CODE)
+    parts = _recovered_parts(COVID)
+    recounted = [_part_days(sample, part, index_dates) for part in parts]
+    days = _outcome_days(recounted, "any")
+    outcome = _outcome(covid, "Recovered")
+    assert outcome["table"] is None
+    assert outcome["codes"] == []
+    assert outcome["op"] == "any"
+    assert outcome["breakdown"]["total"]["numerator"] == len(days)
+    assert outcome["days_to_first_record"]["median"] == _median(list(days.values()))
+
+
+def test_i13_the_recovered_outcome_of_every_part_is_the_independent_recount(
+    sample, tmp_path
+):
+    """The ``all`` outcome of both parts, recounted with the ``csv`` module.
+
+    The official sample has no patient with both parts, so the recount and the tool
+    both say 0: the test checks that the two agree, not that the figure is not zero.
+    """
+    index_dates = _index_dates(sample, COVID_CODE)
+    parts = _recovered_parts(COVID)
+    recounted = [_part_days(sample, part, index_dates) for part in parts]
+    days = _outcome_days(recounted, "all")
+    report = _validate(sample, _module_with_op(tmp_path, "all"))
+    outcome = _outcome(report, "Recovered")
+    assert outcome["op"] == "all"
+    assert outcome["breakdown"]["total"]["numerator"] == len(days)
+    assert outcome["days_to_first_record"]["median"] == _median(list(days.values()))
+
+
+def test_i14_the_covid_19_that_ended_is_the_independent_recount(sample, covid):
+    index_dates = _index_dates(sample, COVID_CODE)
+    part = {
+        "name": "COVID-19 ended",
+        "table": "conditions",
+        "codes": {"840539006"},
+        "at": "stop",
+    }
+    days = _part_days(sample, part, index_dates)
+    outcome = _outcome(covid, "COVID-19 ended")
+    assert outcome["breakdown"]["total"]["numerator"] == len(days)
+    assert outcome["days_to_first_record"]["median"] == _median(list(days.values()))

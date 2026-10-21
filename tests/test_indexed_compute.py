@@ -22,6 +22,7 @@ from synthea_quality.indexed.compute import (
 from synthea_quality.indexed.definitions import (
     CrossSpec,
     DeathOutcome,
+    EventMatch,
     EventOutcome,
     ValueOutcome,
     Window,
@@ -1186,3 +1187,540 @@ def test_x10_the_no_value_text_in_a_group_computes_the_cross():
         ("Undetermined", 1, 1),
         ("no value", 0, 1),
     ]
+
+
+CAREPLAN = "736376001"
+COVID_CODE = "840539006"
+SUSPECTED_CODE = "840544004"
+NEGATIVE_TEST = "94531-1"
+NEGATIVE = "Not detected (qualifier value)"
+CAREPLAN_COLUMNS = ("PATIENT", "CODE", "START", "STOP", "REASONCODE")
+ENCOUNTER_COLUMNS = ("PATIENT", "CODE", "START", "STOP", "REASONCODE")
+
+
+def careplans(*rows) -> pd.DataFrame:
+    return text_frame(list(rows), CAREPLAN_COLUMNS)
+
+
+def encounters_with_stop(*rows) -> pd.DataFrame:
+    return text_frame(list(rows), ENCOUNTER_COLUMNS)
+
+
+def part(
+    name: str,
+    table: str,
+    codes: tuple[str, ...],
+    values: tuple[str, ...] = (),
+    reasons: tuple[str, ...] = (),
+    at: str = "start",
+) -> EventMatch:
+    """One part of an event outcome: its table, its codes and its filters."""
+    return EventMatch(name, table, tuple(codes), tuple(values), tuple(reasons), at)
+
+
+def composite(
+    name: str, parts, op: str = "any", window: Window | None = None
+) -> EventOutcome:
+    """An event outcome of several parts."""
+    return EventOutcome(
+        name,
+        None,
+        (),
+        Window() if window is None else window,
+        matches=tuple(parts),
+        op=op,
+    )
+
+
+def filtered_event(
+    table: str,
+    codes: tuple[str, ...],
+    values: tuple[str, ...] = (),
+    reasons: tuple[str, ...] = (),
+    at: str = "start",
+    window: Window | None = None,
+) -> EventOutcome:
+    """An event of one table with the filters of a part."""
+    return EventOutcome(
+        "Filtered",
+        table,
+        tuple(codes),
+        Window() if window is None else window,
+        values=tuple(values),
+        reasons=tuple(reasons),
+        at=at,
+    )
+
+
+def test_p1_only_the_records_of_the_codes_of_the_cohort_are_matched():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        encounters(
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"},
+            {"PATIENT": "a1", "CODE": "999", "START": "2020-02-01T10:00:00Z"},
+            {"PATIENT": "z9", "CODE": HOSPITAL, "START": "2020-02-01T10:00:00Z"},
+        ),
+        event(),
+        REF,
+        BANDS,
+    )
+    assert result.rows_matched == 1
+    assert result.matches[0].rows_matched == 1
+
+
+def test_p2_a_record_whose_value_is_not_wanted_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        observations(
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-05T10:00:00Z",
+             "VALUE": "Detected (qualifier value)"},
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-06T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+        filtered_event("observations", (NEGATIVE_TEST,), values=(NEGATIVE,)),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.rows_filtered_out == 1
+    assert result.matches[0].rows_filtered_out == 1
+    assert result.days.minimum == 5.0
+
+
+def test_p3_a_record_whose_reason_is_not_wanted_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2020-01-10", "REASONCODE": SUSPECTED_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-03",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), reasons=(COVID_CODE,)),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.rows_filtered_out == 1
+    assert result.matches[0].rows_filtered_out == 1
+    assert result.days.minimum == 2.0
+
+
+def test_p4_a_record_that_never_ended_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_not_ended == 1
+    assert result.matches[0].rows_not_ended == 1
+    assert result.rows_date_unusable == 0
+    assert result.breakdown.total.patients == 0
+
+
+def test_p5_a_record_with_an_unusable_date_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2020-13-45", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_date_unusable == 1
+    assert result.rows_not_ended == 0
+    assert result.breakdown.total.patients == 0
+
+
+def test_p6_a_record_after_the_reference_date_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2026-06-01", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_after_reference == 1
+    assert result.breakdown.total.patients == 0
+
+
+def test_p7_a_record_outside_the_window_is_left_out_and_counted():
+    result = measure_event(
+        single_patient_cohort("2020-01-11"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-05", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_outside_window == 1
+    assert result.breakdown.total.patients == 0
+
+
+def test_p8_every_record_left_out_is_counted_in_one_counter():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-05", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-05", "REASONCODE": SUSPECTED_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-13-45", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2026-06-01", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2019-12-01",
+             "STOP": "2019-12-20", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), reasons=(COVID_CODE,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_matched == 6
+    assert result.rows_filtered_out == 1
+    assert result.rows_not_ended == 1
+    assert result.rows_date_unusable == 1
+    assert result.rows_after_reference == 1
+    assert result.rows_outside_window == 1
+    assert result.rows_matched == (
+        result.rows_filtered_out
+        + result.rows_not_ended
+        + result.rows_date_unusable
+        + result.rows_after_reference
+        + result.rows_outside_window
+        + 1
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 4.0
+
+
+def test_p9_a_record_left_out_by_two_steps_counts_in_the_first_one():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2020-01-20", "REASONCODE": SUSPECTED_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "", "REASONCODE": SUSPECTED_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), reasons=(COVID_CODE,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.rows_matched == 3
+    assert result.rows_filtered_out == 2
+    assert result.rows_not_ended == 1
+    assert result.breakdown.total.patients == 0
+
+
+def test_p10_a_careplan_counts_on_the_day_of_its_stop():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-02",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 19.0
+
+
+def test_p11_an_encounter_counts_on_the_day_of_its_stop():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        encounters_with_stop(
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-01-02T10:00:00Z",
+             "STOP": "2020-02-01T10:00:00Z"},
+        ),
+        filtered_event("encounters", (HOSPITAL,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 31.0
+
+
+def test_p12_a_record_that_started_before_the_index_and_stopped_in_the_window_counts():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2019-12-20",
+             "STOP": "2020-01-05", "REASONCODE": COVID_CODE},
+        ),
+        filtered_event("careplans", (CAREPLAN,), at="stop"),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 4.0
+    assert result.rows_outside_window == 0
+
+
+def recovered_outcome(op: str = "any") -> EventOutcome:
+    """The event of several parts of the plan: an ended isolation or a negative test."""
+    return composite(
+        "Recovered",
+        (
+            part(
+                "Isolation ended",
+                "careplans",
+                (CAREPLAN,),
+                reasons=(COVID_CODE,),
+                at="stop",
+            ),
+            part("Negative test", "observations", (NEGATIVE_TEST,), values=(NEGATIVE,)),
+        ),
+        op=op,
+    )
+
+
+def recovered_tables() -> dict[str, pd.DataFrame]:
+    """The tables of the event of several parts: the careplans and the observations."""
+    return {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a2", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-22", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-05T10:00:00Z",
+             "VALUE": NEGATIVE},
+            {"PATIENT": "a2", "CODE": NEGATIVE_TEST, "DATE": "2020-01-10T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+
+
+def test_p13_the_members_of_an_event_of_several_parts_are_the_patients_of_its_measure():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+    )
+    tables = recovered_tables()
+    result = measure_event(cohort, tables, recovered_outcome(), REF, BANDS)
+    members = event_members(cohort, tables, recovered_outcome(), REF)
+    assert members.patients == frozenset({"a1", "a2"})
+    assert len(members.patients) == result.breakdown.total.patients
+
+
+def test_p14_a_patient_of_two_parts_counts_once_on_the_earliest_day():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+    )
+    result = measure_event(cohort, recovered_tables(), recovered_outcome(), REF, BANDS)
+    assert result.breakdown.total.patients == 2
+    assert result.days.n == 2
+    assert result.days.minimum == 4.0
+    assert result.days.maximum == 9.0
+    assert result.op == "any"
+    assert [match.patients for match in result.matches] == [2, 2]
+
+
+def test_p15_an_all_outcome_needs_every_part():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+    )
+    tables = {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a2", "CODE": NEGATIVE_TEST, "DATE": "2020-01-05T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+    every = measure_event(cohort, tables, recovered_outcome("all"), REF, BANDS)
+    assert every.op == "all"
+    assert every.breakdown.total.patients == 0
+    assert every.days.n == 0
+    assert [match.patients for match in every.matches] == [1, 1]
+    one = measure_event(cohort, tables, recovered_outcome("any"), REF, BANDS)
+    assert one.op == "any"
+    assert one.breakdown.total.patients == 2
+
+
+def test_p16_an_all_outcome_needs_a_patient_of_every_part():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+    )
+    tables = {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-20", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a2", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-22", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-05T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+    result = measure_event(cohort, tables, recovered_outcome("all"), REF, BANDS)
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 19.0
+    assert [match.patients for match in result.matches] == [2, 1]
+
+
+def test_p17_an_all_outcome_counts_on_the_latest_of_the_first_days_of_its_parts():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    tables = {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-03",
+             "STOP": "2020-01-03", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-11",
+             "STOP": "2020-01-11", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-06T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+    result = measure_event(cohort, tables, recovered_outcome("all"), REF, BANDS)
+    assert result.breakdown.total.patients == 1
+    assert result.days.minimum == 5.0
+
+
+def test_p18_a_cross_counts_the_patients_of_an_event_of_several_parts():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+        {"Id": "a2", "BIRTHDATE": "1980-01-01", "GENDER": "F"},
+        {"Id": "a3", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    tables = {
+        "careplans": careplans(
+            {"PATIENT": "a1", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-05", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a2", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-07", "REASONCODE": COVID_CODE},
+            {"PATIENT": "a3", "CODE": CAREPLAN, "START": "2020-01-01",
+             "STOP": "2020-01-09", "REASONCODE": COVID_CODE},
+        ),
+        "observations": observations(
+            {"PATIENT": "a1", "CODE": NEGATIVE_TEST, "DATE": "2020-01-02T10:00:00Z",
+             "VALUE": NEGATIVE},
+            {"PATIENT": "a3", "CODE": NEGATIVE_TEST, "DATE": "2020-01-04T10:00:00Z",
+             "VALUE": NEGATIVE},
+        ),
+    }
+    recovered = recovered_outcome("any")
+    isolation = composite(
+        "Isolation ended",
+        (
+            part(
+                "Isolation ended",
+                "careplans",
+                (CAREPLAN,),
+                reasons=(COVID_CODE,),
+                at="stop",
+            ),
+            part("Negative test", "observations", (NEGATIVE_TEST,), values=(NEGATIVE,)),
+        ),
+        op="all",
+    )
+    cross = measure_cross(
+        cohort,
+        CrossSpec("Recovered", "Isolation ended"),
+        event_members(cohort, tables, recovered, REF),
+        event_members(cohort, tables, isolation, REF),
+        "event",
+    )
+    assert [(s.label, s.numerator, s.denominator) for s in cross.strata] == [
+        ("with Isolation ended", 2, 2),
+        ("without Isolation ended", 1, 1),
+    ]
+
+
+def test_p19_a_single_table_for_an_event_of_several_parts_is_an_error():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    with pytest.raises(ValueError):
+        measure_event(
+            cohort,
+            recovered_tables()["careplans"],
+            recovered_outcome(),
+            REF,
+            BANDS,
+        )
+
+
+def test_p20_a_mapping_without_the_table_of_a_part_is_an_error():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    with pytest.raises(ValueError):
+        measure_event(
+            cohort,
+            {"careplans": recovered_tables()["careplans"]},
+            recovered_outcome(),
+            REF,
+            BANDS,
+        )
+
+
+def test_p21_an_event_of_before_gives_the_same_figures_as_in_0_11_0():
+    result = measure_event(
+        single_patient_cohort("2020-01-01"),
+        encounters(
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-01-11T10:00:00Z"},
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-01-21T10:00:00Z"},
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2020-13-45T10:00:00Z"},
+            {"PATIENT": "a1", "CODE": HOSPITAL, "START": "2026-06-01T10:00:00Z"},
+        ),
+        event(),
+        REF,
+        BANDS,
+    )
+    assert result.breakdown.total.patients == 1
+    assert result.days.n == 1
+    assert result.days.minimum == 10.0
+    assert result.rows_matched == 4
+    assert result.rows_date_unusable == 1
+    assert result.rows_after_reference == 1
+    assert result.rows_outside_window == 0
+    assert result.rows_filtered_out == 0
+    assert result.rows_not_ended == 0
+    assert result.op == "any"
+    assert len(result.matches) == 1
+    assert result.matches[0].name == "encounters: 1505002"
+    assert result.matches[0].patients == 1
+
+
+def test_p22_an_unknown_op_is_an_error():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    with pytest.raises(ValueError, match="op must be 'any' or 'all'"):
+        measure_event(
+            cohort,
+            recovered_tables(),
+            composite("Recovered", recovered_outcome().parts, op="some"),
+            REF,
+            BANDS,
+        )

@@ -105,7 +105,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.11.0
+synthea-quality 0.12.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -257,7 +257,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.11.0",
+    "tool_version": "0.12.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -456,7 +456,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.11.0)
+synthea-profile (synthea-quality 0.12.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -907,7 +907,9 @@ module file as the conditions, the observations and the medications.
 - Each outcome has a `name`, unique in the file, and a `type`:
   - `event`: `table` is one of `conditions`, `encounters`, `procedures`, `medications`,
     `careplans`, `devices`, `immunizations` and `observations`; `codes` is a non-empty list
-    of codes of that table.
+    of codes of that table. An event of several tables uses `match`; an event of one table
+    keeps `table` and `codes`, with or without filters: see "Outcomes from more than one
+    table".
   - `value`: `code` is a code of `observations.csv`; `pick` is `first` (the default) or
     `last`; optional `groups` joins several exact `VALUE` texts under one label.
   - `death`: optional `cause_values`, a list of exact texts of the `VALUE` of observation
@@ -1000,6 +1002,8 @@ patients (2 F, 2 M), one of them admitted to hospital on the index date.
 | ICU admission | event | day 0 onward | 0 (0.00%; 0.00–48.99%) |
 | Ventilated | event | day 0 onward | 0 (0.00%; 0.00–48.99%) |
 | Death | death | day 0 onward | 0 (0.00%; 0.00–48.99%) |
+| Recovered | event | day 0 onward | 1 (25.00%; 4.56–69.94%) |
+| COVID-19 ended | event | day 0 onward | 4 (100.00%; 51.01–100.00%) |
 
 The crossing of the same file measures the deaths inside the ICU admissions:
 
@@ -1010,17 +1014,107 @@ The crossing of the same file measures the deaths inside the ICU admissions:
 
 The integration suite recounts the cohort and every outcome with the `csv` module only.
 
+### Outcomes from more than one table
+
+An event outcome can be made of several parts, each with its own table and its own
+codes, and it can filter the records it accepts. The case that needs it is the end of
+a COVID-19 isolation: it is either the care plan that ends, or a negative test — two
+tables that say the same thing in different words.
+
+```json
+{"name": "Recovered", "type": "event", "op": "any",
+ "match": [
+   {"name": "Isolation ended", "table": "careplans", "codes": ["736376001"],
+    "reasons": ["840539006"], "at": "stop"},
+   {"name": "Negative test", "table": "observations", "codes": ["94531-1"],
+    "values": ["Not detected (qualifier value)"]}]}
+```
+
+There are two forms, and an event uses only one of them:
+
+- an event of one table: `table` and `codes`, with the filters below;
+- an event of several parts: `match`, a list of at least two parts, each with its own
+  `table` and `codes` and its own filters. `op` says how they combine: `any` (the
+  default) counts a patient with one part, `all` needs every part.
+
+The filters narrow the records a part accepts:
+
+| Filter | Column | Tables that have it |
+| --- | --- | --- |
+| `values` | `VALUE` | `observations` |
+| `reasons` | `REASONCODE` | `encounters`, `procedures`, `medications`, `careplans` |
+| `at` | `STOP` | `conditions`, `encounters`, `procedures`, `medications`, `careplans`, `devices` |
+
+- `values` and `reasons` are non-empty lists of exact texts, compared as they are
+  written in the CSV.
+- `at` is `start` (the default) or `stop`: with `stop` the record counts on the date of
+  its `STOP`, and a record without a `STOP` is still open and does not count.
+- The three filters work the same in an event of one table and in a part of a `match`.
+
+Every record of a part goes through six steps, in this order, and a record left out is
+counted in exactly one of them. `rows_matched` is the total of the records of the codes
+of the part, of the patients of the cohort; each of the five counters of the steps
+below counts the records that its own step leaves out:
+
+| # | Step | Counter |
+| --- | --- | --- |
+| 1 | the code, of a patient of the cohort | `rows_matched` |
+| 2 | `values` / `reasons` | `rows_filtered_out` |
+| 3 | with `at: stop`, a record without a `STOP` | `rows_not_ended` |
+| 4 | an empty or unparseable date | `rows_date_unusable` |
+| 5 | a date after the reference date | `rows_after_reference` |
+| 6 | a date outside the window | `rows_outside_window` |
+
+The date of a part is the first of its records inside the window. The date of the
+outcome is the earliest of its parts with `any` (the day the patient has one of them)
+and the latest with `all` (the day the patient has the last of them). The days to the
+outcome are those days, one per patient.
+
+The JSON of an event gains four keys: `op`, how the parts combine; `matches`, one
+element per part with its rule (`name`, `table`, `codes`, `values`, `reasons`, `at`),
+the patients it found and its own `rows_*` counters; and the two counters
+`rows_filtered_out` and `rows_not_ended`, the records the filters and the open records
+of the parts leave out. The other `rows_*` of the event are the sum of the counters of
+its parts. An event of several parts has no table of its own and no codes: its `table`
+is `null` and its `codes` is `[]`.
+
+The Markdown of an event of one table without filters is the same as before. An event
+of several parts, or with a filter, says how its parts combine, adds the table
+
+| Part | Table | Codes | Filter | Patients |
+
+with one row per part, and names the days to the outcome; an event of one table without
+filters keeps the days to its first record. The `Filter` column says `VALUE is …`,
+`REASONCODE is …` and `on STOP`, separated by `; `, or `—` when the part filters on
+nothing. The line of the records left out adds the records the filters and the open
+records of the parts.
+
+A table that is not in the dataset, or a table without the column that a part needs
+(`VALUE`, `REASONCODE` or `STOP`), leaves only that outcome `SKIPPED` with the reason;
+the other outcomes are still measured.
+
+The file is rejected when a `match` is used with `table`, `codes`, `values`, `reasons`
+or `at`; when `op` is used without a `match` or is neither `any` nor `all`; when the
+`match` is not a list or has less than two parts; when a part is not an object, has an
+unknown key, a table the tool does not know, an empty `codes` list or an empty `name`;
+when a part repeats the name of another part or the default name of another part; when
+two parts say the same thing; when `values` or `reasons` is null, is not a non-empty list
+of non-empty texts or repeats a text; when `values` is used with a table that has no
+`VALUE`, or `reasons` with a table that has no `REASONCODE`; when `at` is neither
+`start` nor `stop`, or `at: stop` is used with a table that has no `STOP`; and when an
+event of one table uses a filter its own table does not have.
+
 ### Not covered yet
 
-Composite outcomes, windows anchored to another outcome, second episodes, daily series,
-crossing more than one outcome at a time, and survival estimates (Kaplan-Meier).
+Windows anchored to another outcome, second episodes, daily series, crossing more than
+one outcome at a time, and survival estimates (Kaplan-Meier).
 
 ## Testing
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1102 unit and component tests, about 20 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 73 end-to-end tests that run the commands as a user would, about 90 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1174 unit and component tests, about 25 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 77 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
