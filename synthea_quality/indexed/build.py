@@ -7,6 +7,11 @@ part of each ``event`` outcome (``PATIENT``, ``CODE`` and the table's date colum
 ``observations.csv`` when a ``value`` outcome or a ``death`` outcome with ``cause_values``
 needs it. Each table is loaded once, however many outcomes or parts read it.
 
+A table the caller has already read is not read again: the caller hands its frames over
+and they are used as they are. A table the caller could not read is read here, with the
+columns this module needs and the fewer it requires, so no outcome is lost because the
+caller asked for more columns than the table has.
+
 A part of an ``event`` outcome can filter on a column its table has: ``VALUE``,
 ``REASONCODE`` or the ``STOP`` it counts on. Those columns are asked for, never
 required: a table without them still serves the outcomes that do not need them, and only
@@ -179,14 +184,15 @@ def indexed_cohort_result(
     outcomes: Sequence[Outcome],
     reference: date,
     age_bands: Sequence[int],
-    observations: pd.DataFrame | None = None,
+    loaded: Mapping[str, pd.DataFrame] | None = None,
     crosses: Sequence[CrossSpec] = (),
 ) -> tuple[IndexedCohortResult, tuple[TableInput, ...]]:
     """The indexed cohort of ``index``, every outcome and every crossing.
 
-    ``observations`` is the frame the caller already read, if any: it is then used as is
-    and not loaded a second time. The returned :class:`TableInput` are only the tables
-    loaded here, so the report lists each one once.
+    ``loaded`` holds the frames the caller already read, by table name: a table of it is
+    used as it is and not read a second time. A table that is not in it is read here with
+    the columns the outcomes need. The returned :class:`TableInput` are only the tables
+    read here, so the report lists each one once.
 
     :raises StopIteration: ``definitions`` has no condition named ``index.condition``;
         the module file's loader rejects that case before this function runs.
@@ -195,13 +201,15 @@ def indexed_cohort_result(
     """
     definition = next(d for d in definitions if d.name == index.condition)
     cohort = build_indexed_cohort(patients, conditions, definition, reference, age_bands)
+    given = loaded or {}
     frames: dict[str, pd.DataFrame | None] = {}
     reasons: dict[str, str] = {}
     inputs: list[TableInput] = []
     wanted = _wanted_columns(outcomes)
     for table in indexed_tables(outcomes):
-        if table == OBSERVATIONS and observations is not None:
-            frames[table] = observations
+        handed_over = given.get(table)
+        if handed_over is not None:
+            frames[table] = handed_over
             continue
         frame, table_input = _load_table(context, table, wanted.get(table, ()))
         frames[table] = frame

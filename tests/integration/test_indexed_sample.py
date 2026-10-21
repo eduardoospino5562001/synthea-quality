@@ -505,3 +505,14 @@ def test_i14_the_covid_19_that_ended_is_the_independent_recount(sample, covid):
     outcome = _outcome(covid, "COVID-19 ended")
     assert outcome["breakdown"]["total"]["numerator"] == len(days)
     assert outcome["days_to_first_record"]["median"] == _median(list(days.values()))
+
+
+def test_i15_every_table_is_listed_once_with_its_own_rows(sample, covid):
+    """Each table of the report is listed once, and its rows are the file's rows."""
+    listed = [item["table"] for item in covid["inputs"]]
+    assert len(listed) == len(set(listed))
+    conditions = next(item for item in covid["inputs"] if item["table"] == "conditions")
+    assert conditions["rows"] == sum(1 for _ in _rows(sample / "conditions.csv"))
+    assert conditions["used_for"] == "condition records and indexed cohort outcomes"
+    observations = next(item for item in covid["inputs"] if item["table"] == "observations")
+    assert observations["used_for"] == "indexed cohort outcomes"

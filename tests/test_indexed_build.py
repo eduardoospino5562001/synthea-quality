@@ -15,7 +15,7 @@ from synthea_quality.indexed import build as indexed_build
 from synthea_quality.indexed.compute import IndexedCohort, OutcomeMembers
 from synthea_quality.indexed.definitions import ValueOutcome
 from synthea_quality.indexed.models import DeathResult, EventResult, SkippedOutcome, ValueResult
-from synthea_quality.profile.models import TableInput
+from synthea_quality.profile.models import InputState, TableInput
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.cli import print_summary
 from synthea_quality.validate.models import ModuleValidationReport, load_module
@@ -195,6 +195,29 @@ OBSERVATIONS = [
 OBSERVATIONS_WITHOUT_VALUE = (
     "DATE", "PATIENT", "ENCOUNTER", "CATEGORY", "CODE", "DESCRIPTION", "UNITS", "TYPE",
 )
+#: The header of ``conditions.csv`` without its ``STOP`` column.
+CONDITIONS_WITHOUT_STOP = ("START", "PATIENT", "ENCOUNTER", "SYSTEM", "CODE", "DESCRIPTION")
+#: The header of ``medications.csv`` without its ``STOP`` column.
+MEDICATIONS_WITHOUT_STOP = (
+    "START", "PATIENT", "PAYER", "ENCOUNTER", "CODE", "DESCRIPTION", "REASONCODE",
+)
+#: An event on the condition records: the end of the COVID-19 condition.
+CONDITION_ENDED = {
+    "name": "COVID-19 ended",
+    "type": "event",
+    "table": "conditions",
+    "codes": ["840539006"],
+    "at": "stop",
+}
+#: An event on the medication records.
+MEDICATION_TAKEN = {
+    "name": "Lisinopril",
+    "type": "event",
+    "table": "medications",
+    "codes": ["314076"],
+}
+#: The medications of the module file of the medication outcome.
+MEDICATIONS = [{"name": "Lisinopril", "codes": ["314076"]}]
 
 
 def recovered_dataset(directory: Path) -> Path:
@@ -234,8 +257,43 @@ def without(rows: list[dict[str, str]], column: str) -> list[dict[str, str]]:
     return [{key: value for key, value in row.items() if key != column} for row in rows]
 
 
+def ended_covid_dataset(directory: Path) -> Path:
+    """The COVID-19 dataset: one condition ends, the other two never do."""
+    directory = covid_dataset(directory)
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "p1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01",
+             "STOP": "2023-02-01", "DESCRIPTION": "COVID-19"},
+            {"PATIENT": "p1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-05-01",
+             "STOP": "", "DESCRIPTION": "COVID-19"},
+            {"PATIENT": "p2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-03-01",
+             "STOP": "", "DESCRIPTION": "COVID-19"},
+            {"PATIENT": "p3", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-04-01",
+             "STOP": "", "DESCRIPTION": "COVID-19"},
+        ],
+    )
+    return directory
+
+
+def with_medications(directory: Path, *, stop: bool = True) -> Path:
+    """The dataset with one medication record, of the patient of the index."""
+    rows = [
+        {"START": "2023-01-15T00:00:00Z", "PATIENT": "p1", "CODE": "314076",
+         "DESCRIPTION": "lisinopril 10 MG Oral Tablet"},
+    ]
+    if stop:
+        rows[0]["STOP"] = "2023-03-01T00:00:00Z"
+    write_table(directory, "medications", rows, columns=None if stop else MEDICATIONS_WITHOUT_STOP)
+    return directory
+
+
 def write_module(
-    directory: Path, outcomes: list[dict] | None = None, crosses: list[dict] | None = None
+    directory: Path,
+    outcomes: list[dict] | None = None,
+    crosses: list[dict] | None = None,
+    medications: list[dict] | None = None,
 ) -> Path:
     """A module file of COVID-19 with ``outcomes``, or without an index when None."""
     data: dict = {
@@ -247,6 +305,8 @@ def write_module(
         data["outcomes"] = outcomes
     if crosses is not None:
         data["by"] = crosses
+    if medications is not None:
+        data["medications"] = medications
     path = directory / "module.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
@@ -262,6 +322,7 @@ def validate(directory: Path, module_path: Path, **kwargs) -> ModuleValidationRe
         index=loaded.index,
         outcomes=loaded.outcomes,
         crosses=loaded.crosses,
+        medications=loaded.medications,
         generated_at=GENERATED_AT,
         **kwargs,
     )
@@ -823,3 +884,187 @@ def test_b31_the_all_op_needs_every_part(tmp_path):
     assert outcome.op == "all"
     assert outcome.breakdown.total.patients == 1
     assert outcome.days.median == 9
+
+
+def _counted_loads(monkeypatch) -> list[str]:
+    """Record the name of every table the report reads, and return the list."""
+    calls: list[str] = []
+    original = DatasetContext.load
+
+    def counted(
+        self: DatasetContext,
+        name: str,
+        wanted: Sequence[str],
+        required: Sequence[str],
+        used_for: str,
+    ) -> tuple[pd.DataFrame | None, TableInput]:
+        calls.append(name)
+        return original(self, name, wanted, required, used_for)
+
+    monkeypatch.setattr(DatasetContext, "load", counted)
+    return calls
+
+
+def test_b32_the_condition_records_are_read_once_when_an_outcome_needs_them(
+    tmp_path, monkeypatch
+):
+    """The table the report read is not read again, and its entry says both uses."""
+    directory = ended_covid_dataset(tmp_path / "csv")
+    calls = _counted_loads(monkeypatch)
+    report = validate(
+        directory, write_module(tmp_path, [CONDITION_ENDED]), reference_date="2026-01-01"
+    )
+    assert calls.count("conditions") == 1
+    listed = [(item.table, item.used_for) for item in report.inputs]
+    assert listed.count(("conditions", "condition records and indexed cohort outcomes")) == 1
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.breakdown.total.patients == 1
+
+
+def test_b33_the_medication_records_are_read_once_when_an_outcome_needs_them(
+    tmp_path, monkeypatch
+):
+    """The same with the medication records, of a module file with medications."""
+    directory = with_medications(covid_dataset(tmp_path / "csv"))
+    calls = _counted_loads(monkeypatch)
+    report = validate(
+        directory,
+        write_module(tmp_path, [MEDICATION_TAKEN], medications=MEDICATIONS),
+        reference_date="2026-01-01",
+    )
+    assert calls.count("medications") == 1
+    listed = [(item.table, item.used_for) for item in report.inputs]
+    assert listed.count(("medications", "medication records and indexed cohort outcomes")) == 1
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.breakdown.total.patients == 1
+
+
+def test_b34_a_medication_table_without_stop_is_read_by_the_cohort_itself(
+    tmp_path, monkeypatch
+):
+    """A table the report cannot read is read by the cohort, with fewer columns."""
+    directory = with_medications(covid_dataset(tmp_path / "csv"), stop=False)
+    calls = _counted_loads(monkeypatch)
+    report = validate(
+        directory,
+        write_module(tmp_path, [MEDICATION_TAKEN], medications=MEDICATIONS),
+        reference_date="2026-01-01",
+    )
+    assert calls.count("medications") == 2
+    listed = [(item.table, item.used_for, item.state) for item in report.inputs]
+    assert ("medications", "medication records", InputState.ABSENT) in listed
+    assert ("medications", "indexed cohort outcomes", InputState.READ) in listed
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, EventResult)
+    assert outcome.breakdown.total.patients == 1
+
+
+def test_b35_an_event_on_conditions_without_stop_is_skipped_with_its_reason(tmp_path):
+    """A condition table without ``STOP`` leaves out only the outcome that needs it."""
+    directory = covid_dataset(tmp_path / "csv")
+    write_table(
+        directory,
+        "conditions",
+        [
+            {"PATIENT": "p1", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-01-01",
+             "DESCRIPTION": "COVID-19"},
+            {"PATIENT": "p2", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-03-01",
+             "DESCRIPTION": "COVID-19"},
+            {"PATIENT": "p3", "CODE": "840539006", "SYSTEM": SNOMED, "START": "2023-04-01",
+             "DESCRIPTION": "COVID-19"},
+        ],
+        columns=CONDITIONS_WITHOUT_STOP,
+    )
+    report = validate(
+        directory,
+        write_module(tmp_path, [CONDITION_ENDED, HOSPITAL_ADMISSION]),
+        reference_date="2026-01-01",
+    )
+    assert report.indexed is not None
+    ended, admission = report.indexed.outcomes
+    assert isinstance(ended, SkippedOutcome)
+    assert ended.reason == (
+        "conditions.csv has no STOP column(s), which part 'conditions: 840539006' needs"
+    )
+    assert isinstance(admission, EventResult)
+    assert admission.breakdown.total.patients == 1
+
+
+def test_b36_a_module_without_an_event_on_those_tables_lists_them_as_before(tmp_path):
+    """A module with no event on the condition or medication records lists them once."""
+    directory = with_medications(covid_dataset(tmp_path / "csv"))
+    report = validate(
+        directory,
+        write_module(tmp_path, [HOSPITAL_ADMISSION], medications=MEDICATIONS),
+        reference_date="2026-01-01",
+    )
+    listed = [(item.table, item.used_for, item.rows) for item in report.inputs]
+    assert listed == [
+        ("patients", "the population, the alive cohort and the followed population", 3),
+        ("conditions", "condition records", 4),
+        ("medications", "medication records", 1),
+        ("encounters", "indexed cohort outcomes", 1),
+    ]
+
+
+def test_b37_the_cohort_does_not_change_the_frame_of_the_report(tmp_path, monkeypatch):
+    """The frame the report read reaches the cohort as it was read.
+
+    The cohort measures its outcomes from that frame: if any step changed it in place,
+    the figures of the outcomes would change without anything saying so.
+    """
+    directory = ended_covid_dataset(tmp_path / "csv")
+    frames: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+    original = DatasetContext.load
+
+    def counted(
+        self: DatasetContext,
+        name: str,
+        wanted: Sequence[str],
+        required: Sequence[str],
+        used_for: str,
+    ) -> tuple[pd.DataFrame | None, TableInput]:
+        frame, table_input = original(self, name, wanted, required, used_for)
+        if name == "conditions" and frame is not None:
+            frames[name] = (frame, frame.copy(deep=True))
+        return frame, table_input
+
+    monkeypatch.setattr(DatasetContext, "load", counted)
+    validate(
+        directory, write_module(tmp_path, [CONDITION_ENDED]), reference_date="2026-01-01"
+    )
+    assert "conditions" in frames
+    frame, read = frames["conditions"]
+    pd.testing.assert_frame_equal(frame, read)
+
+
+def test_b38_the_observation_values_are_read_once_when_an_outcome_needs_them(
+    tmp_path, monkeypatch
+):
+    """The table the report read is not read again, and its entry says both uses."""
+    directory = with_observations(covid_dataset(tmp_path / "csv"))
+    module_path = write_module(tmp_path, [STAGE])
+    data = json.loads(module_path.read_text(encoding="utf-8"))
+    data["observations"] = [{"name": "Stage value", "code": "21908-9"}]
+    module_path.write_text(json.dumps(data), encoding="utf-8")
+    calls = _counted_loads(monkeypatch)
+    report = validate(
+        directory,
+        module_path,
+        reference_date="2026-01-01",
+        observations=load_module(module_path).observations,
+    )
+    assert calls.count("observations") == 1
+    listed = [(item.table, item.used_for) for item in report.inputs]
+    assert listed.count(
+        ("observations", "observation values and indexed cohort outcomes")
+    ) == 1
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, ValueResult)
+    assert outcome.breakdown.total.patients == 1
