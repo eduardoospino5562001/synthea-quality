@@ -1691,3 +1691,17 @@ def test_p21_an_event_of_before_gives_the_same_figures_as_in_0_11_0():
     assert len(result.matches) == 1
     assert result.matches[0].name == "encounters: 1505002"
     assert result.matches[0].patients == 1
+
+
+def test_p22_an_unknown_op_is_an_error():
+    people, cohort = cohort_with(
+        {"Id": "a1", "BIRTHDATE": "1980-01-01", "GENDER": "M"},
+    )
+    with pytest.raises(ValueError, match="op must be 'any' or 'all'"):
+        measure_event(
+            cohort,
+            recovered_tables(),
+            composite("Recovered", recovered_outcome().parts, op="some"),
+            REF,
+            BANDS,
+        )

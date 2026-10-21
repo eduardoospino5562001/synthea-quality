@@ -294,8 +294,6 @@ class _PartSelection:
     exactly one of them.
     """
 
-    #: The records of the codes of the part, of the patients of the cohort.
-    matched: pd.DataFrame
     #: The days to the first in-window record, one value per patient.
     first: pd.Series
     #: Records of the codes of the part, of the patients of the cohort, any date.
@@ -335,7 +333,6 @@ def _part_selection(
     in_window, after = _window_masks(cohort, ended, days, window, reference)
     first = days[in_window].groupby(ended.loc[in_window, "PATIENT"]).min()
     return _PartSelection(
-        matched=matched,
         first=first,
         rows_matched=len(matched),
         rows_filtered_out=len(matched) - len(filtered),
@@ -445,14 +442,18 @@ def _outcome_days(selections: Sequence[_PartSelection], op: str) -> pd.Series:
     With ``any`` a patient counts with one part and reaches the outcome on the
     earliest of them. With ``all`` the patient needs every part and reaches it on the
     latest of them: the day the last part is met.
+
+    :raises ValueError: ``op`` is neither ``"any"`` nor ``"all"``.
     """
     days = pd.concat([selection.first for selection in selections])
     if op == "any":
         return days.groupby(level=0).min()
-    # With "all" the patient needs every part: the outcome is on the latest of them.
-    counted = days.groupby(level=0).count()
-    complete = counted[counted == len(selections)].index
-    return days[days.index.isin(complete)].groupby(level=0).max()
+    if op == "all":
+        # With "all" the patient needs every part: the outcome is on the latest of them.
+        counted = days.groupby(level=0).count()
+        complete = counted[counted == len(selections)].index
+        return days[days.index.isin(complete)].groupby(level=0).max()
+    raise ValueError(f"op must be 'any' or 'all', not {op!r}")
 
 
 def measure_event(
@@ -471,10 +472,14 @@ def measure_event(
     with ``all`` the latest, the day the last part is met.
 
     ``tables`` is the table of the outcome when it has one part, and one table per part
-    by name when it has several.
+    by name when it has several. The table of a part has to bring the columns that part
+    filters on: ``VALUE`` for its ``values``, ``REASONCODE`` for its ``reasons`` and
+    ``STOP`` when it counts on its end. A part whose table lacks one of them leaves the
+    outcome out: :mod:`synthea_quality.indexed.build` skips it with the reason.
 
-    :raises ValueError: the outcome has several parts and only one table was given, or
-        the tables do not hold the table of one of its parts.
+    :raises ValueError: the outcome has several parts and only one table was given, the
+        tables do not hold the table of one of its parts, or its ``op`` is neither
+        ``"any"`` nor ``"all"``.
     """
     selection = _event_selection(cohort, tables, outcome, reference)
     matches = tuple(
