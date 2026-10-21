@@ -22,6 +22,10 @@ and the frames are handed to the existing computations:
   with each crossing of the module file's ``by`` list measured in the strata of another
   outcome.
 
+A table the report has already read is not read again: its frame is handed to the
+indexed cohort, which uses it as it is, and the entry of the table in the report says
+both uses.
+
 Nothing is guessed. Without a reference date or the patients, everything is ``SKIPPED``
 with the reason. Without the condition records, every condition's prevalence and
 incidence, and every observation limited to a cohort, are; without a ``STOP`` column only
@@ -31,9 +35,12 @@ only the observations are; without ``medications.csv`` only the medications.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
+
+import pandas as pd
 
 from synthea_quality.dataset import open_dataset
 from synthea_quality.discovery import DiscoveryResult
@@ -42,6 +49,7 @@ from synthea_quality.incidence import compute as incidence
 from synthea_quality.incidence.build import export_history
 from synthea_quality.incidence.models import ConditionIncidence
 from synthea_quality.indexed.build import (
+    INDEXED_USED_FOR,
     indexed_cohort_result,
     indexed_tables,
     skipped_indexed,
@@ -163,6 +171,14 @@ def build_module_validation(
             medications_compute.REQUIRED_MEDICATION_COLUMNS, "medication records",
         )
         inputs.append(medications_input)
+    # The frames the indexed cohort can use instead of reading the table again.
+    loaded: dict[str, pd.DataFrame] = {}
+    if conditions is not None:
+        loaded["conditions"] = conditions
+    if observation_frame is not None:
+        loaded["observations"] = observation_frame
+    if medication_frame is not None:
+        loaded["medications"] = medication_frame
 
     exported = read_export_history(metadata, reference)
     history = export_history(exported, conditions, reference, window_years)
@@ -187,9 +203,12 @@ def build_module_validation(
             assert reference is not None and patients is not None
             indexed, indexed_inputs = indexed_cohort_result(
                 context, patients, conditions, definitions, index, outcomes, reference,
-                bands, observations=observation_frame, crosses=crosses,
+                bands, loaded=loaded, crosses=crosses,
             )
             inputs.extend(indexed_inputs)
+            # A table the cohort read is listed once, and its entry says both uses.
+            reused = {table for table in indexed_tables(outcomes) if table in loaded}
+            inputs = [_with_indexed_use(item, reused) for item in inputs]
     common: _CommonFields = {
         "data_dir": str(context.data_dir),
         "module_file": str(module_file),
@@ -311,6 +330,19 @@ def build_module_validation(
         indexed=indexed,
         **common,
     )
+
+
+def _with_indexed_use(item: TableInput, reused: Collection[str]) -> TableInput:
+    """The entry of a table the indexed cohort also read, saying both uses.
+
+    A table the cohort read from the frame the caller already had is listed once, and
+    its entry says what it was read for: the condition records and the outcomes of the
+    cohort, the medication records and the outcomes, the observation values and the
+    outcomes. The entry keeps its place in the list and its number of rows.
+    """
+    if item.table not in reused:
+        return item
+    return replace(item, used_for=f"{item.used_for} and {INDEXED_USED_FOR}")
 
 
 def _skipped_prevalence(definition: ConditionDefinition, reason: str) -> ConditionResult:
