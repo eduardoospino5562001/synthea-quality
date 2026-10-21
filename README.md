@@ -907,8 +907,9 @@ module file as the conditions, the observations and the medications.
 - Each outcome has a `name`, unique in the file, and a `type`:
   - `event`: `table` is one of `conditions`, `encounters`, `procedures`, `medications`,
     `careplans`, `devices`, `immunizations` and `observations`; `codes` is a non-empty list
-    of codes of that table. An event of several tables, or with filters, uses `match`
-    instead: see "Outcomes from more than one table".
+    of codes of that table. An event of several tables uses `match`; an event of one table
+    keeps `table` and `codes`, with or without filters: see "Outcomes from more than one
+    table".
   - `value`: `code` is a code of `observations.csv`; `pick` is `first` (the default) or
     `last`; optional `groups` joins several exact `VALUE` texts under one label.
   - `death`: optional `cause_values`, a list of exact texts of the `VALUE` of observation
@@ -1051,7 +1052,9 @@ The filters narrow the records a part accepts:
 - The three filters work the same in an event of one table and in a part of a `match`.
 
 Every record of a part goes through six steps, in this order, and a record left out is
-counted in exactly one of them:
+counted in exactly one of them. `rows_matched` is the total of the records of the codes
+of the part, of the patients of the cohort; each of the five counters of the steps
+below counts the records that its own step leaves out:
 
 | # | Step | Counter |
 | --- | --- | --- |
@@ -1067,20 +1070,24 @@ outcome is the earliest of its parts with `any` (the day the patient has one of 
 and the latest with `all` (the day the patient has the last of them). The days to the
 outcome are those days, one per patient.
 
-The JSON of an event gains two keys: `op`, how the parts combine, and `matches`, one
+The JSON of an event gains four keys: `op`, how the parts combine; `matches`, one
 element per part with its rule (`name`, `table`, `codes`, `values`, `reasons`, `at`),
-the patients it found and its own `rows_*` counters. The `rows_*` of the event are the
-sum of the counters of its parts. An event of several parts has no table of its own and
-no codes: its `table` is `null` and its `codes` is `[]`.
+the patients it found and its own `rows_*` counters; and the two counters
+`rows_filtered_out` and `rows_not_ended`, the records the filters and the open records
+of the parts leave out. The other `rows_*` of the event are the sum of the counters of
+its parts. An event of several parts has no table of its own and no codes: its `table`
+is `null` and its `codes` is `[]`.
 
 The Markdown of an event of one table without filters is the same as before. An event
-of several parts, or with a filter, says how its parts combine and adds the table
+of several parts, or with a filter, says how its parts combine, adds the table
 
 | Part | Table | Codes | Filter | Patients |
 
-with one row per part. The `Filter` column says `VALUE is …`, `REASONCODE is …` and
-`on STOP`, separated by `; `, or `EMPTY` when the part filters on nothing. The line of
-the records left out adds the records the filters and the open records of the parts.
+with one row per part, and names the days to the outcome; an event of one table without
+filters keeps the days to its first record. The `Filter` column says `VALUE is …`,
+`REASONCODE is …` and `on STOP`, separated by `; `, or `—` when the part filters on
+nothing. The line of the records left out adds the records the filters and the open
+records of the parts.
 
 A table that is not in the dataset, or a table without the column that a part needs
 (`VALUE`, `REASONCODE` or `STOP`), leaves only that outcome `SKIPPED` with the reason;
@@ -1091,8 +1098,8 @@ or `at`; when `op` is used without a `match` or is neither `any` nor `all`; when
 `match` is not a list or has less than two parts; when a part is not an object, has an
 unknown key, a table the tool does not know, an empty `codes` list or an empty `name`;
 when a part repeats the name of another part or the default name of another part; when
-two parts say the same thing; when `values` or `reasons` is not a non-empty list of
-non-empty texts or repeats a text; when `values` is used with a table that has no
+two parts say the same thing; when `values` or `reasons` is null, is not a non-empty list
+of non-empty texts or repeats a text; when `values` is used with a table that has no
 `VALUE`, or `reasons` with a table that has no `REASONCODE`; when `at` is neither
 `start` nor `stop`, or `at: stop` is used with a table that has no `STOP`; and when an
 event of one table uses a filter its own table does not have.

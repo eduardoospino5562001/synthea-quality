@@ -113,8 +113,8 @@ _TYPE_KEYS = {
 }
 #: The keys of one part of an event outcome.
 _PART_KEYS = {"name", "table", "codes", "values", "reasons", "at"}
-#: The keys of an event outcome that a part cannot have: they describe the whole
-#: outcome, and a ``match`` says the outcome has parts instead.
+#: The keys of a whole event outcome that cannot go with ``match``: they describe the
+#: whole outcome, and a ``match`` says the outcome has parts instead.
 _EVENT_WHOLE_KEYS = {"table", "codes", "values", "reasons", "at"}
 #: What makes two parts of an outcome the same rule.
 _PartKey = tuple[str, frozenset[str], frozenset[str], frozenset[str], str]

@@ -69,8 +69,8 @@ class EventMatchResult:
 
     The part is the rule itself (its table, its codes and its filters) plus what it
     found: its distinct patients and the records that did not count. Every record left
-    out is counted in exactly one of the ``rows_*`` counters, so the counters add up to
-    the records of the part.
+    out is counted in exactly one of the left-out counters; ``rows_matched`` is the
+    total of the part.
     """
 
     #: The label of the part in the report.
@@ -130,8 +130,8 @@ class EventResult:
     from the index date to the outcome: with ``any`` the earliest of its parts, with
     ``all`` the latest, the day the last part is met.
 
-    An outcome of one table has no ``table`` of its own in the report of a composite
-    one: a composite outcome has no table and no codes, and its parts say everything.
+    An ``event`` of several parts has no table of its own: its ``table`` is ``None`` and
+    its ``codes`` is empty, and its parts are in :attr:`matches`.
     """
 
     name: str

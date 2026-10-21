@@ -291,7 +291,7 @@ class _PartSelection:
 
     The ``rows_*`` counts are records, not patients: they say what was left out on the
     way to the distinct patients of the part. Every record left out is counted in
-    exactly one of them.
+    exactly one of the left-out counters; ``rows_matched`` is the total of the part.
     """
 
     #: The days to the first in-window record, one value per patient.
