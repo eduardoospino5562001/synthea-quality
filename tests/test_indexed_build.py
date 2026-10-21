@@ -1041,3 +1041,30 @@ def test_b37_the_cohort_does_not_change_the_frame_of_the_report(tmp_path, monkey
     assert "conditions" in frames
     frame, read = frames["conditions"]
     pd.testing.assert_frame_equal(frame, read)
+
+
+def test_b38_the_observation_values_are_read_once_when_an_outcome_needs_them(
+    tmp_path, monkeypatch
+):
+    """The table the report read is not read again, and its entry says both uses."""
+    directory = with_observations(covid_dataset(tmp_path / "csv"))
+    module_path = write_module(tmp_path, [STAGE])
+    data = json.loads(module_path.read_text(encoding="utf-8"))
+    data["observations"] = [{"name": "Stage value", "code": "21908-9"}]
+    module_path.write_text(json.dumps(data), encoding="utf-8")
+    calls = _counted_loads(monkeypatch)
+    report = validate(
+        directory,
+        module_path,
+        reference_date="2026-01-01",
+        observations=load_module(module_path).observations,
+    )
+    assert calls.count("observations") == 1
+    listed = [(item.table, item.used_for) for item in report.inputs]
+    assert listed.count(
+        ("observations", "observation values and indexed cohort outcomes")
+    ) == 1
+    assert report.indexed is not None
+    outcome = report.indexed.outcomes[0]
+    assert isinstance(outcome, ValueResult)
+    assert outcome.breakdown.total.patients == 1
