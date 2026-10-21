@@ -662,3 +662,31 @@ def test_an_event_of_one_table_cannot_use_a_filter_its_table_has_not():
                  "codes": ["1505002"], "values": ["Inpatient"]}
             )
         )
+
+
+def test_a_null_list_of_values_is_an_error():
+    part = {**RECOVERED_PARTS[1], "values": None}
+    with pytest.raises(DefinitionError, match="'values' must be a non-empty list of texts"):
+        load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+
+
+def test_a_null_list_of_reasons_is_an_error():
+    part = {**RECOVERED_PARTS[0], "reasons": None}
+    with pytest.raises(DefinitionError, match="'reasons' must be a non-empty list of texts"):
+        load(event_file({**RECOVERED, "match": [part, RECOVERED_PARTS[1]]}))
+
+
+def test_a_null_list_of_values_of_an_event_of_one_table_is_an_error():
+    with pytest.raises(DefinitionError, match="'values' must be a non-empty list of texts"):
+        load(
+            event_file(
+                {"name": "Negative test", "type": "event", "table": "observations",
+                 "codes": ["94531-1"], "values": None}
+            )
+        )
+
+
+def test_an_absent_list_of_values_filters_on_nothing():
+    part = {key: value for key, value in RECOVERED_PARTS[1].items() if key != "values"}
+    _, (outcome,) = load(event_file({**RECOVERED, "match": [RECOVERED_PARTS[0], part]}))
+    assert outcome.parts[1].values == ()

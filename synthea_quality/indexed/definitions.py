@@ -53,9 +53,9 @@ whose ``from_days`` is after its ``to_days``, a malformed ``groups`` object, or 
 malformed ``by`` list. The same goes for the parts of an event: a ``match`` together
 with the keys of an event of one table, a ``match`` of less than two parts, an ``op``
 without a ``match`` or outside :data:`EVENT_OPS`, an unknown key in a part, a table or
-a list of codes that a part cannot use, a filter on a table that has no such column,
-an ``at`` outside :data:`EVENT_AT`, a repeated part name, and two parts that say the
-same thing.
+a list of codes that a part cannot use, a null list of ``values`` or ``reasons``, a
+filter on a table that has no such column, an ``at`` outside :data:`EVENT_AT`, a
+repeated part name, and two parts that say the same thing.
 """
 
 from __future__ import annotations
@@ -463,12 +463,8 @@ def _event_part(
             )
         )
     codes = _codes(item.get("codes"), origin=origin, name=name, where=where)
-    values = _texts(
-        item.get("values"), origin=origin, name=name, where=where, key="values"
-    )
-    reasons = _texts(
-        item.get("reasons"), origin=origin, name=name, where=where, key="reasons"
-    )
+    values = _texts(item, origin=origin, name=name, where=where, key="values")
+    reasons = _texts(item, origin=origin, name=name, where=where, key="reasons")
     at = item.get("at", DEFAULT_AT)
     if at not in EVENT_AT:
         raise DefinitionError(
@@ -602,11 +598,17 @@ def _codes(raw: Any, *, origin: str, name: str, where: str = "") -> tuple[str, .
 
 
 def _texts(
-    raw: Any, *, origin: str, name: str, where: str, key: str
+    item: Mapping[str, Any], *, origin: str, name: str, where: str, key: str
 ) -> tuple[str, ...]:
-    """A list of exact texts of a part, stripped and without repeats."""
-    if raw is None:
+    """The exact texts a part filters on, stripped and without repeats.
+
+    An absent key filters on nothing. A key with a null value is an error, like an
+    empty list: a filter that was left out by mistake would otherwise read as a
+    filter that keeps every record.
+    """
+    if key not in item:
         return ()
+    raw = item[key]
     if not isinstance(raw, list) or not raw:
         raise DefinitionError(
             _event_message(
