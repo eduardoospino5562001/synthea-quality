@@ -365,7 +365,7 @@ def test_r26_a_part_without_a_filter_shows_no_filter():
         ),
     )
     text = render_indexed(replace(result(), outcomes=(mixed,)))
-    assert "| Isolation started | careplans | 736376001 | EMPTY | 1 |" in text
+    assert "| Isolation started | careplans | 736376001 | — | 1 |" in text
 
 
 def test_r27_an_event_of_several_parts_says_the_days_to_the_outcome():
@@ -386,3 +386,19 @@ def test_r28_the_records_left_out_by_the_filters_are_counted():
 def test_r29_no_verdict_words_in_an_event_of_several_parts():
     text = render_indexed(replace(result(), outcomes=(composite(),)))
     assert re.search(r"\b(pass|fail|ok|match)\b", text, re.I) is None
+
+
+def test_r30_an_event_of_one_part_with_a_filter_says_the_days_to_the_outcome():
+    one = replace(
+        composite(),
+        matches=(match("COVID-19 ended", "conditions", ("840539006",), at="stop"),),
+    )
+    text = render_indexed(replace(result(), outcomes=(one,)))
+    assert "Days from the index date to the outcome: n 2, median 7" in text
+    assert "Days from the index date to the first record" not in text
+
+
+def test_r31_an_event_of_one_table_without_filters_keeps_the_days_to_the_first_record():
+    text = render_indexed(result())
+    assert "Days from the index date to the first record: n 1, median 0" in text
+    assert "Days from the index date to the outcome" not in text

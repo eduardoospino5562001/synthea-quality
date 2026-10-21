@@ -182,9 +182,9 @@ def _event_blocks(outcome: EventResult) -> list[str]:
         blocks.append(_rule_line(outcome))
         blocks.append(_parts_table(outcome))
     days = (
-        "Days from the index date to the outcome"
-        if _several_parts(outcome)
-        else "Days from the index date to the first record"
+        "Days from the index date to the first record"
+        if _is_plain_event(outcome)
+        else "Days from the index date to the outcome"
     )
     blocks.append(_days_line(days, outcome.days))
     blocks.append(_left_out_line(outcome))
@@ -202,11 +202,6 @@ def _is_plain_event(outcome: EventResult) -> bool:
         return False
     part = outcome.matches[0]
     return not part.values and not part.reasons and part.at == "start"
-
-
-def _several_parts(outcome: EventResult) -> bool:
-    """Whether the outcome has more than one part."""
-    return len(outcome.matches) > 1
 
 
 def _rule_line(outcome: EventResult) -> str:
@@ -255,7 +250,7 @@ def _filter_text(part: EventMatchResult) -> str:
         )
     if part.at == "stop":
         filters.append("on STOP")
-    return "; ".join(filters) if filters else "EMPTY"
+    return "; ".join(filters) if filters else EMPTY
 
 
 def _left_out_line(outcome: EventResult) -> str:
