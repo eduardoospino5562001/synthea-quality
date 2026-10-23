@@ -39,6 +39,9 @@ ONLY_IN_CANDIDATE = "only_in_candidate"
 PROPORTION = "proportion"
 PER_1000_PERSON_YEARS = "per_1000_person_years"
 COUNT = "count"
+#: Un porcentaje de una poblacion (por ejemplo ``alive_percent`` de la seccion
+#: de poblacion); se lee en puntos porcentuales en el reporte (S2).
+PERCENT = "percent"
 
 
 @dataclass(frozen=True, slots=True, order=True)

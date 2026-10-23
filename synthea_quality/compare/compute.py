@@ -24,6 +24,7 @@ from synthea_quality.compare.models import (
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
+    PERCENT,
     PROPORTION,
     SKIPPED,
     UNCHANGED,
@@ -67,7 +68,7 @@ def _key(block: str, element: str, measure: str, stratum: str = "") -> Compariso
     return ComparisonKey(block=block, element=element, measure=measure, stratum=stratum)
 
 
-def _rate_figure(unit: str, rate) -> Figure:
+def _rate_figure(unit: str, rate: Rate) -> Figure:
     """A figure from a rate-like result (value, interval, numerator, denominator)."""
 
     interval = rate.interval
@@ -98,10 +99,11 @@ def _population_figures(report: ModuleValidationReport) -> list[tuple[Comparison
         for name, value in section.metrics.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
+            unit = PERCENT if str(name).endswith("_percent") else COUNT
             pairs.append(
                 (
                     _key("population", section.section_id, str(name), ""),
-                    Figure(unit=COUNT, value=value, state=COMPUTED),
+                    Figure(unit=unit, value=value, state=COMPUTED),
                 )
             )
         for dist_name, rows in section.distributions.items():
@@ -204,10 +206,11 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
             numerator = group.summary.n
             for statistic in OBSERVATION_STATISTICS:
                 value = getattr(group.summary, statistic)
+                stat_unit = COUNT if statistic == "n" else unit
                 pairs.append(
                     (
                         _key("observations", observation.name, statistic, units),
-                        Figure(unit=unit, value=value, numerator=numerator, state=COMPUTED),
+                        Figure(unit=stat_unit, value=value, numerator=numerator, state=COMPUTED),
                     )
                 )
             for stratum in group.strata:
@@ -218,11 +221,12 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
                 stratum_key = "|".join(parts)
                 for statistic in OBSERVATION_STATISTICS:
                     value = getattr(stratum.summary, statistic)
+                    stat_unit = COUNT if statistic == "n" else unit
                     pairs.append(
                         (
                             _key("observations", observation.name, statistic, stratum_key),
                             Figure(
-                                unit=unit,
+                                unit=stat_unit,
                                 value=value,
                                 numerator=stratum.patients,
                                 state=COMPUTED,
@@ -613,7 +617,7 @@ def _pair(key: ComparisonKey, baseline: Figure | None, candidate: Figure | None)
         )
     difference = round(cand_value - base_value, 6)
     relative_difference = None if base_value == 0 else (cand_value - base_value) / base_value
-    state = UNCHANGED if difference == 0 else CHANGED
+    state = UNCHANGED if cand_value == base_value else CHANGED
     return Comparison(
         key=key,
         unit=baseline.unit,

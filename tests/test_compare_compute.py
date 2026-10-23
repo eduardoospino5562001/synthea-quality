@@ -14,6 +14,7 @@ from synthea_quality.compare.models import (
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
+    PERCENT,
     PROPORTION,
     SKIPPED,
     UNCHANGED,
@@ -441,7 +442,7 @@ def test_conditions_yield_prevalence_incidence_in_total_and_by_stratum(tmp_path)
 def test_observations_yield_their_summary_statistics_in_units(tmp_path):
     figures = figures_by_key(build_report(tmp_path))
     base = ComparisonKey("observations", "8480-6", "n", "mm[Hg]")
-    assert figures[base].unit == "mm[Hg]"
+    assert figures[base].unit == COUNT
     assert figures[base].value == 2
     assert figures[base].numerator == 2
     assert figures[ComparisonKey("observations", "8480-6", "median", "mm[Hg]")].value == 135
@@ -776,3 +777,28 @@ def test_a_statistic_without_a_value_on_both_sides_is_unchanged():
     assert comparison.state == UNCHANGED
     assert comparison.difference is None
     assert comparison.relative_difference is None
+
+
+def test_una_diferencia_menor_que_el_redondeo_sigue_siendo_cambiada():
+    key = ComparisonKey("conditions", "MI", "point", "")
+    base = {key: Figure(unit=PROPORTION, value=0.0606060606)}
+    candidate = {key: Figure(unit=PROPORTION, value=0.0606060607)}
+    [comparison] = compare(base, candidate)
+    assert comparison.state == CHANGED
+    assert comparison.difference == 0.0
+    assert comparison.relative_difference is not None
+
+
+def test_las_metricas_porcentuales_de_la_poblacion_usan_la_unidad_percent(tmp_path):
+    figures = figures_by_key(build_report(tmp_path))
+    percent_keys = [
+        key
+        for key in figures
+        if key.block == "population" and key.measure.endswith("_percent")
+    ]
+    assert percent_keys, figures
+    for key in percent_keys:
+        assert figures[key].unit == PERCENT, key
+    for key in figures:
+        if key.block == "population" and not key.measure.endswith("_percent"):
+            assert figures[key].unit == COUNT, key
