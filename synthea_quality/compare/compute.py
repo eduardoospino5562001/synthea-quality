@@ -21,6 +21,7 @@ from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
     COUNT,
+    DAYS,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
@@ -32,7 +33,12 @@ from synthea_quality.compare.models import (
     ComparisonKey,
     Figure,
 )
-from synthea_quality.indexed.models import SkippedOutcome, ValueResult
+from synthea_quality.indexed.models import (
+    DeathResult,
+    EventResult,
+    SkippedOutcome,
+    ValueResult,
+)
 from synthea_quality.prevalence.models import Rate
 from synthea_quality.profile.models import SectionStatus
 from synthea_quality.validate.models import ModuleValidationReport
@@ -316,6 +322,20 @@ def _indexed_figures(report: ModuleValidationReport) -> list[tuple[ComparisonKey
                     (
                         key,
                         Figure(unit=COUNT, value=share.patients, numerator=share.patients, state=COMPUTED),
+                    )
+                )
+        if isinstance(outcome, (EventResult, DeathResult)):
+            pairs.append(
+                (
+                    _key("indexed", outcome.name, "days_median", ""),
+                    Figure(unit=DAYS, value=outcome.days.median, state=COMPUTED),
+                )
+            )
+            if isinstance(outcome, DeathResult):
+                pairs.append(
+                    (
+                        _key("indexed", outcome.name, "with_cause", ""),
+                        Figure(unit=COUNT, value=outcome.with_cause, state=COMPUTED),
                     )
                 )
     for cross in indexed.crosses:

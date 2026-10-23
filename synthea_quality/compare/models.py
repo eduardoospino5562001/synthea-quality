@@ -42,6 +42,9 @@ COUNT = "count"
 #: Un porcentaje de una poblacion (por ejemplo ``alive_percent`` de la seccion
 #: de poblacion); se lee en puntos porcentuales en el reporte (S2).
 PERCENT = "percent"
+#: Dias desde la fecha de indice hasta un desenlace (mediana de los dias por
+#: paciente de la cohorte indexada).
+DAYS = "days"
 
 
 @dataclass(frozen=True, slots=True, order=True)

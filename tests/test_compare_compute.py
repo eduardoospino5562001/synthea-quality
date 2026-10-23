@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from synthea_quality.compare.compute import compare, extract_figures, largest_ch
 from synthea_quality.compare.models import (
     CHANGED,
     COUNT,
+    DAYS,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
@@ -34,6 +36,7 @@ from synthea_quality.indexed.models import (
     Breakdown,
     CrossResult,
     CrossStratum,
+    DeathResult,
     EventResult,
     IndexedCohortResult,
     SkippedOutcome,
@@ -777,6 +780,61 @@ def test_a_statistic_without_a_value_on_both_sides_is_unchanged():
     assert comparison.state == UNCHANGED
     assert comparison.difference is None
     assert comparison.relative_difference is None
+
+
+def test_indexed_yields_median_days_and_deaths_with_cause(tmp_path):
+    figures = figures_by_key(build_report(tmp_path))
+    # a1 indexa el 2023-01-01 y su unica encuentro es el 2026-01-01: 1096 dias.
+    days_icu = figures[ComparisonKey("indexed", "ICU admission", "days_median", "")]
+    assert days_icu.unit == DAYS
+    assert days_icu.value == 1096
+    assert days_icu.value == (date(2026, 1, 1) - date(2023, 1, 1)).days
+    # d1 indexa el 2022-06-01 y muere el 2024-01-01: 579 dias.
+    days_death = figures[ComparisonKey("indexed", "Death", "days_median", "")]
+    assert days_death.unit == DAYS
+    assert days_death.value == 579
+    assert days_death.value == (date(2024, 1, 1) - date(2022, 6, 1)).days
+    # el modulo no pide causa de muerte: with_cause es None, nunca inventado.
+    with_cause = figures[ComparisonKey("indexed", "Death", "with_cause", "")]
+    assert with_cause.unit == COUNT
+    assert with_cause.value is None
+    assert with_cause.state == "computed"
+
+
+def test_indexed_with_cause_cuenta_las_muertes_con_la_causa_del_modulo():
+    total = Stratum(label="all", patients=1, cohort=1)
+    breakdown = Breakdown(total=total, by_sex=(), by_age=())
+    days = ValueSummary(n=1, minimum=5.0, median=5.0, maximum=5.0)
+    death = DeathResult(
+        name="Death",
+        cause_values=("causa del modulo",),
+        window=Window(),
+        breakdown=breakdown,
+        days=days,
+        deaths_after_reference=0,
+        deaths_outside_window=0,
+        deathdate_unusable=0,
+        with_cause=1,
+        other_cause=0,
+        no_cause_record=0,
+    )
+    report = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="X",
+            reference_date="2026-01-01",
+            patients=1,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(death,),
+        )
+    )
+    figures = extract_figures(report)
+    with_cause = figures[ComparisonKey("indexed", "Death", "with_cause", "")]
+    assert with_cause.unit == COUNT
+    assert with_cause.value == 1
+    assert with_cause.state == "computed"
 
 
 def test_una_diferencia_menor_que_el_redondeo_sigue_siendo_cambiada():
