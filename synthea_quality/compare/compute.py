@@ -15,6 +15,8 @@ Pure functions: no pandas, no network, no file system.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
@@ -49,6 +51,15 @@ CONDITION_MEASURES = (
     ("lifetime", PROPORTION),
     ("incidence", PER_1000_PERSON_YEARS),
 )
+
+class _ElementInfo(TypedDict):
+    """Por elemento (block + element): medidas salteadas, medidas calculadas
+    y una razón por medida salteada."""
+
+    skipped: set[str]
+    computed: set[str]
+    reasons: dict[str, str]
+
 
 
 def _key(block: str, element: str, measure: str, stratum: str = "") -> ComparisonKey:
@@ -110,7 +121,9 @@ def _condition_figures(report: ModuleValidationReport) -> list[tuple[ComparisonK
 
     pairs: list[tuple[ComparisonKey, Figure]] = []
     for condition in report.conditions:
-        if condition.prevalence.status is SectionStatus.SKIPPED:
+        prevalence_skipped = condition.prevalence.status is SectionStatus.SKIPPED
+        incidence_skipped = condition.incidence.status is SectionStatus.SKIPPED
+        if prevalence_skipped:
             reason = condition.prevalence.reason or condition.incidence.reason or "skipped"
             for measure, unit in CONDITION_MEASURES:
                 pairs.append((_key("conditions", condition.name, measure, ""), _skipped_figure(unit, reason)))
@@ -121,22 +134,30 @@ def _condition_figures(report: ModuleValidationReport) -> list[tuple[ComparisonK
             pairs.append((_key("conditions", condition.name, "point", ""), _rate_figure(PROPORTION, point)))
         if lifetime is not None:
             pairs.append((_key("conditions", condition.name, "lifetime", ""), _rate_figure(PROPORTION, lifetime)))
-        rate = condition.incidence.rate
-        if rate is not None:
+        if incidence_skipped:
             pairs.append(
                 (
                     _key("conditions", condition.name, "incidence", ""),
-                    Figure(
-                        unit=PER_1000_PERSON_YEARS,
-                        value=rate.value,
-                        ci95_low=(rate.interval[0] if rate.interval is not None else None),
-                        ci95_high=(rate.interval[1] if rate.interval is not None else None),
-                        numerator=rate.events,
-                        denominator=rate.person_days,
-                        state=COMPUTED,
-                    ),
+                    _skipped_figure(PER_1000_PERSON_YEARS, condition.incidence.reason or "skipped"),
                 )
             )
+        else:
+            rate = condition.incidence.rate
+            if rate is not None:
+                pairs.append(
+                    (
+                        _key("conditions", condition.name, "incidence", ""),
+                        Figure(
+                            unit=PER_1000_PERSON_YEARS,
+                            value=rate.value,
+                            ci95_low=(rate.interval[0] if rate.interval is not None else None),
+                            ci95_high=(rate.interval[1] if rate.interval is not None else None),
+                            numerator=rate.events,
+                            denominator=rate.person_days,
+                            state=COMPUTED,
+                        ),
+                    )
+                )
         for stratum in condition.prevalence.strata:
             stratum_key = f"{stratum.dimension}:{stratum.value if stratum.value is not None else ''}"
             for measure, rate_value in (("point", stratum.point), ("lifetime", stratum.lifetime)):
@@ -183,8 +204,6 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
             numerator = group.summary.n
             for statistic in OBSERVATION_STATISTICS:
                 value = getattr(group.summary, statistic)
-                if value is None:
-                    continue
                 pairs.append(
                     (
                         _key("observations", observation.name, statistic, units),
@@ -199,8 +218,6 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
                 stratum_key = "|".join(parts)
                 for statistic in OBSERVATION_STATISTICS:
                     value = getattr(stratum.summary, statistic)
-                    if value is None:
-                        continue
                     pairs.append(
                         (
                             _key("observations", observation.name, statistic, stratum_key),
@@ -346,19 +363,201 @@ def extract_figures(report: ModuleValidationReport) -> dict[ComparisonKey, Figur
     return figures
 
 
+def _element_info(
+    figures: dict[ComparisonKey, Figure],
+) -> dict[tuple[str, str], _ElementInfo]:
+    """Por elemento (block + element): las medidas salteadas, las medidas
+    calculadas y una razón por medida salteada.
+
+    Un elemento salteado tapa las cifras del otro lado cuando esa medida no se
+    puede medir en ninguno de los dos lados: si el elemento está entero
+    salteado se tapan todas sus claves; si sólo algunas medidas están
+    salteadas (por ejemplo un cruce), se tapan las claves de esas medidas y
+    las demás se comparan con sus propias claves.
+    """
+
+    info: dict[tuple[str, str], _ElementInfo] = {}
+    for key, figure in figures.items():
+        element = (key.block, key.element)
+        if element not in info:
+            info[element] = {"skipped": set(), "computed": set(), "reasons": {}}
+        skipped, computed, reasons = (
+            info[element]["skipped"],
+            info[element]["computed"],
+            info[element]["reasons"],
+        )
+        if figure.state == SKIPPED:
+            skipped.add(key.measure)
+            reasons.setdefault(key.measure, figure.reason or "skipped")
+        else:
+            computed.add(key.measure)
+    return info
+
+
+def _indexed_cohort_skip_reason(figures: dict[ComparisonKey, Figure]) -> str | None:
+    """La razón por la que la cohorte indexada entera no se pudo construir, o None."""
+
+    for key, figure in figures.items():
+        if key.block == "indexed" and key.element == "cohort" and figure.state == SKIPPED:
+            return figure.reason or "skipped"
+    return None
+
+
+def _candidate_keys_covered_by(candidate: dict[ComparisonKey, Figure], key: ComparisonKey) -> list[ComparisonKey]:
+    """Claves computadas del candidato tapadas por una cifra ``skipped`` de ``key``:
+    las del mismo elemento, y, cuando la cifra salteada es la cohorte entera de
+    una indexación, todo el bloque ``indexed``."""
+
+    covered: list[ComparisonKey] = [
+        cand_key
+        for cand_key, cand_figure in candidate.items()
+        if cand_figure.state != SKIPPED and (cand_key.block, cand_key.element) == (key.block, key.element)
+    ]
+    if key.block == "indexed" and key.element == "cohort":
+        covered.extend(
+            cand_key
+            for cand_key, cand_figure in candidate.items()
+            if cand_figure.state != SKIPPED and cand_key.block == "indexed"
+        )
+    return covered
+
+
+def _covers(
+    other_info: dict[tuple[str, str], _ElementInfo],
+    element: tuple[str, str],
+    measure: str,
+    self_computed_measures: set[str],
+) -> bool:
+    """¿Tapa el lado ``other`` la cifra de ``measure`` de ``element``?
+
+    El otro lado tapa la medida cuando la tiene salteada y, por ese elemento,
+    no hay nada computado del otro lado que la contradiga: si el elemento está
+    entero salteado se tapan todas sus claves; si sólo falta esa medida, se
+    tapan las claves de esa medida y las demás se comparan por su propia clave.
+    """
+
+    data = other_info.get(element)
+    if not data or not data["skipped"]:
+        return False
+    skipped, computed = data["skipped"], data["computed"]
+    if computed:
+        return measure in skipped
+    if skipped & self_computed_measures:
+        return measure in skipped
+    return True
+
+
+def _cover_reason(
+    info: dict[tuple[str, str], _ElementInfo], element: tuple[str, str], measure: str
+) -> str:
+    """Razón de la cifra salteada de ``measure`` en ``element``, o cualquiera del elemento."""
+
+    reasons = info[element]["reasons"]
+    reason = reasons.get(measure)
+    if reason is None:
+        reason = next(iter(reasons.values()))
+    return reason
+
+
+def _skipped_comparison(
+    key: ComparisonKey, baseline: Figure | None, candidate: Figure | None, reason: str
+) -> Comparison:
+    """Una comparación ``skipped``: sin diferencia, con la razón del lado que saltó."""
+
+    if baseline is not None:
+        unit = baseline.unit
+    elif candidate is not None:
+        unit = candidate.unit
+    else:
+        raise AssertionError("una comparación skipped siempre tiene un lado")
+    return Comparison(
+        key=key,
+        unit=unit,
+        baseline=baseline,
+        candidate=candidate,
+        difference=None,
+        relative_difference=None,
+        state=SKIPPED,
+        reason=reason,
+    )
+
+
 def compare(baseline: dict[ComparisonKey, Figure], candidate: dict[ComparisonKey, Figure]) -> list[Comparison]:
     """Pair the figures of two reports by key, in a stable order.
 
     The order is the order of the baseline mapping and then the figures found
     only in the candidate mapping, each in the order of its own mapping.
+
+    A figure missing on the other side comes out ``skipped`` with the reason
+    when the other side could not measure that element: an entirely skipped
+    element covers every key of the same element on the other side, and a
+    partially skipped element covers the keys of the measures it skipped. A
+    skipped indexed cohort covers the whole ``indexed`` block of the other
+    side. Only figures that genuinely exist on one side (for example a new age
+    band) are ``only_in_*``.
     """
 
     comparisons: list[Comparison] = []
+    seen_candidate_keys: set[ComparisonKey] = set()
+
+    base_info = _element_info(baseline)
+    cand_info = _element_info(candidate)
+
     for key, figure in baseline.items():
-        other = candidate.get(key)
-        comparisons.append(_pair(key, figure, other))
+        element = (key.block, key.element)
+        self_measures = base_info[element]["computed"]
+        if figure.state == SKIPPED:
+            other = candidate.get(key)
+            if other is not None:
+                seen_candidate_keys.add(key)
+                comparisons.append(_pair(key, figure, other))
+            for cand_key in _candidate_keys_covered_by(candidate, key):
+                if cand_key in seen_candidate_keys:
+                    continue
+                cand_figure = candidate[cand_key]
+                cand_measures = cand_info[element]["computed"] if element in cand_info else set()
+                if not _covers(base_info, element, cand_key.measure, cand_measures):
+                    continue
+                seen_candidate_keys.add(cand_key)
+                comparisons.append(
+                    _skipped_comparison(
+                        cand_key, None, cand_figure, _cover_reason(base_info, element, cand_key.measure)
+                    )
+                )
+        else:
+            other = candidate.get(key)
+            if other is not None:
+                seen_candidate_keys.add(key)
+                comparisons.append(_pair(key, figure, other))
+            elif _covers(cand_info, element, key.measure, self_measures):
+                comparisons.append(
+                    _skipped_comparison(key, figure, None, _cover_reason(cand_info, element, key.measure))
+                )
+            elif key.block == "indexed":
+                cohort_reason = _indexed_cohort_skip_reason(candidate)
+                if cohort_reason is not None:
+                    comparisons.append(
+                        _skipped_comparison(key, figure, None, cohort_reason)
+                    )
+                else:
+                    comparisons.append(_pair(key, figure, None))
+            else:
+                comparisons.append(_pair(key, figure, None))
+
     for key, figure in candidate.items():
-        if key not in baseline:
+        if key in seen_candidate_keys or figure.state == SKIPPED:
+            continue
+        element = (key.block, key.element)
+        base_measures = base_info[element]["computed"] if element in base_info else set()
+        if _covers(base_info, element, key.measure, base_measures):
+            comparisons.append(_skipped_comparison(key, None, figure, _cover_reason(base_info, element, key.measure)))
+        elif key.block == "indexed":
+            cohort_reason = _indexed_cohort_skip_reason(baseline)
+            if cohort_reason is not None:
+                comparisons.append(_skipped_comparison(key, None, figure, cohort_reason))
+            else:
+                comparisons.append(_pair(key, None, figure))
+        else:
             comparisons.append(_pair(key, None, figure))
     return comparisons
 

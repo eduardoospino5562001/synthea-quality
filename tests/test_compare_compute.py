@@ -27,6 +27,17 @@ from synthea_quality.indexed.definitions import (
     DeathOutcome,
     EventOutcome,
     IndexSpec,
+    Window,
+)
+from synthea_quality.indexed.models import (
+    Breakdown,
+    CrossResult,
+    CrossStratum,
+    EventResult,
+    IndexedCohortResult,
+    SkippedOutcome,
+    Stratum,
+    ValueSummary,
 )
 from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.definitions import ObservationDefinition
@@ -234,8 +245,17 @@ def test_largest_changes_rank_by_relative_difference_and_break_ties_by_key():
 # --------------------------------------------------------------------------- #
 
 
-def write_dataset(directory: Path) -> Path:
-    """A tiny Synthea export with patients, conditions, observations and medications."""
+def write_dataset(
+    directory: Path,
+    *,
+    observations: bool = True,
+    medications: bool = True,
+    conditions: bool = True,
+) -> Path:
+    """A tiny Synthea export with patients, conditions, observations and medications.
+
+    Cada tabla puede omitirse para simular que no se pudo leer.
+    """
 
     write_table(
         directory,
@@ -253,93 +273,106 @@ def write_dataset(directory: Path) -> Path:
             {"Id": "e1", "PATIENT": "a1", "CODE": "1505002", "START": "2026-01-01T00:00:00Z"},
         ],
     )
-    write_table(
-        directory,
-        "conditions",
-        [
-            {
-                "PATIENT": "a1",
-                "CODE": "22298006",
-                "SYSTEM": SNOMED,
-                "START": "2023-01-01",
-                "STOP": "2023-01-08",
-                "DESCRIPTION": "Myocardial infarction (disorder)",
-            },
-            {
-                "PATIENT": "a1",
-                "CODE": "401314000",
-                "SYSTEM": SNOMED,
-                "START": "2023-02-01",
-                "STOP": "",
-                "DESCRIPTION": "NSTEMI (disorder)",
-            },
-            {
-                "PATIENT": "d1",
-                "CODE": "22298006",
-                "SYSTEM": SNOMED,
-                "START": "2022-06-01",
-                "STOP": "2022-06-05",
-                "DESCRIPTION": "Myocardial infarction (disorder)",
-            },
-            {
-                "PATIENT": "a2",
-                "CODE": "59621000",
-                "SYSTEM": SNOMED,
-                "START": "2015-01-01",
-                "STOP": "",
-                "DESCRIPTION": "Essential hypertension (disorder)",
-            },
-        ],
-    )
-    write_table(
-        directory,
-        "observations",
-        [
-            {
-                "DATE": "2026-01-01T00:00:00Z",
-                "PATIENT": "a1",
-                "CODE": "8480-6",
-                "VALUE": "150",
-                "UNITS": "mm[Hg]",
-                "TYPE": "numeric",
-            },
-            {
-                "DATE": "2026-01-01T00:00:00Z",
-                "PATIENT": "a2",
-                "CODE": "8480-6",
-                "VALUE": "120",
-                "UNITS": "mm[Hg]",
-                "TYPE": "numeric",
-            },
-        ],
-    )
-    write_table(
-        directory,
-        "medications",
-        [
-            {
-                "START": "2025-01-01T00:00:00Z",
-                "STOP": "",
-                "PATIENT": "a1",
-                "PAYER": "",
-                "ENCOUNTER": "",
-                "CODE": "314076",
-                "DESCRIPTION": "lisinopril",
-                "BASE_COST": "",
-                "PAYER_COVERAGE": "",
-                "DISPENSES": "",
-                "TOTALCOST": "",
-                "REASONCODE": "",
-                "REASONDESCRIPTION": "",
-            },
-        ],
-    )
+    if conditions:
+        write_table(
+            directory,
+            "conditions",
+            [
+                {
+                    "PATIENT": "a1",
+                    "CODE": "22298006",
+                    "SYSTEM": SNOMED,
+                    "START": "2023-01-01",
+                    "STOP": "2023-01-08",
+                    "DESCRIPTION": "Myocardial infarction (disorder)",
+                },
+                {
+                    "PATIENT": "a1",
+                    "CODE": "401314000",
+                    "SYSTEM": SNOMED,
+                    "START": "2023-02-01",
+                    "STOP": "",
+                    "DESCRIPTION": "NSTEMI (disorder)",
+                },
+                {
+                    "PATIENT": "d1",
+                    "CODE": "22298006",
+                    "SYSTEM": SNOMED,
+                    "START": "2022-06-01",
+                    "STOP": "2022-06-05",
+                    "DESCRIPTION": "Myocardial infarction (disorder)",
+                },
+                {
+                    "PATIENT": "a2",
+                    "CODE": "59621000",
+                    "SYSTEM": SNOMED,
+                    "START": "2015-01-01",
+                    "STOP": "",
+                    "DESCRIPTION": "Essential hypertension (disorder)",
+                },
+            ],
+        )
+    if observations:
+        write_table(
+            directory,
+            "observations",
+            [
+                {
+                    "DATE": "2026-01-01T00:00:00Z",
+                    "PATIENT": "a1",
+                    "CODE": "8480-6",
+                    "VALUE": "150",
+                    "UNITS": "mm[Hg]",
+                    "TYPE": "numeric",
+                },
+                {
+                    "DATE": "2026-01-01T00:00:00Z",
+                    "PATIENT": "a2",
+                    "CODE": "8480-6",
+                    "VALUE": "120",
+                    "UNITS": "mm[Hg]",
+                    "TYPE": "numeric",
+                },
+            ],
+        )
+    if medications:
+        write_table(
+            directory,
+            "medications",
+            [
+                {
+                    "START": "2025-01-01T00:00:00Z",
+                    "STOP": "",
+                    "PATIENT": "a1",
+                    "PAYER": "",
+                    "ENCOUNTER": "",
+                    "CODE": "314076",
+                    "DESCRIPTION": "lisinopril",
+                    "BASE_COST": "",
+                    "PAYER_COVERAGE": "",
+                    "DISPENSES": "",
+                    "TOTALCOST": "",
+                    "REASONCODE": "",
+                    "REASONDESCRIPTION": "",
+                },
+            ],
+        )
     return directory
 
 
 def build_report(tmp_path: Path) -> ModuleValidationReport:
+    return build_report_in(write_dataset(tmp_path))
+
+
+def build_report_in(directory: Path) -> ModuleValidationReport:
+    """Construye el reporte de validación sobre un directorio ya escrito, sin reescribir sus tablas.
+
+    Se usa (en vez de ``build_report``) cuando se quiere omitir una tabla a propósito:
+    ``build_report`` llama de nuevo a ``write_dataset`` y la restauraría.
+    """
+
     return build_module_validation(
-        write_dataset(tmp_path),
+        directory,
         module=ModuleInfo("Cardio", ("myocardial_infarction.json",)),
         definitions=assemble(
             ["Myocardial infarction=22298006,401314000;acute", "Hypertension=59621000"],
@@ -414,7 +447,16 @@ def test_observations_yield_their_summary_statistics_in_units(tmp_path):
     assert figures[ComparisonKey("observations", "8480-6", "median", "mm[Hg]")].value == 135
     assert figures[ComparisonKey("observations", "8480-6", "minimum", "mm[Hg]")].value == 120
     assert figures[ComparisonKey("observations", "8480-6", "maximum", "mm[Hg]")].value == 150
-    assert ComparisonKey("observations", "8480-6", "p5", "mm[Hg]") not in figures
+    # n = 2 está por debajo del umbral de percentiles: se emiten con valor None para
+    # que se emparejen con el otro lado de la comparación en vez de desaparecer.
+    p5 = ComparisonKey("observations", "8480-6", "p5", "mm[Hg]")
+    assert p5 in figures
+    assert figures[p5].value is None
+    assert figures[p5].state == "computed"
+    for statistic in ("p25", "p75", "p95"):
+        key = ComparisonKey("observations", "8480-6", statistic, "mm[Hg]")
+        assert key in figures
+        assert figures[key].value is None
 
 
 def test_medications_yield_active_and_ever(tmp_path):
@@ -477,3 +519,260 @@ def test_a_missing_condition_table_skips_the_condition_with_its_reason(tmp_path)
     assert mi_incidence.state == SKIPPED
     # the population is not affected: its figures are still there.
     assert figures[ComparisonKey("population", "population", "alive", "")].value == 2
+
+
+# --------------------------------------------------------------------------- #
+# R-1 del REVIEW: un elemento SKIPPED en un lado cubre las claves del mismo
+# elemento (block + element) del otro lado con su razón, y nunca aparece como
+# only_in_*; solo lo que de verdad existe en un solo lado es only_in_*.
+# --------------------------------------------------------------------------- #
+
+
+def states_by_block(comparisons: list[Comparison]) -> dict[str, dict[str, int]]:
+    states: dict[str, dict[str, int]] = {}
+    for comparison in comparisons:
+        states.setdefault(comparison.key.block, {}).setdefault(comparison.state, 0)
+        states[comparison.key.block][comparison.state] += 1
+    return states
+
+
+def assert_no_only_in(comparisons: list[Comparison]) -> None:
+    for comparison in comparisons:
+        assert comparison.state not in (ONLY_IN_BASELINE, ONLY_IN_CANDIDATE), comparison.key
+
+
+def test_a_skipped_observation_table_is_skipped_with_its_reason_and_covers_all_statistics(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base"))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate", observations=False))
+    comparisons = compare(extract_figures(base), extract_figures(candidate))
+    assert_no_only_in(comparisons)
+    observed = [comparison for comparison in comparisons if comparison.key.block == "observations"]
+    assert observed
+    assert all(comparison.state == SKIPPED for comparison in observed)
+    assert all(comparison.reason and "observation" in comparison.reason for comparison in observed)
+
+
+def test_a_skipped_observation_table_on_the_baseline_covers_the_candidate(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base", observations=False))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate"))
+    comparisons = compare(extract_figures(base), extract_figures(candidate))
+    assert_no_only_in(comparisons)
+    observed = [comparison for comparison in comparisons if comparison.key.block == "observations"]
+    assert observed
+    assert all(comparison.state == SKIPPED for comparison in observed)
+    assert all(comparison.reason and "observation" in comparison.reason for comparison in observed)
+
+
+def test_a_skipped_condition_covers_prevalence_and_incidence_with_its_reason(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base"))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate", conditions=False))
+    comparisons = compare(extract_figures(base), extract_figures(candidate))
+    assert_no_only_in(comparisons)
+    conditions = [comparison for comparison in comparisons if comparison.key.block == "conditions"]
+    assert conditions
+    assert all(comparison.state == SKIPPED for comparison in conditions)
+    assert all(comparison.reason and "condition" in comparison.reason for comparison in conditions)
+
+
+def test_a_skipped_medication_covers_active_and_ever_with_its_reason(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base"))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate", medications=False))
+    comparisons = compare(extract_figures(base), extract_figures(candidate))
+    assert_no_only_in(comparisons)
+    medications = [comparison for comparison in comparisons if comparison.key.block == "medications"]
+    assert medications
+    assert all(comparison.state == SKIPPED for comparison in medications)
+    assert all(comparison.reason and "medication" in comparison.reason for comparison in medications)
+
+
+def test_a_skipped_indexed_cohort_covers_the_whole_block_in_both_directions(tmp_path):
+    full = build_report(tmp_path)
+    no_conditions = build_report_in(write_dataset(tmp_path / "no_conditions", conditions=False))
+    for baseline, candidate in ((full, no_conditions), (no_conditions, full)):
+        comparisons = compare(extract_figures(baseline), extract_figures(candidate))
+        assert_no_only_in(comparisons)
+        indexed = [comparison for comparison in comparisons if comparison.key.block == "indexed"]
+        assert indexed
+        assert all(comparison.state == SKIPPED for comparison in indexed)
+        assert all(comparison.reason for comparison in indexed)
+
+
+def _indexed_report(*, indexed: IndexedCohortResult) -> ModuleValidationReport:
+    return ModuleValidationReport(
+        data_dir="/x",
+        module_file="module.json",
+        module=ModuleInfo(),
+        reference_date=reference(),
+        reference_reason="x",
+        age_bands=(0,),
+        alive=2,
+        population=(),
+        conditions=(),
+        indexed=indexed,
+    )
+
+
+def test_a_skipped_indexed_outcome_and_cross_are_covered_with_its_reason():
+    total = Stratum(label="all", patients=2, cohort=2)
+    breakdown = Breakdown(total=total, by_sex=(), by_age=())
+    days = ValueSummary(n=1, minimum=1096.0, median=1096.0, maximum=1096.0)
+    icu_computed = EventResult(
+        name="ICU admission",
+        table="encounters",
+        codes=("1505002",),
+        window=Window(from_days=0, to_days=365),
+        breakdown=breakdown,
+        days=days,
+        rows_matched=0,
+        rows_date_unusable=0,
+        rows_after_reference=0,
+        rows_outside_window=0,
+    )
+    cross_computed = CrossResult(
+        outcome="ICU admission",
+        by="ICU admission",
+        by_type="event",
+        strata=(
+            CrossStratum(label="with ICU admission", numerator=1, denominator=2, with_cause=None),
+        ),
+        patients_in_several_strata=0,
+    )
+    cross_skipped = CrossResult(
+        outcome="ICU admission",
+        by="ICU admission",
+        by_type="event",
+        strata=(),
+        patients_in_several_strata=0,
+        reason="no crossed patients",
+    )
+    full = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(icu_computed,),
+            crosses=(cross_computed,),
+        )
+    )
+    skipped_outcome = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(SkippedOutcome("ICU admission", "event", "no encounter records"),),
+            crosses=(),
+        )
+    )
+    skipped_cross = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(icu_computed,),
+            crosses=(cross_skipped,),
+        )
+    )
+    for baseline, candidate, reason in (
+        (full, skipped_outcome, "no encounter records"),
+        (skipped_outcome, full, "no encounter records"),
+        (full, skipped_cross, "no crossed patients"),
+        (skipped_cross, full, "no crossed patients"),
+    ):
+        comparisons = compare(extract_figures(baseline), extract_figures(candidate))
+        assert_no_only_in(comparisons)
+        indexed = [comparison for comparison in comparisons if comparison.key.block == "indexed"]
+        assert indexed
+        covered = [comparison for comparison in indexed if comparison.state == SKIPPED]
+        assert covered
+        assert all(comparison.reason == reason for comparison in covered)
+
+
+def test_a_skipped_incidence_with_a_computed_prevalence_is_a_skipped_incidence():
+    computed = ModuleValidationReport(
+        data_dir="/x",
+        module_file="module.json",
+        module=ModuleInfo(),
+        reference_date=reference(),
+        reference_reason="x",
+        age_bands=(0,),
+        alive=2,
+        population=(),
+        conditions=(
+            ConditionValidation(
+                name="Myocardial infarction",
+                codes=(),
+                acute=False,
+                prevalence=ConditionResult(
+                    "Myocardial infarction", (), SectionStatus.COMPUTED,
+                    point=Rate(1, 2), lifetime=Rate(1, 2),
+                ),
+                incidence=ConditionIncidence(
+                    "Myocardial infarction", (), SectionStatus.COMPUTED,
+                    rate=IncidenceRate(1, 365),
+                ),
+            ),
+        ),
+    )
+    skipped_incidence = ModuleValidationReport(
+        data_dir="/x",
+        module_file="module.json",
+        module=ModuleInfo(),
+        reference_date=reference(),
+        reference_reason="x",
+        age_bands=(0,),
+        alive=2,
+        population=(),
+        conditions=(
+            ConditionValidation(
+                name="Myocardial infarction",
+                codes=(),
+                acute=False,
+                prevalence=ConditionResult(
+                    "Myocardial infarction", (), SectionStatus.COMPUTED,
+                    point=Rate(1, 2), lifetime=Rate(1, 2),
+                ),
+                incidence=ConditionIncidence(
+                    "Myocardial infarction", (), SectionStatus.SKIPPED,
+                    reason="no condition records usable for incidence",
+                ),
+            ),
+        ),
+    )
+    comparisons = compare(extract_figures(computed), extract_figures(skipped_incidence))
+    states = [comparison.state for comparison in comparisons]
+    assert states == [UNCHANGED, UNCHANGED, SKIPPED]
+    assert comparisons[2].key == ComparisonKey("conditions", "Myocardial infarction", "incidence", "")
+    assert comparisons[2].reason == "no condition records usable for incidence"
+    assert_no_only_in(comparisons)
+
+
+def test_a_statistic_without_a_value_pairs_instead_of_disappearing():
+    key = ComparisonKey("observations", "8480-6", "p5", "mm[Hg]")
+    base = {key: Figure(unit="mm[Hg]", value=None)}
+    candidate = {key: Figure(unit="mm[Hg]", value=12.5)}
+    [comparison] = compare(base, candidate)
+    assert comparison.state == CHANGED
+    assert comparison.difference is None
+    assert comparison.relative_difference is None
+
+
+def test_a_statistic_without_a_value_on_both_sides_is_unchanged():
+    key = ComparisonKey("observations", "8480-6", "p95", "mm[Hg]")
+    base = {key: Figure(unit="mm[Hg]", value=None)}
+    candidate = {key: Figure(unit="mm[Hg]", value=None)}
+    [comparison] = compare(base, candidate)
+    assert comparison.state == UNCHANGED
+    assert comparison.difference is None
+    assert comparison.relative_difference is None
