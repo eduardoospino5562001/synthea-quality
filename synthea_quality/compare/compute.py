@@ -60,8 +60,8 @@ CONDITION_MEASURES = (
 )
 
 class _ElementInfo(TypedDict):
-    """Por elemento (block + element): medidas salteadas, medidas calculadas
-    y una razón por medida salteada."""
+    """Per element (block + element): its skipped measures, its computed
+    measures, and a reason per skipped measure."""
 
     skipped: set[str]
     computed: set[str]
@@ -402,14 +402,14 @@ def extract_figures(report: ModuleValidationReport) -> dict[ComparisonKey, Figur
 def _element_info(
     figures: dict[ComparisonKey, Figure],
 ) -> dict[tuple[str, str], _ElementInfo]:
-    """Por elemento (block + element): las medidas salteadas, las medidas
-    calculadas y una razón por medida salteada.
+    """Per element (block + element): its skipped measures, its computed
+    measures, and a reason per skipped measure.
 
-    Un elemento salteado tapa las cifras del otro lado cuando esa medida no se
-    puede medir en ninguno de los dos lados: si el elemento está entero
-    salteado se tapan todas sus claves; si sólo algunas medidas están
-    salteadas (por ejemplo un cruce), se tapan las claves de esas medidas y
-    las demás se comparan con sus propias claves.
+    A skipped element covers the figures of the other side when that measure
+    cannot be measured on either side: an entirely skipped element covers all
+    of its keys; a partially skipped element (for example a cross) covers the
+    keys of the measures it skipped, and the rest are compared under their own
+    keys.
     """
 
     info: dict[tuple[str, str], _ElementInfo] = {}
@@ -431,7 +431,7 @@ def _element_info(
 
 
 def _indexed_cohort_skip_reason(figures: dict[ComparisonKey, Figure]) -> str | None:
-    """La razón por la que la cohorte indexada entera no se pudo construir, o None."""
+    """The reason the whole indexed cohort could not be built, or None."""
 
     for key, figure in figures.items():
         if key.block == "indexed" and key.element == "cohort" and figure.state == SKIPPED:
@@ -445,12 +445,12 @@ def _covers(
     measure: str,
     self_computed_measures: set[str],
 ) -> bool:
-    """¿Tapa el lado ``other`` la cifra de ``measure`` de ``element``?
+    """Does the ``other`` side cover the figure of ``measure`` in ``element``?
 
-    El otro lado tapa la medida cuando la tiene salteada y, por ese elemento,
-    no hay nada computado del otro lado que la contradiga: si el elemento está
-    entero salteado se tapan todas sus claves; si sólo falta esa medida, se
-    tapan las claves de esa medida y las demás se comparan por su propia clave.
+    The other side covers the measure when it skipped it and, for that element,
+    has nothing computed that contradicts it: an entirely skipped element
+    covers every one of its keys; a partially skipped element covers the keys
+    of the measures it skipped, and the rest are compared under their own keys.
     """
 
     data = other_info.get(element)
@@ -467,7 +467,8 @@ def _covers(
 def _cover_reason(
     info: dict[tuple[str, str], _ElementInfo], element: tuple[str, str], measure: str
 ) -> str:
-    """Razón de la cifra salteada de ``measure`` en ``element``, o cualquiera del elemento."""
+    """Reason of the skipped figure of ``measure`` in ``element``, falling back
+    to any reason of the element."""
 
     reasons = info[element]["reasons"]
     reason = reasons.get(measure)
@@ -479,14 +480,14 @@ def _cover_reason(
 def _skipped_comparison(
     key: ComparisonKey, baseline: Figure | None, candidate: Figure | None, reason: str
 ) -> Comparison:
-    """Una comparación ``skipped``: sin diferencia, con la razón del lado que saltó."""
+    """A ``skipped`` comparison: no difference, with the reason of the side that skipped."""
 
     if baseline is not None:
         unit = baseline.unit
     elif candidate is not None:
         unit = candidate.unit
     else:
-        raise AssertionError("una comparación skipped siempre tiene un lado")
+        raise AssertionError("a skipped comparison always has one side")
     return Comparison(
         key=key,
         unit=unit,

@@ -39,11 +39,11 @@ ONLY_IN_CANDIDATE = "only_in_candidate"
 PROPORTION = "proportion"
 PER_1000_PERSON_YEARS = "per_1000_person_years"
 COUNT = "count"
-#: Un porcentaje de una poblacion (por ejemplo ``alive_percent`` de la seccion
-#: de poblacion); se lee en puntos porcentuales en el reporte (S2).
+#: A percentage of a population (for example ``alive_percent`` of the
+#: population section); read in percentage points in the report (S2).
 PERCENT = "percent"
-#: Dias desde la fecha de indice hasta un desenlace (mediana de los dias por
-#: paciente de la cohorte indexada).
+#: Days from the index date to an outcome (median of the days per patient
+#: of the indexed cohort).
 DAYS = "days"
 
 
