@@ -47,7 +47,12 @@ from synthea_quality.medications.definitions import MedicationDefinition
 from synthea_quality.observations.definitions import ObservationDefinition
 from synthea_quality.prevalence.definitions import ALL_MEASURES, assemble
 from synthea_quality.prevalence.models import ConditionResult, Rate
-from synthea_quality.profile.models import ReferenceDate, ReferenceSource, SectionStatus
+from synthea_quality.profile.models import (
+    ProfileSection,
+    ReferenceDate,
+    ReferenceSource,
+    SectionStatus,
+)
 from synthea_quality.validate.build import build_module_validation
 from synthea_quality.validate.models import (
     ConditionValidation,
@@ -255,6 +260,7 @@ def write_dataset(
     observations: bool = True,
     medications: bool = True,
     conditions: bool = True,
+    encounters: bool = True,
 ) -> Path:
     """A tiny Synthea export with patients, conditions, observations and medications.
 
@@ -270,13 +276,14 @@ def write_dataset(
             {"Id": "d1", "BIRTHDATE": "1940-01-01", "DEATHDATE": "2024-01-01", "GENDER": "M"},
         ],
     )
-    write_table(
-        directory,
-        "encounters",
-        [
-            {"Id": "e1", "PATIENT": "a1", "CODE": "1505002", "START": "2026-01-01T00:00:00Z"},
-        ],
-    )
+    if encounters:
+        write_table(
+            directory,
+            "encounters",
+            [
+                {"Id": "e1", "PATIENT": "a1", "CODE": "1505002", "START": "2026-01-01T00:00:00Z"},
+            ],
+        )
     if conditions:
         write_table(
             directory,
@@ -368,7 +375,9 @@ def build_report(tmp_path: Path) -> ModuleValidationReport:
     return build_report_in(write_dataset(tmp_path))
 
 
-def build_report_in(directory: Path) -> ModuleValidationReport:
+def build_report_in(
+    directory: Path, reference_date: str | None = "2026-01-01"
+) -> ModuleValidationReport:
     """Construye el reporte de validación sobre un directorio ya escrito, sin reescribir sus tablas.
 
     Se usa (en vez de ``build_report``) cuando se quiere omitir una tabla a propósito:
@@ -395,7 +404,7 @@ def build_report_in(directory: Path) -> ModuleValidationReport:
             DeathOutcome("Death"),
         ),
         crosses=(CrossSpec("Death", "ICU admission"),),
-        reference_date="2026-01-01",
+        reference_date=reference_date,
         generated_at=GENERATED_AT,
     )
 
@@ -862,6 +871,81 @@ def test_las_metricas_porcentuales_de_la_poblacion_usan_la_unidad_percent(tmp_pa
     for key in figures:
         if key.block == "population" and not key.measure.endswith("_percent"):
             assert figures[key].unit == COUNT, key
+
+
+# --------------------------------------------------------------------------- #
+# R-8: a skipped population section yields skipped figures with its reason
+# --------------------------------------------------------------------------- #
+
+
+def _skipped_population_section_report(reason: str) -> ModuleValidationReport:
+    return ModuleValidationReport(
+        data_dir="/x",
+        module_file="module.json",
+        module=ModuleInfo(),
+        reference_date=reference(),
+        reference_reason="x",
+        age_bands=(0,),
+        alive=2,
+        population=(
+            ProfileSection.skipped("population", "Population", reason),
+            ProfileSection.skipped("age", "Age", reason),
+            ProfileSection.skipped("distribution.GENDER", "Gender", reason),
+        ),
+        conditions=(),
+        indexed=None,
+    )
+
+
+def _computed_population_section_report() -> ModuleValidationReport:
+    section = ProfileSection(
+        section_id="population",
+        title="Population",
+        status=SectionStatus.COMPUTED,
+        metrics={"alive": 2, "total": 3, "deceased": 1, "alive_percent": 66.67},
+    )
+    return ModuleValidationReport(
+        data_dir="/x",
+        module_file="module.json",
+        module=ModuleInfo(),
+        reference_date=reference(),
+        reference_reason="x",
+        age_bands=(0,),
+        alive=2,
+        population=(section,),
+        conditions=(),
+        indexed=None,
+    )
+
+
+def test_skipped_population_section_every_key_once_same_both_directions():
+    base = _skipped_population_section_report("no reference date: none was given")
+    candidate = _computed_population_section_report()
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    population = [row for row in forward if row.key.block == "population"]
+    assert population
+    assert all(row.state == SKIPPED and row.reason for row in population)
+    assert all("no reference date" in row.reason for row in population)
+
+
+def test_population_sections_skipped_without_encounters_csv(tmp_path):
+    """Without encounters.csv there is no reference date: every population
+    figure is skipped with its reason, in both directions, and nothing is
+    only_in_*."""
+    base = build_report_in(write_dataset(tmp_path / "base"))
+    candidate = build_report_in(
+        write_dataset(tmp_path / "candidate", encounters=False), reference_date=None
+    )
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    for rows in (forward, backward):
+        population = [row for row in rows if row.key.block == "population"]
+        assert population, "expected at least one population figure"
+        assert all(row.state == SKIPPED for row in population)
+        assert all(row.reason and "no reference date" in row.reason for row in population)
 
 
 # --------------------------------------------------------------------------- #

@@ -102,6 +102,18 @@ def _population_figures(report: ModuleValidationReport) -> list[tuple[Comparison
     for section in report.population:
         if section.section_id not in POPULATION_SECTIONS:
             continue
+        if section.status is SectionStatus.SKIPPED:
+            # A skipped section carries no numbers: one skipped figure names the
+            # section as a whole (the measure repeats the section id) with the
+            # section's reason. It covers every key of that section on the other
+            # side, so nothing of a skipped section shows up as only_in_*.
+            pairs.append(
+                (
+                    _key("population", section.section_id, section.section_id, ""),
+                    _skipped_figure(COUNT, section.reason or "skipped"),
+                )
+            )
+            continue
         for name, value in section.metrics.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
