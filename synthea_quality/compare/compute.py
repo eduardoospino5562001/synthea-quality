@@ -427,25 +427,6 @@ def _indexed_cohort_skip_reason(figures: dict[ComparisonKey, Figure]) -> str | N
     return None
 
 
-def _candidate_keys_covered_by(candidate: dict[ComparisonKey, Figure], key: ComparisonKey) -> list[ComparisonKey]:
-    """Claves computadas del candidato tapadas por una cifra ``skipped`` de ``key``:
-    las del mismo elemento, y, cuando la cifra salteada es la cohorte entera de
-    una indexación, todo el bloque ``indexed``."""
-
-    covered: list[ComparisonKey] = [
-        cand_key
-        for cand_key, cand_figure in candidate.items()
-        if cand_figure.state != SKIPPED and (cand_key.block, cand_key.element) == (key.block, key.element)
-    ]
-    if key.block == "indexed" and key.element == "cohort":
-        covered.extend(
-            cand_key
-            for cand_key, cand_figure in candidate.items()
-            if cand_figure.state != SKIPPED and cand_key.block == "indexed"
-        )
-    return covered
-
-
 def _covers(
     other_info: dict[tuple[str, str], _ElementInfo],
     element: tuple[str, str],
@@ -509,80 +490,73 @@ def _skipped_comparison(
 def compare(baseline: dict[ComparisonKey, Figure], candidate: dict[ComparisonKey, Figure]) -> list[Comparison]:
     """Pair the figures of two reports by key, in a stable order.
 
-    The order is the order of the baseline mapping and then the figures found
-    only in the candidate mapping, each in the order of its own mapping.
+    Every key is emitted exactly once: first the keys of the baseline mapping,
+    in its order, then the keys found only in the candidate mapping, in its
+    order. The result is symmetric: swapping the sides interchanges
+    ``only_in_baseline`` and ``only_in_candidate`` and keeps every other state.
 
     A figure missing on the other side comes out ``skipped`` with the reason
     when the other side could not measure that element: an entirely skipped
     element covers every key of the same element on the other side, and a
     partially skipped element covers the keys of the measures it skipped. A
     skipped indexed cohort covers the whole ``indexed`` block of the other
-    side. Only figures that genuinely exist on one side (for example a new age
-    band) are ``only_in_*``.
+    side. A skipped figure without a partner comes out ``skipped`` with its
+    own reason. Only figures that genuinely exist on one side (for example a
+    new age band) are ``only_in_*``.
     """
 
     comparisons: list[Comparison] = []
-    seen_candidate_keys: set[ComparisonKey] = set()
 
     base_info = _element_info(baseline)
     cand_info = _element_info(candidate)
+    base_cohort_reason = _indexed_cohort_skip_reason(baseline)
+    cand_cohort_reason = _indexed_cohort_skip_reason(candidate)
 
-    for key, figure in baseline.items():
+    for key in [*baseline, *(key for key in candidate if key not in baseline)]:
         element = (key.block, key.element)
-        self_measures = base_info[element]["computed"]
-        if figure.state == SKIPPED:
-            other = candidate.get(key)
-            if other is not None:
-                seen_candidate_keys.add(key)
-                comparisons.append(_pair(key, figure, other))
-            for cand_key in _candidate_keys_covered_by(candidate, key):
-                if cand_key in seen_candidate_keys:
-                    continue
-                cand_figure = candidate[cand_key]
-                cand_measures = cand_info[element]["computed"] if element in cand_info else set()
-                if not _covers(base_info, element, cand_key.measure, cand_measures):
-                    continue
-                seen_candidate_keys.add(cand_key)
+        base_figure = baseline.get(key)
+        cand_figure = candidate.get(key)
+        base_measures = base_info[element]["computed"] if element in base_info else set()
+        cand_measures = cand_info[element]["computed"] if element in cand_info else set()
+
+        if base_figure is not None and cand_figure is not None:
+            comparisons.append(_pair(key, base_figure, cand_figure))
+            continue
+
+        if base_figure is not None:
+            # The figure exists only on the baseline side.
+            if _covers(cand_info, element, key.measure, base_measures):
                 comparisons.append(
                     _skipped_comparison(
-                        cand_key, None, cand_figure, _cover_reason(base_info, element, cand_key.measure)
+                        key, base_figure, None, _cover_reason(cand_info, element, key.measure)
                     )
                 )
-        else:
-            other = candidate.get(key)
-            if other is not None:
-                seen_candidate_keys.add(key)
-                comparisons.append(_pair(key, figure, other))
-            elif _covers(cand_info, element, key.measure, self_measures):
+            elif cand_cohort_reason is not None and key.block == "indexed":
+                comparisons.append(_skipped_comparison(key, base_figure, None, cand_cohort_reason))
+            elif base_figure.state == SKIPPED:
                 comparisons.append(
-                    _skipped_comparison(key, figure, None, _cover_reason(cand_info, element, key.measure))
+                    _skipped_comparison(key, base_figure, None, base_figure.reason or "skipped")
                 )
-            elif key.block == "indexed":
-                cohort_reason = _indexed_cohort_skip_reason(candidate)
-                if cohort_reason is not None:
-                    comparisons.append(
-                        _skipped_comparison(key, figure, None, cohort_reason)
-                    )
-                else:
-                    comparisons.append(_pair(key, figure, None))
             else:
-                comparisons.append(_pair(key, figure, None))
-
-    for key, figure in candidate.items():
-        if key in seen_candidate_keys or figure.state == SKIPPED:
-            continue
-        element = (key.block, key.element)
-        base_measures = base_info[element]["computed"] if element in base_info else set()
-        if _covers(base_info, element, key.measure, base_measures):
-            comparisons.append(_skipped_comparison(key, None, figure, _cover_reason(base_info, element, key.measure)))
-        elif key.block == "indexed":
-            cohort_reason = _indexed_cohort_skip_reason(baseline)
-            if cohort_reason is not None:
-                comparisons.append(_skipped_comparison(key, None, figure, cohort_reason))
-            else:
-                comparisons.append(_pair(key, None, figure))
+                comparisons.append(_pair(key, base_figure, None))
         else:
-            comparisons.append(_pair(key, None, figure))
+            # The figure exists only on the candidate side: the key comes from
+            # the candidate mapping, so its figure is never None here.
+            assert cand_figure is not None
+            if _covers(base_info, element, key.measure, cand_measures):
+                comparisons.append(
+                    _skipped_comparison(
+                        key, None, cand_figure, _cover_reason(base_info, element, key.measure)
+                    )
+                )
+            elif base_cohort_reason is not None and key.block == "indexed":
+                comparisons.append(_skipped_comparison(key, None, cand_figure, base_cohort_reason))
+            elif cand_figure.state == SKIPPED:
+                comparisons.append(
+                    _skipped_comparison(key, None, cand_figure, cand_figure.reason or "skipped")
+                )
+            else:
+                comparisons.append(_pair(key, None, cand_figure))
     return comparisons
 
 

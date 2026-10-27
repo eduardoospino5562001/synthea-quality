@@ -373,6 +373,8 @@ def build_report_in(directory: Path) -> ModuleValidationReport:
 
     Se usa (en vez de ``build_report``) cuando se quiere omitir una tabla a propósito:
     ``build_report`` llama de nuevo a ``write_dataset`` y la restauraría.
+    Pasar ``reference_date=None`` deja que la resolución falle (por ejemplo sin
+    ``encounters.csv``) y que todo quede SKIPPED con su razón.
     """
 
     return build_module_validation(
@@ -860,3 +862,231 @@ def test_las_metricas_porcentuales_de_la_poblacion_usan_la_unidad_percent(tmp_pa
     for key in figures:
         if key.block == "population" and not key.measure.endswith("_percent"):
             assert figures[key].unit == COUNT, key
+
+
+# --------------------------------------------------------------------------- #
+# R-7: every key is emitted once, compared the same way in both directions
+# --------------------------------------------------------------------------- #
+
+
+def _skipped_outcome_report() -> ModuleValidationReport:
+    """Indexed cohort with one skipped outcome (the whole element is skipped)."""
+    return _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(SkippedOutcome("ICU admission", "event", "no encounter records"),),
+            crosses=(),
+        )
+    )
+
+
+def _full_indexed_report() -> ModuleValidationReport:
+    """Indexed cohort with one computed outcome and one computed cross."""
+    total = Stratum(label="all", patients=2, cohort=2)
+    breakdown = Breakdown(total=total, by_sex=(), by_age=())
+    days = ValueSummary(n=1, minimum=1096.0, median=1096.0, maximum=1096.0)
+    icu_computed = EventResult(
+        name="ICU admission",
+        table="encounters",
+        codes=("1505002",),
+        window=Window(from_days=0, to_days=365),
+        breakdown=breakdown,
+        days=days,
+        rows_matched=0,
+        rows_date_unusable=0,
+        rows_after_reference=0,
+        rows_outside_window=0,
+    )
+    cross_computed = CrossResult(
+        outcome="ICU admission",
+        by="ICU admission",
+        by_type="event",
+        strata=(
+            CrossStratum(label="with ICU admission", numerator=1, denominator=2, with_cause=None),
+        ),
+        patients_in_several_strata=0,
+    )
+    return _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(icu_computed,),
+            crosses=(cross_computed,),
+        )
+    )
+
+
+def _swap_side(state: str) -> str:
+    """Swap only_in_baseline and only_in_candidate; every other state stays the same."""
+    return {
+        ONLY_IN_BASELINE: ONLY_IN_CANDIDATE,
+        ONLY_IN_CANDIDATE: ONLY_IN_BASELINE,
+    }.get(state, state)
+
+
+def assert_comparison_is_same_both_directions(
+    forward: list[Comparison], backward: list[Comparison]
+) -> None:
+    """Every key is emitted once per direction; states match in both directions
+    (only_in_baseline <-> only_in_candidate swapped); no skipped figure lacks a
+    reason. A key present in only one direction is a one-sided skipped figure,
+    which is expected and carries its own reason."""
+    for rows in (forward, backward):
+        keys = [row.key for row in rows]
+        assert len(keys) == len(set(keys)), f"repeated key in output: {keys}"
+        for row in rows:
+            assert row.state != SKIPPED or row.reason, f"skipped without reason: {row.key}"
+    left = {row.key: row.state for row in forward}
+    right = {row.key: row.state for row in backward}
+    for key in set(left) & set(right):
+        assert right[key] == _swap_side(left[key]), (key, left[key], right[key])
+    for key in set(left) ^ set(right):
+        state = (left if key in left else right)[key]
+        assert state == SKIPPED, key
+
+
+def _build_conditions_reports(
+    tmp_path: Path,
+) -> tuple[ModuleValidationReport, ModuleValidationReport]:
+    """One report without the conditions table (all its figures skipped) and one full report."""
+    base = build_report_in(write_dataset(tmp_path / "base", conditions=False))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate"))
+    return base, candidate
+
+
+def test_conditions_missing_every_key_once_same_both_directions(tmp_path):
+    base, candidate = _build_conditions_reports(tmp_path)
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    # every condition figure is skipped on both sides, with its reason
+    conditions = [row for row in forward if row.key.block == "conditions"]
+    assert conditions
+    assert all(row.state == SKIPPED and row.reason for row in conditions)
+
+
+def test_observations_missing_every_key_once_same_both_directions(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base"))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate", observations=False))
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    observations = [row for row in forward if row.key.block == "observations"]
+    assert observations
+    assert all(row.state == SKIPPED and row.reason for row in observations)
+
+
+def test_medications_missing_every_key_once_same_both_directions(tmp_path):
+    base = build_report_in(write_dataset(tmp_path / "base", medications=False))
+    candidate = build_report_in(write_dataset(tmp_path / "candidate"))
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    medications = [row for row in forward if row.key.block == "medications"]
+    assert medications
+    assert all(row.state == SKIPPED and row.reason for row in medications)
+
+
+def test_skipped_indexed_outcome_every_key_once_same_both_directions():
+    base = _skipped_outcome_report()
+    candidate = _full_indexed_report()
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    indexed = [row for row in forward if row.key.block == "indexed"]
+    assert indexed
+    assert all(row.state == SKIPPED or row.state == UNCHANGED for row in indexed)
+    assert all(row.reason for row in indexed if row.state == SKIPPED)
+
+
+def test_skipped_indexed_cross_every_key_once_same_both_directions():
+    total = Stratum(label="all", patients=2, cohort=2)
+    breakdown = Breakdown(total=total, by_sex=(), by_age=())
+    days = ValueSummary(n=1, minimum=1096.0, median=1096.0, maximum=1096.0)
+    icu_computed = EventResult(
+        name="ICU admission",
+        table="encounters",
+        codes=("1505002",),
+        window=Window(from_days=0, to_days=365),
+        breakdown=breakdown,
+        days=days,
+        rows_matched=0,
+        rows_date_unusable=0,
+        rows_after_reference=0,
+        rows_outside_window=0,
+    )
+    cross_skipped = CrossResult(
+        outcome="ICU admission",
+        by="ICU admission",
+        by_type="event",
+        strata=(),
+        patients_in_several_strata=0,
+        reason="no crossed patients",
+    )
+    base = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(icu_computed,),
+            crosses=(cross_skipped,),
+        )
+    )
+    cross_computed = CrossResult(
+        outcome="ICU admission",
+        by="ICU admission",
+        by_type="event",
+        strata=(
+            CrossStratum(label="with ICU admission", numerator=1, denominator=2, with_cause=None),
+        ),
+        patients_in_several_strata=0,
+    )
+    candidate = _indexed_report(
+        indexed=IndexedCohortResult(
+            index_condition="Myocardial infarction",
+            reference_date="2026-01-01",
+            patients=2,
+            rows_matched=0,
+            rows_unknown_patient=0,
+            rows_start_unusable=0,
+            rows_after_reference=0,
+            outcomes=(icu_computed,),
+            crosses=(cross_computed,),
+        )
+    )
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    crosses = [row for row in forward if row.key.measure == "cross"]
+    assert crosses
+    assert all(row.state == SKIPPED and row.reason == "no crossed patients" for row in crosses)
+
+
+def test_skipped_indexed_cohort_every_key_once_same_both_directions(tmp_path):
+    """One report with the whole indexed cohort skipped and one with it computed."""
+    base = build_report_in(write_dataset(tmp_path / "base", conditions=False))
+    candidate = build_report(tmp_path)
+    forward = compare(extract_figures(base), extract_figures(candidate))
+    backward = compare(extract_figures(candidate), extract_figures(base))
+    assert_comparison_is_same_both_directions(forward, backward)
+    indexed = [row for row in forward if row.key.block == "indexed"]
+    assert indexed
+    assert all(row.state == SKIPPED and row.reason for row in indexed)
+
+
+
