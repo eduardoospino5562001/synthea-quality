@@ -31,7 +31,7 @@ from synthea_quality.compare.models import (
     UNCHANGED,
     Figure,
 )
-from synthea_quality.table_format import fixed
+from synthea_quality.table_format import fixed, table_cell
 from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
 
 MARKDOWN_NAME = "synthea_compare.md"
@@ -234,8 +234,13 @@ def _table(
 ) -> list[str]:
     header_list = list(header)
     separators = ["---:" if a == "r" else "---" for a in align]
-    lines = ["| " + " | ".join(header_list) + " |", "| " + " | ".join(separators) + " |"]
-    lines += ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
+    lines = [
+        "| " + " | ".join(table_cell(str(cell)) for cell in header_list) + " |",
+        "| " + " | ".join(separators) + " |",
+    ]
+    lines += [
+        "| " + " | ".join(table_cell(str(cell)) for cell in row) + " |" for row in rows
+    ]
     return lines
 
 

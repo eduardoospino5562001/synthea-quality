@@ -256,7 +256,7 @@ def test_markdown_unicode_and_pipe_names_keep_distinct_keys():
     result = _result(comparisons)
     markdown = render_markdown(result)
     assert "H\u2764\ufe0ftension" in markdown
-    assert "H|tension" in markdown
+    assert "H\\|tension" in markdown  # la barra vertical se escapa en la celda
 
 
 def test_skipped_count_line_names_the_reason():
@@ -267,3 +267,35 @@ def test_skipped_count_line_names_the_reason():
     result = _result(comparisons)
     markdown = render_markdown(result)
     assert "1 could not be measured (skipped, with a reason)." in markdown
+
+
+def test_markdown_table_cells_keep_one_column_count_per_row():
+    """Celda de elemento o estrato con '|', Unicode y salto de linea: cada fila
+    de la tabla debe conservar el mismo numero de celdas que la cabecera."""
+    keys = [
+        ComparisonKey("observations", "Systolic blood pressure", "median", "mm[Hg]|age_band:18-44"),
+        ComparisonKey("observations", "H\u2764\ufe0ftension|with a pipe", "n", "mm[Hg]"),
+        ComparisonKey("observations", "Systolic blood pressure", "p25", "mm[Hg]\nage_band:65-74"),
+    ]
+    comparisons = [
+        _comparison(keys[0], base=120, cand=122),
+        _comparison(keys[1], base=2, cand=3, unit=COUNT),
+        _comparison(keys[2], base=90, cand=95),
+    ]
+    result = _result(comparisons)
+    markdown = render_markdown(result)
+
+    table = markdown.split("## Observations")[1].split("##")[0]
+    rows = [line for line in table.splitlines() if line.startswith("| ")]
+    header_cells = rows[0].strip().strip("|").split(" | ")
+    for row in rows[1:]:
+        if row.strip().startswith("| ---"):
+            continue
+        cells = row.strip().strip("|").split(" | ")
+        assert len(cells) == len(header_cells), f"{row!r} tiene {len(cells)} celdas, la cabecera {len(header_cells)}"
+
+    # Las barras verticales, los saltos de linea y el Unicode entran en una sola celda.
+    assert "mm[Hg]\\|age_band:18-44" in markdown
+    assert "H\u2764\ufe0ftension\\|with a pipe" in markdown
+    assert "mm[Hg] age_band:65-74" in markdown
+
