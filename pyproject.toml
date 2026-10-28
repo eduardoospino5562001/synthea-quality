@@ -37,6 +37,7 @@ synthea-prevalence = "synthea_quality.prevalence.cli:run"
 synthea-incidence = "synthea_quality.incidence.cli:run"
 synthea-validate-module = "synthea_quality.validate.cli:run"
 synthea-observations = "synthea_quality.observations.cli:run"
+synthea-compare = "synthea_quality.compare.cli:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["synthea_quality"]
