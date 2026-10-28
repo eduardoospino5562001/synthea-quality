@@ -264,7 +264,7 @@ def write_dataset(
 ) -> Path:
     """A tiny Synthea export with patients, conditions, observations and medications.
 
-    Cada tabla puede omitirse para simular que no se pudo leer.
+    Each table can be left out to simulate that it could not be read.
     """
 
     write_table(
@@ -378,12 +378,12 @@ def build_report(tmp_path: Path) -> ModuleValidationReport:
 def build_report_in(
     directory: Path, reference_date: str | None = "2026-01-01"
 ) -> ModuleValidationReport:
-    """Construye el reporte de validación sobre un directorio ya escrito, sin reescribir sus tablas.
+    """The validation report of a directory already written, without rewriting its tables.
 
-    Se usa (en vez de ``build_report``) cuando se quiere omitir una tabla a propósito:
-    ``build_report`` llama de nuevo a ``write_dataset`` y la restauraría.
-    Pasar ``reference_date=None`` deja que la resolución falle (por ejemplo sin
-    ``encounters.csv``) y que todo quede SKIPPED con su razón.
+    It is used (instead of ``build_report``) when a table has to be left out on
+    purpose: ``build_report`` calls ``write_dataset`` again and would restore it.
+    Passing ``reference_date=None`` lets the resolution fail (for example without
+    ``encounters.csv``) and leaves everything SKIPPED with its reason.
     """
 
     return build_module_validation(
@@ -462,8 +462,8 @@ def test_observations_yield_their_summary_statistics_in_units(tmp_path):
     assert figures[ComparisonKey("observations", "8480-6", "median", "mm[Hg]")].value == 135
     assert figures[ComparisonKey("observations", "8480-6", "minimum", "mm[Hg]")].value == 120
     assert figures[ComparisonKey("observations", "8480-6", "maximum", "mm[Hg]")].value == 150
-    # n = 2 está por debajo del umbral de percentiles: se emiten con valor None para
-    # que se emparejen con el otro lado de la comparación en vez de desaparecer.
+    # n = 2 is below the percentile threshold: they are emitted with a None value
+    # so that they pair with the other side of the comparison instead of disappearing.
     p5 = ComparisonKey("observations", "8480-6", "p5", "mm[Hg]")
     assert p5 in figures
     assert figures[p5].value is None
@@ -537,9 +537,9 @@ def test_a_missing_condition_table_skips_the_condition_with_its_reason(tmp_path)
 
 
 # --------------------------------------------------------------------------- #
-# R-1 del REVIEW: un elemento SKIPPED en un lado cubre las claves del mismo
-# elemento (block + element) del otro lado con su razón, y nunca aparece como
-# only_in_*; solo lo que de verdad existe en un solo lado es only_in_*.
+# R-1 of the REVIEW: a SKIPPED element on one side covers the keys of the same
+# element (block + element) on the other side with its reason, and never shows up
+# as only_in_*; only what genuinely exists on one side is only_in_*.
 # --------------------------------------------------------------------------- #
 
 
@@ -795,17 +795,17 @@ def test_a_statistic_without_a_value_on_both_sides_is_unchanged():
 
 def test_indexed_yields_median_days_and_deaths_with_cause(tmp_path):
     figures = figures_by_key(build_report(tmp_path))
-    # a1 indexa el 2023-01-01 y su unica encuentro es el 2026-01-01: 1096 dias.
+    # a1 indexes 2023-01-01 and its only encounter is 2026-01-01: 1096 days.
     days_icu = figures[ComparisonKey("indexed", "ICU admission", "days_median", "")]
     assert days_icu.unit == DAYS
     assert days_icu.value == 1096
     assert days_icu.value == (date(2026, 1, 1) - date(2023, 1, 1)).days
-    # d1 indexa el 2022-06-01 y muere el 2024-01-01: 579 dias.
+    # d1 indexes 2022-06-01 and dies on 2024-01-01: 579 days.
     days_death = figures[ComparisonKey("indexed", "Death", "days_median", "")]
     assert days_death.unit == DAYS
     assert days_death.value == 579
     assert days_death.value == (date(2024, 1, 1) - date(2022, 6, 1)).days
-    # el modulo no pide causa de muerte: with_cause es None, nunca inventado.
+    # the module asks for no cause of death: with_cause is None, never invented.
     with_cause = figures[ComparisonKey("indexed", "Death", "with_cause", "")]
     assert with_cause.unit == COUNT
     assert with_cause.value is None

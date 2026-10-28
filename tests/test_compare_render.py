@@ -256,7 +256,7 @@ def test_markdown_unicode_and_pipe_names_keep_distinct_keys():
     result = _result(comparisons)
     markdown = render_markdown(result)
     assert "H\u2764\ufe0ftension" in markdown
-    assert "H\\|tension" in markdown  # la barra vertical se escapa en la celda
+    assert "H\\|tension" in markdown  # the vertical bar is escaped inside the cell
 
 
 def test_skipped_count_line_names_the_reason():
