@@ -207,7 +207,7 @@ def test_json_schema_version_and_fields():
 
     parsed = json.loads(data)
     assert parsed["schema_version"] == 1
-    assert parsed["tool_version"] == "0.12.1"
+    assert parsed["tool_version"] == "0.13.0"
     assert parsed["generated_at"] == GENERATED_AT
     assert parsed["compared"] == 1
     assert parsed["changed"] == 1
