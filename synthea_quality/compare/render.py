@@ -50,6 +50,11 @@ BLOCK_TITLES = {
     "indexed": "Indexed cohort",
 }
 
+#: Legend shown once under the "Largest changes" table. It tells how to read
+#: the units of the figures (percentage points for proportions, per 1,000
+#: person-years for rates, integers for counts and days); it states no verdict.
+UNITS_LEGEND = "pp = percentage points; incidence per 1,000 person-years; counts and days as integers."
+
 
 @dataclass(frozen=True, slots=True)
 class ComparisonResult:
@@ -119,6 +124,8 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
         blocks += _largest_changes_table(ranked)
     else:
         blocks.append("No figures changed.")
+    blocks += [""]
+    blocks.append(UNITS_LEGEND)
     blocks += [""]
 
     for block in BLOCKS:

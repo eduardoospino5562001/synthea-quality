@@ -270,8 +270,8 @@ def test_skipped_count_line_names_the_reason():
 
 
 def test_markdown_table_cells_keep_one_column_count_per_row():
-    """Celda de elemento o estrato con '|', Unicode y salto de linea: cada fila
-    de la tabla debe conservar el mismo numero de celdas que la cabecera."""
+    """A cell of the element or the stratum with '|', Unicode or a line break:
+    every row of the table keeps the same cell count as the header."""
     keys = [
         ComparisonKey("observations", "Systolic blood pressure", "median", "mm[Hg]|age_band:18-44"),
         ComparisonKey("observations", "H\u2764\ufe0ftension|with a pipe", "n", "mm[Hg]"),
@@ -292,10 +292,22 @@ def test_markdown_table_cells_keep_one_column_count_per_row():
         if row.strip().startswith("| ---"):
             continue
         cells = row.strip().strip("|").split(" | ")
-        assert len(cells) == len(header_cells), f"{row!r} tiene {len(cells)} celdas, la cabecera {len(header_cells)}"
+        assert len(cells) == len(header_cells), f"{row!r} has {len(cells)} cells, the header {len(header_cells)}"
 
-    # Las barras verticales, los saltos de linea y el Unicode entran en una sola celda.
+    # Pipes, line breaks and Unicode all land in a single cell.
     assert "mm[Hg]\\|age_band:18-44" in markdown
     assert "H\u2764\ufe0ftension\\|with a pipe" in markdown
     assert "mm[Hg] age_band:65-74" in markdown
+
+
+def test_markdown_states_the_units_once_under_largest_changes():
+    """One legend line (exactly once) under 'Largest changes' states the units:
+    percentage points for proportions, per 1,000 person-years for rates, integers
+    for counts and days. No verdict words."""
+    result = _result([_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08)])
+    markdown = render_markdown(result)
+    legend = "pp = percentage points; incidence per 1,000 person-years; counts and days as integers."
+    assert markdown.count(legend) == 1
+    section = markdown.split("## Largest changes")[1].split("##")[0]
+    assert legend in section
 
