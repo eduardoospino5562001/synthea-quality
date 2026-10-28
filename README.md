@@ -379,6 +379,71 @@ share of a cohort (or of every alive patient) with each one, active at the refer
 and ever, with a 95% Wilson interval. See *Medications in a cohort* below; there is no
 separate command.
 
+## Compare two datasets
+
+`synthea-compare` describes what changes between two Synthea datasets measured with the
+same module file: a baseline and a candidate, for example the same module before and
+after a change, or two runs of the generator with different settings. It runs
+`synthea-validate-module` over both directories with the same parameters and writes
+`synthea_compare.md` and `synthea_compare.json`. Neither directory is modified.
+
+```bash
+.venv/bin/synthea-compare ~/synthea-sample-data/csv-latest /path/to/candidate/csv \
+    --module examples/myocardial_infarction.json \
+    --reference-date 2026-01-01 \
+    --output-dir reports
+```
+
+The report has five blocks: the population, the prevalence and incidence of the module's
+conditions, its observations, its medications, and its indexed cohort when the file
+declares one. Each figure carries both values, the difference (`candidate - baseline`) in
+its own unit and the relative difference, which is empty when the baseline is zero. The
+JSON adds the 95% interval, the numerator and the denominator of both sides and the
+provenance of each side (directory, module, reference date, years of history and the
+tables read), so a later test can use the counts without reading the CSVs again.
+
+The Markdown lists the largest changes first (the 20 largest, `--top N` to change them),
+then one section per block with only the rows that changed; the unchanged ones are
+counted in a single line. A table one side cannot read becomes `skipped` with its reason,
+never a zero, and a figure that exists on one side only is listed as such. When the
+reference dates or the exported years of history differ, a note at the top says so,
+because they change who is alive and their ages. Units: proportions are shown in
+percentage points when differenced, incidence per 1,000 person-years, and counts and days
+as integers.
+
+Compared with a copy of the sample with the myocardial infarction rows of two patients
+removed, the console reads:
+
+```
+synthea-compare (synthea-quality 0.13.0)
+
+Baseline:   /path/to/baseline/csv
+Candidate:  /path/to/candidate/csv
+Module:     examples/myocardial_infarction.json
+Population:  22 compared, 0 changed, 22 unchanged
+Conditions:  24 compared, 11 changed, 13 unchanged
+
+Reports:
+  reports/synthea_compare.md
+  reports/synthea_compare.json
+```
+
+and the first row of the Markdown is the largest change:
+
+```
+| conditions | Myocardial infarction | incidence |  | 2.16 (0.05–12.04) | 0.00 (0.00–7.85) | -2.16 | -100.00% |
+```
+
+Options: `--reference-date`, or `--metadata-baseline` with `--metadata-candidate` (one
+metadata file per run), `--window-years` and `--age-bands` with the same meaning as in
+`synthea-validate-module`, and `--output-dir` for the two reports. It exits `0` when the
+report was written, whatever was skipped, and `2` when it could not be completed.
+
+The report describes differences; it does not decide whether they are acceptable. It has
+no expected value, no threshold and no verdict: a change is a fact about the two
+datasets, and whether a change matters depends on the statistic and on the size of the
+population. Comparing a change with a threshold is a separate, later step.
+
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
