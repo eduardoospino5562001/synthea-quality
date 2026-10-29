@@ -83,54 +83,6 @@ def condition(name: str) -> ConditionValidation:
     )
 
 
-def test_a_zero_basis_makes_the_relative_difference_none():
-    base = Figure(unit=PROPORTION, value=0.0, numerator=0, denominator=10)
-    cand = Figure(unit=PROPORTION, value=0.03, numerator=3, denominator=100)
-    comparison = Comparison(
-        key=ComparisonKey("conditions", "MI", "point"),
-        unit=PROPORTION,
-        baseline=base,
-        candidate=cand,
-        difference=0.03,
-        relative_difference=None,
-        state=CHANGED,
-    )
-    assert comparison.state == CHANGED
-    assert comparison.difference == 0.03
-    assert comparison.relative_difference is None
-
-
-def test_equal_figures_are_unchanged():
-    base = cand = Figure(unit=PROPORTION, value=0.05, numerator=5, denominator=100)
-    comparison = Comparison(
-        key=ComparisonKey("conditions", "MI", "point"),
-        unit=PROPORTION,
-        baseline=base,
-        candidate=cand,
-        difference=0.0,
-        relative_difference=0.0,
-        state=UNCHANGED,
-    )
-    assert comparison.state == UNCHANGED
-    assert comparison.difference == 0.0
-    assert comparison.relative_difference == 0.0
-
-
-def test_a_change_is_candidate_minus_baseline():
-    base = Figure(unit=PROPORTION, value=0.06)
-    cand = Figure(unit=PROPORTION, value=0.04)
-    comparison = Comparison(
-        key=ComparisonKey("conditions", "MI", "point"),
-        unit=PROPORTION,
-        baseline=base,
-        candidate=cand,
-        difference=-0.02,
-        relative_difference=(0.04 - 0.06) / 0.06,
-        state=CHANGED,
-    )
-    assert comparison.difference == -0.02
-
-
 def test_a_figure_found_on_one_side_only():
     base = {ComparisonKey("conditions", "MI", "point"): Figure(unit=PROPORTION, value=0.5)}
     comparisons = compare(base, {})
@@ -145,42 +97,6 @@ def test_a_figure_found_on_one_side_only():
     assert comparisons[0].state == ONLY_IN_CANDIDATE
     assert comparisons[0].baseline is None
     assert comparisons[0].candidate.value == 0.5
-
-
-def test_a_rate_without_person_time_is_a_change_without_a_difference():
-    base = Figure(unit=PER_1000_PERSON_YEARS, value=2.16, numerator=1, denominator=365)
-    cand = Figure(unit=PER_1000_PERSON_YEARS, value=None, numerator=0, denominator=0)
-    comparison = Comparison(
-        key=ComparisonKey("conditions", "MI", "incidence"),
-        unit=PER_1000_PERSON_YEARS,
-        baseline=base,
-        candidate=cand,
-        difference=None,
-        relative_difference=None,
-        state=CHANGED,
-    )
-    assert comparison.state == CHANGED
-    assert comparison.difference is None
-    assert comparison.relative_difference is None
-
-
-def test_a_skipped_figure_on_one_side_makes_the_comparison_skipped():
-    base = Figure(unit=PROPORTION, state=SKIPPED, reason="no condition records")
-    cand = Figure(unit=PROPORTION, value=0.05)
-    comparison = Comparison(
-        key=ComparisonKey("conditions", "MI", "point"),
-        unit=PROPORTION,
-        baseline=base,
-        candidate=cand,
-        difference=None,
-        relative_difference=None,
-        state=SKIPPED,
-        reason="no condition records",
-    )
-    assert comparison.state == SKIPPED
-    assert comparison.reason == "no condition records"
-    assert comparison.difference is None
-    assert comparison.relative_difference is None
 
 
 def test_names_with_unicode_and_pipes_keep_distinct_keys():
@@ -545,14 +461,6 @@ def test_a_missing_condition_table_skips_the_condition_with_its_reason(tmp_path)
 # --------------------------------------------------------------------------- #
 
 
-def states_by_block(comparisons: list[Comparison]) -> dict[str, dict[str, int]]:
-    states: dict[str, dict[str, int]] = {}
-    for comparison in comparisons:
-        states.setdefault(comparison.key.block, {}).setdefault(comparison.state, 0)
-        states[comparison.key.block][comparison.state] += 1
-    return states
-
-
 def assert_no_only_in(comparisons: list[Comparison]) -> None:
     for comparison in comparisons:
         assert comparison.state not in (ONLY_IN_BASELINE, ONLY_IN_CANDIDATE), comparison.key
@@ -814,13 +722,13 @@ def test_indexed_yields_median_days_and_deaths_with_cause(tmp_path):
     assert with_cause.state == "computed"
 
 
-def test_indexed_with_cause_cuenta_las_muertes_con_la_causa_del_modulo():
+def test_indexed_with_cause_counts_the_deaths_with_the_module_cause():
     total = Stratum(label="all", patients=1, cohort=1)
     breakdown = Breakdown(total=total, by_sex=(), by_age=())
     days = ValueSummary(n=1, minimum=5.0, median=5.0, maximum=5.0)
     death = DeathResult(
         name="Death",
-        cause_values=("causa del modulo",),
+        cause_values=("module cause",),
         window=Window(),
         breakdown=breakdown,
         days=days,
@@ -850,7 +758,7 @@ def test_indexed_with_cause_cuenta_las_muertes_con_la_causa_del_modulo():
     assert with_cause.state == "computed"
 
 
-def test_una_diferencia_menor_que_el_redondeo_sigue_siendo_cambiada():
+def test_a_difference_below_the_rounding_is_still_changed():
     key = ComparisonKey("conditions", "MI", "point", "")
     base = {key: Figure(unit=PROPORTION, value=0.0606060606)}
     candidate = {key: Figure(unit=PROPORTION, value=0.0606060607)}
@@ -860,7 +768,7 @@ def test_una_diferencia_menor_que_el_redondeo_sigue_siendo_cambiada():
     assert comparison.relative_difference is not None
 
 
-def test_las_metricas_porcentuales_de_la_poblacion_usan_la_unidad_percent(tmp_path):
+def test_the_percentage_metrics_of_the_population_use_the_percent_unit(tmp_path):
     figures = figures_by_key(build_report(tmp_path))
     percent_keys = [
         key

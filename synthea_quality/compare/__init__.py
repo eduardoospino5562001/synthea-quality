@@ -11,13 +11,13 @@ Layers, like the other analysis packages:
 
 ``models``     the figure, its key and the comparison of one figure on two sides;
 ``compute``    extracting the figures of a report and comparing two lists of them;
-``build``      running the module validation on each dataset (S2);
-``render``     Markdown and JSON (S2);
-``cli``        the ``synthea-compare`` command (S2).
+``build``      running the module validation on each dataset;
+``render``     Markdown and JSON;
+``cli``        the ``synthea-compare`` command.
 
 Only the standard library is imported by ``models`` and ``compute``.
 """
 
 from __future__ import annotations
 
-__all__ = ["models", "compute"]
+__all__ = ["models", "compute", "build", "render", "cli"]
