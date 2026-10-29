@@ -9,8 +9,8 @@ never read as zero.
 A :class:`Comparison` pairs the figure of the baseline with the figure of the
 candidate under one stable key (block, element, measure, stratum). The
 difference is ``candidate - baseline`` in the same unit as the figure — a
-proportion stays a proportion; the render turns it into percentage points
-(S2). The relative difference is ``(candidate - baseline) / baseline`` and is
+proportion stays a proportion; the render turns it into percentage points.
+The relative difference is ``(candidate - baseline) / baseline`` and is
 ``None`` when the baseline is missing or zero, never an infinity.
 
 Only the standard library is imported here, so importing this package stays
@@ -40,11 +40,29 @@ PROPORTION = "proportion"
 PER_1000_PERSON_YEARS = "per_1000_person_years"
 COUNT = "count"
 #: A percentage of a population (for example ``alive_percent`` of the
-#: population section); read in percentage points in the report (S2).
+#: population section); read in percentage points in the report.
 PERCENT = "percent"
 #: Days from the index date to an outcome (median of the days per patient
 #: of the indexed cohort).
 DAYS = "days"
+
+#: Age in completed years (median, minimum and maximum age of the population
+#: section); printed with 2 decimals, never truncated to an integer.
+YEARS = "years"
+#: A value of an observation whose rows carry no ``UNITS``; a plain number
+#: printed with 2 decimals.
+NUMBER = "number"
+
+#: The parts of a module validation report that the comparison does not
+#: extract, so the report says so instead of leaving them out silently
+#: (house rule 3). They stay in the validation report of each side.
+NOT_COMPARED = (
+    "observation reference ranges (reference_range)",
+    "group and observation metrics",
+    "condition metrics other than the numerator and denominator of each rate",
+    "the *_with_reason counters",
+    "the nested counters of the profile sections",
+)
 
 
 @dataclass(frozen=True, slots=True, order=True)
