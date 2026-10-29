@@ -12,6 +12,7 @@ no pass/fail, no threshold and no significant.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -73,6 +74,25 @@ class ComparisonResult:
     candidate_report: ModuleValidationReport
     comparisons: list[Comparison]
     generated_at: str
+
+
+def summary_counts(comparisons: Sequence[Comparison]) -> str:
+    """How many figures there are and what happened to each, in one line.
+
+    Only the figures measured on both sides are "compared" (split into changed
+    and unchanged); the skipped figures and those found on one side only are
+    counted apart, never inside "compared", so the line never calls compared a
+    figure that was not. The five counts always appear, zeros included, so the
+    wording is the same in the summary, in every block and in the console.
+
+    Example: ``"69 figures: 47 compared (0 changed, 47 unchanged), 6 skipped,
+    16 only in the baseline, 0 only in the candidate"``; an empty list gives
+    ``"0 figures: 0 compared (0 changed, 0 unchanged), 0 skipped, 0 only in
+    the baseline, 0 only in the candidate"``. No trailing period: the caller
+    adds it. Raises nothing.
+    """
+
+    raise NotImplementedError
 
 
 def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
