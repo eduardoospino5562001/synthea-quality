@@ -25,7 +25,6 @@ from synthea_quality.compare.models import (
     DAYS,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
-    PER_1000_PERSON_YEARS,
     PERCENT,
     PROPORTION,
     SKIPPED,
@@ -53,8 +52,12 @@ BLOCK_TITLES = {
 
 #: Legend shown once under the "Largest changes" table. It tells how to read
 #: the units of the figures (percentage points for proportions, per 1,000
-#: person-years for rates, integers for counts and days); it states no verdict.
-UNITS_LEGEND = "pp = percentage points; incidence per 1,000 person-years; counts and days as integers."
+#: person-years for rates, 2 decimals for ages, observation values and plain
+#: numbers, integers for counts and days); it states no verdict.
+UNITS_LEGEND = (
+    "pp = percentage points; incidence per 1,000 person-years; ages, observation values and plain numbers "
+    "with 2 decimals; counts and days as integers."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,18 +275,25 @@ def _table(
 
 
 def _format_value(value: float | None, unit: str) -> str:
-    """One figure's value in its unit, or an em dash when there is no value."""
+    """One figure's value in its unit, or an em dash when there is no value.
+
+    A proportion is shown as a percentage; a ``percent`` already is one, so it
+    is not multiplied again. Counts and days are whole numbers. Everything else
+    (rates per 1,000 person-years, ages in years, plain numbers and the units
+    of an observation such as ``mm[Hg]``) has 2 fixed decimals, never a
+    truncated integer.
+    """
     if value is None:
         return "—"
-    if unit in (PROPORTION, PERCENT):
+    if unit == PROPORTION:
         return f"{fixed(value * 100, 2)}%"
-    if unit == PER_1000_PERSON_YEARS:
-        return fixed(value, 2)
+    if unit == PERCENT:
+        return f"{fixed(value, 2)}%"
     if unit == COUNT:
         return str(int(value))
     if unit == DAYS:
         return f"{int(value)} days"
-    return str(value)
+    return fixed(value, 2)
 
 
 def _format_figure(figure: Figure | None) -> str:
@@ -299,18 +309,20 @@ def _format_figure(figure: Figure | None) -> str:
 
 
 def _format_difference(difference: float | None, unit: str) -> str:
-    """The signed difference, in the figure's unit (percentage points for proportions)."""
+    """The signed difference, in the figure's unit: percentage points for
+    proportions and percents, whole numbers for counts and days, 2 fixed
+    decimals for everything else (as in :func:`_format_value`)."""
     if difference is None:
         return "—"
-    if unit in (PROPORTION, PERCENT):
+    if unit == PROPORTION:
         return f"{fixed(difference * 100, 2, sign=True)} pp"
-    if unit == PER_1000_PERSON_YEARS:
-        return f"{fixed(difference, 2, sign=True)}"
+    if unit == PERCENT:
+        return f"{fixed(difference, 2, sign=True)} pp"
     if unit == COUNT:
         return f"{int(difference):+d}"
     if unit == DAYS:
         return f"{int(difference):+d} days"
-    return f"{difference:+g}"
+    return fixed(difference, 2, sign=True)
 
 
 def _format_relative(relative: float | None) -> str:

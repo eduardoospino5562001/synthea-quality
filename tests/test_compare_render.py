@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import pytest
+
 from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
     COUNT,
+    NUMBER,
     PER_1000_PERSON_YEARS,
+    PERCENT,
     PROPORTION,
     SKIPPED,
     UNCHANGED,
+    YEARS,
     Comparison,
     ComparisonKey,
     Figure,
@@ -302,12 +307,70 @@ def test_markdown_table_cells_keep_one_column_count_per_row():
 
 def test_markdown_states_the_units_once_under_largest_changes():
     """One legend line (exactly once) under 'Largest changes' states the units:
-    percentage points for proportions, per 1,000 person-years for rates, integers
-    for counts and days. No verdict words."""
+    percentage points for proportions, per 1,000 person-years for rates, 2
+    decimals for ages, observation values and plain numbers, integers for
+    counts and days. No verdict words."""
     result = _result([_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08)])
     markdown = render_markdown(result)
-    legend = "pp = percentage points; incidence per 1,000 person-years; counts and days as integers."
+    legend = (
+        "pp = percentage points; incidence per 1,000 person-years; ages, observation values and plain numbers "
+        "with 2 decimals; counts and days as integers."
+    )
     assert markdown.count(legend) == 1
     section = markdown.split("## Largest changes")[1].split("##")[0]
     assert legend in section
 
+
+@pytest.mark.parametrize(
+    ("key", "base", "cand", "unit", "row"),
+    [
+        (
+            ComparisonKey("population", "population", "alive_percent"),
+            91.67,
+            92.59,
+            PERCENT,
+            "| population | population | alive_percent |  | 91.67% | 92.59% | +0.92 pp | +1.00% |",
+        ),
+        (
+            ComparisonKey("population", "age", "median"),
+            35.5,
+            36.0,
+            YEARS,
+            "| population | age | median |  | 35.50 | 36.00 | +0.50 | +1.41% |",
+        ),
+        (
+            ComparisonKey("observations", "Score", "median"),
+            1.5,
+            2.25,
+            NUMBER,
+            "| observations | Score | median |  | 1.50 | 2.25 | +0.75 | +50.00% |",
+        ),
+        (
+            ComparisonKey("observations", "Systolic", "median", "mm[Hg]"),
+            119.0,
+            125.5,
+            "mm[Hg]",
+            "| observations | Systolic | median | mm[Hg] | 119.00 | 125.50 | +6.50 | +5.46% |",
+        ),
+        (
+            ComparisonKey("conditions", "MI", "incidence"),
+            2.16,
+            3.5,
+            PER_1000_PERSON_YEARS,
+            "| conditions | MI | incidence |  | 2.16 | 3.50 | +1.34 | +62.04% |",
+        ),
+        (
+            ComparisonKey("conditions", "MI", "point"),
+            0.05,
+            0.08,
+            PROPORTION,
+            "| conditions | MI | point |  | 5.00% | 8.00% | +3.00 pp | +60.00% |",
+        ),
+    ],
+    ids=["percent", "years", "number", "observation-units", "rate", "proportion"],
+)
+def test_each_unit_is_formatted_in_the_largest_changes_table(key, base, cand, unit, row):
+    """A percent is not multiplied by 100 again; ages, plain numbers and the units
+    of an observation have 2 fixed decimals; proportions and rates keep their format."""
+    markdown = render_markdown(_result([_comparison(key, base=base, cand=cand, unit=unit)]))
+    assert row in markdown.splitlines()
