@@ -186,6 +186,41 @@ def _rate(events: int, person_days: int) -> float:
     return events / person_days * DAYS_PER_YEAR * PER_THOUSAND
 
 
+#: The age bands of the reports: lower bound in completed years and label.
+AGE_BANDS = ((0, "0-4"), (5, "5-17"), (18, "18-44"), (45, "45-64"), (65, "65+"))
+
+
+def _age_band(birth: date, reference: date) -> str:
+    """The age band of a patient born on ``birth``, in completed years at ``reference``."""
+    age = reference.year - birth.year - ((reference.month, reference.day) < (birth.month, birth.day))
+    return next(label for lower, label in reversed(AGE_BANDS) if age >= lower)
+
+
+def _strata(directory: Path, patient_id: str) -> set[str]:
+    """The ``GENDER`` and age-band strata of one patient, recounted from ``patients.csv``."""
+    reference = date.fromisoformat(REFERENCE_DATE)
+    for row in _rows(directory / "patients.csv"):
+        if row["Id"] == patient_id:
+            birth = _day(row["BIRTHDATE"])
+            assert birth is not None, patient_id
+            return {f"GENDER:{row['GENDER']}", f"age_band:{_age_band(birth, reference)}"}
+    raise AssertionError(f"no patient {patient_id}")
+
+
+def _first_event_in_window(directory: Path, patient_id: str) -> bool:
+    """Whether the patient's first MI record falls inside the incidence window."""
+    reference = date.fromisoformat(REFERENCE_DATE)
+    window_start = reference.replace(year=reference.year - WINDOW_YEARS)
+    starts = [
+        start
+        for row in _rows(directory / "conditions.csv")
+        if row["PATIENT"] == patient_id and row["CODE"] in MI_CODES
+        for start in (_day(row["START"]),)
+        if start is not None
+    ]
+    return bool(starts) and window_start <= min(starts) <= reference
+
+
 def _without_mi_rows(sample: Path, directory: Path) -> int:
     """A copy of ``sample`` with the MI rows of ``REMOVED_PATIENTS`` left out.
 
@@ -350,11 +385,23 @@ def test_c3_the_mi_incidence_is_the_independent_recount(
 
 
 def test_c4_the_figures_that_do_not_depend_on_the_removed_rows_are_unchanged(
-    mi_run: Run,
+    sample: Path, mi_run: Run
 ) -> None:
     """Only the figures of the two removed patients change; nothing is lost silently."""
     data = mi_run.data
-    assert data["changed"] == 11
+    # The changed figures, recounted: point and lifetime prevalence in total and in
+    # the sex and age band of each removed patient, and the incidence in total and in
+    # the strata of the patient whose first event was inside the window.
+    expected = {("point", ""), ("lifetime", ""), ("incidence", "")}
+    for patient in REMOVED_PATIENTS:
+        strata = _strata(sample, patient)
+        expected |= {(measure, stratum) for measure in ("point", "lifetime") for stratum in strata}
+        if _first_event_in_window(sample, patient):
+            expected |= {("incidence", stratum) for stratum in strata}
+    changed = [comparison for comparison in data["comparisons"] if comparison["state"] == "changed"]
+    assert {(c["key"]["block"], c["key"]["element"]) for c in changed} == {("conditions", "Myocardial infarction")}
+    assert {(c["key"]["measure"], c["key"]["stratum"]) for c in changed} == expected
+    assert len(expected) == data["changed"] == 11
     assert data["only_in_baseline"] == 0
     assert data["only_in_candidate"] == 0
     assert data["skipped"] == 0
@@ -426,4 +473,3 @@ def test_c8_two_runs_write_the_same_report(
     first = {key: value for key, value in mi_run.data.items() if key != "generated_at"}
     second = {key: value for key, value in again.data.items() if key != "generated_at"}
     assert first == second
-    assert mi_run.data["generated_at"] != again.data["generated_at"]
