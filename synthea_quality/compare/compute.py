@@ -440,27 +440,22 @@ def _indexed_cohort_skip_reason(figures: dict[ComparisonKey, Figure]) -> str | N
 
 
 def _covers(
-    other_info: dict[tuple[str, str], _ElementInfo],
-    element: tuple[str, str],
-    measure: str,
-    self_computed_measures: set[str],
+    other_info: dict[tuple[str, str], _ElementInfo], element: tuple[str, str], measure: str
 ) -> bool:
     """Does the ``other`` side cover the figure of ``measure`` in ``element``?
 
-    The other side covers the measure when it skipped it and, for that element,
-    has nothing computed that contradicts it: an entirely skipped element
-    covers every one of its keys; a partially skipped element covers the keys
-    of the measures it skipped, and the rest are compared under their own keys.
+    An entirely skipped element (nothing computed) covers every one of its
+    keys, whatever their measure: the other side could measure none of it. A
+    partially skipped element (for example a skipped cross next to computed
+    outcome figures) covers only the keys of the measures it skipped; the rest
+    are compared under their own keys.
     """
 
     data = other_info.get(element)
     if not data or not data["skipped"]:
         return False
-    skipped, computed = data["skipped"], data["computed"]
-    if computed:
-        return measure in skipped
-    if skipped & self_computed_measures:
-        return measure in skipped
+    if data["computed"]:
+        return measure in data["skipped"]
     return True
 
 
@@ -529,8 +524,6 @@ def compare(baseline: dict[ComparisonKey, Figure], candidate: dict[ComparisonKey
         element = (key.block, key.element)
         base_figure = baseline.get(key)
         cand_figure = candidate.get(key)
-        base_measures = base_info[element]["computed"] if element in base_info else set()
-        cand_measures = cand_info[element]["computed"] if element in cand_info else set()
 
         if base_figure is not None and cand_figure is not None:
             comparisons.append(_pair(key, base_figure, cand_figure))
@@ -538,7 +531,7 @@ def compare(baseline: dict[ComparisonKey, Figure], candidate: dict[ComparisonKey
 
         if base_figure is not None:
             # The figure exists only on the baseline side.
-            if _covers(cand_info, element, key.measure, base_measures):
+            if _covers(cand_info, element, key.measure):
                 comparisons.append(
                     _skipped_comparison(
                         key, base_figure, None, _cover_reason(cand_info, element, key.measure)
@@ -556,7 +549,7 @@ def compare(baseline: dict[ComparisonKey, Figure], candidate: dict[ComparisonKey
             # The figure exists only on the candidate side: the key comes from
             # the candidate mapping, so its figure is never None here.
             assert cand_figure is not None
-            if _covers(base_info, element, key.measure, cand_measures):
+            if _covers(base_info, element, key.measure):
                 comparisons.append(
                     _skipped_comparison(
                         key, None, cand_figure, _cover_reason(base_info, element, key.measure)

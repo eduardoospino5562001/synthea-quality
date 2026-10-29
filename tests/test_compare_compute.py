@@ -1173,4 +1173,133 @@ def test_skipped_indexed_cohort_every_key_once_same_both_directions(tmp_path):
     assert all(row.state == SKIPPED and row.reason for row in indexed)
 
 
+SKIP_REASON = "observations.csv is not in the dataset"
+CROSS_REASON = "outcome 'Death' was not computed: observations.csv is not in the dataset"
+
+
+def _states(comparisons: list[Comparison]) -> dict[ComparisonKey, tuple[str, str | None]]:
+    """State and reason of every comparison, by key."""
+
+    return {comparison.key: (comparison.state, comparison.reason) for comparison in comparisons}
+
+
+def test_a_skipped_value_outcome_covers_every_key_of_the_other_side():
+    computed = {
+        ComparisonKey("indexed", "Stage group", "patients", "total:all"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+        ComparisonKey("indexed", "Stage group", "value", "value:I"): Figure(unit=COUNT, value=1, numerator=1),
+    }
+    skipped = {
+        ComparisonKey("indexed", "Stage group", "value", ""): Figure(unit=COUNT, state=SKIPPED, reason=SKIP_REASON),
+    }
+    expected = {
+        ComparisonKey("indexed", "Stage group", "patients", "total:all"): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Stage group", "value", "value:I"): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Stage group", "value", ""): (SKIPPED, SKIP_REASON),
+    }
+    assert _states(compare(computed, skipped)) == expected
+    assert _states(compare(skipped, computed)) == expected
+
+
+def test_a_death_outcome_with_a_skipped_cross_covers_every_key_of_the_other_side():
+    computed = {
+        ComparisonKey("indexed", "Death", "patients", "total:all"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+        ComparisonKey("indexed", "Death", "days_median", ""): Figure(unit=DAYS, value=30.0),
+        ComparisonKey("indexed", "Death", "with_cause", ""): Figure(unit=COUNT, value=1),
+        ComparisonKey("indexed", "Death", "cross", "Stage group:I"): Figure(
+            unit=PROPORTION, value=1.0, numerator=1, denominator=1
+        ),
+    }
+    skipped = {
+        ComparisonKey("indexed", "Death", "death", ""): Figure(unit=COUNT, state=SKIPPED, reason=SKIP_REASON),
+        ComparisonKey("indexed", "Death", "cross", "Stage group"): Figure(
+            unit=PROPORTION, state=SKIPPED, reason=CROSS_REASON
+        ),
+    }
+    expected = {
+        ComparisonKey("indexed", "Death", "patients", "total:all"): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Death", "days_median", ""): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Death", "with_cause", ""): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Death", "cross", "Stage group:I"): (SKIPPED, CROSS_REASON),
+        ComparisonKey("indexed", "Death", "death", ""): (SKIPPED, SKIP_REASON),
+        ComparisonKey("indexed", "Death", "cross", "Stage group"): (SKIPPED, CROSS_REASON),
+    }
+    assert _states(compare(computed, skipped)) == expected
+    assert _states(compare(skipped, computed)) == expected
+
+
+def test_a_skipped_cross_next_to_a_computed_cross_of_the_same_outcome():
+    both = {
+        ComparisonKey("indexed", "Death", "patients", "total:all"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+        ComparisonKey("indexed", "Death", "cross", "GENDER:F"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+    }
+    computed = {
+        **both,
+        ComparisonKey("indexed", "Death", "cross", "Stage group:I"): Figure(
+            unit=PROPORTION, value=1.0, numerator=1, denominator=1
+        ),
+    }
+    skipped = {
+        **both,
+        ComparisonKey("indexed", "Death", "cross", "Stage group"): Figure(
+            unit=PROPORTION, state=SKIPPED, reason=CROSS_REASON
+        ),
+    }
+    expected = {
+        ComparisonKey("indexed", "Death", "patients", "total:all"): (UNCHANGED, None),
+        ComparisonKey("indexed", "Death", "cross", "GENDER:F"): (UNCHANGED, None),
+        ComparisonKey("indexed", "Death", "cross", "Stage group:I"): (SKIPPED, CROSS_REASON),
+        ComparisonKey("indexed", "Death", "cross", "Stage group"): (SKIPPED, CROSS_REASON),
+    }
+    assert _states(compare(computed, skipped)) == expected
+    assert _states(compare(skipped, computed)) == expected
+
+
+def test_prevalence_and_incidence_skipped_for_different_reasons_keep_their_own_reason():
+    prevalence_reason = "no condition records for these codes"
+    incidence_reason = "encounters.csv is not in the dataset"
+    computed = {
+        ComparisonKey("conditions", "MI", "point", ""): Figure(unit=PROPORTION, value=0.5, numerator=1, denominator=2),
+        ComparisonKey("conditions", "MI", "lifetime", ""): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+        ComparisonKey("conditions", "MI", "incidence", ""): Figure(
+            unit=PER_1000_PERSON_YEARS, value=1000.0, numerator=1, denominator=365
+        ),
+        ComparisonKey("conditions", "MI", "point", "GENDER:F"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+        ComparisonKey("conditions", "MI", "incidence", "GENDER:F"): Figure(
+            unit=PER_1000_PERSON_YEARS, value=1000.0, numerator=1, denominator=365
+        ),
+    }
+    skipped = {
+        ComparisonKey("conditions", "MI", "point", ""): Figure(
+            unit=PROPORTION, state=SKIPPED, reason=prevalence_reason
+        ),
+        ComparisonKey("conditions", "MI", "lifetime", ""): Figure(
+            unit=PROPORTION, state=SKIPPED, reason=prevalence_reason
+        ),
+        ComparisonKey("conditions", "MI", "incidence", ""): Figure(
+            unit=PER_1000_PERSON_YEARS, state=SKIPPED, reason=incidence_reason
+        ),
+    }
+    expected = {
+        ComparisonKey("conditions", "MI", "point", ""): (SKIPPED, prevalence_reason),
+        ComparisonKey("conditions", "MI", "lifetime", ""): (SKIPPED, prevalence_reason),
+        ComparisonKey("conditions", "MI", "incidence", ""): (SKIPPED, incidence_reason),
+        ComparisonKey("conditions", "MI", "point", "GENDER:F"): (SKIPPED, prevalence_reason),
+        ComparisonKey("conditions", "MI", "incidence", "GENDER:F"): (SKIPPED, incidence_reason),
+    }
+    assert _states(compare(computed, skipped)) == expected
+    assert _states(compare(skipped, computed)) == expected
+
+
 
