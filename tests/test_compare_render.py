@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from synthea_quality import __version__
 from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
     COUNT,
     NUMBER,
+    ONLY_IN_BASELINE,
+    ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
     PERCENT,
     PROPORTION,
@@ -23,6 +26,7 @@ from synthea_quality.compare.render import (
     ComparisonResult,
     render_json,
     render_markdown,
+    summary_counts,
 )
 from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
 
@@ -88,7 +92,10 @@ def test_markdown_against_itself_reports_zero_changes():
     key = ComparisonKey("conditions", "MI", "point")
     result = _result([_comparison(key, base=0.05, cand=0.05)])
     markdown = render_markdown(result)
-    assert "Compared 1 figures: 0 changed, 1 unchanged." in markdown
+    assert (
+        "1 figures: 1 compared (0 changed, 1 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate."
+        in markdown
+    )
     assert "No figures changed." in markdown
     assert "Conditions" in markdown
 
@@ -144,7 +151,9 @@ def test_markdown_top_greater_than_changes_returns_all():
     comparisons = [_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08)]
     result = _result(comparisons)
     markdown = render_markdown(result, top=100)
-    assert "Compared 1 figures: 1 changed, 0 unchanged." in markdown
+    assert "## Largest changes (top 100)" in markdown
+    # The one change is in the table, not only counted in the summary.
+    assert "| conditions | MI | point |  | 5.00% | 8.00% | +3.00 pp | +60.00% |" in markdown.splitlines()
 
 
 def test_markdown_skipped_population_section_is_not_a_metric():
@@ -212,7 +221,7 @@ def test_json_schema_version_and_fields():
 
     parsed = json.loads(data)
     assert parsed["schema_version"] == 1
-    assert parsed["tool_version"] == "0.13.0"
+    assert parsed["tool_version"] == __version__
     assert parsed["generated_at"] == GENERATED_AT
     assert parsed["compared"] == 1
     assert parsed["changed"] == 1
@@ -264,14 +273,17 @@ def test_markdown_unicode_and_pipe_names_keep_distinct_keys():
     assert "H\\|tension" in markdown  # the vertical bar is escaped inside the cell
 
 
-def test_skipped_count_line_names_the_reason():
+def test_skipped_figures_are_counted_apart_from_the_compared_ones():
     key = ComparisonKey("conditions", "MI", "incidence")
     comparisons = [
         _comparison(key, base=None, cand=None, unit=PER_1000_PERSON_YEARS, state=SKIPPED, reason="no condition records")
     ]
     result = _result(comparisons)
     markdown = render_markdown(result)
-    assert "1 could not be measured (skipped, with a reason)." in markdown
+    assert (
+        "1 figures: 0 compared (0 changed, 0 unchanged), 1 skipped, 0 only in the baseline, 0 only in the candidate."
+        in markdown
+    )
 
 
 def test_markdown_table_cells_keep_one_column_count_per_row():
@@ -374,3 +386,46 @@ def test_each_unit_is_formatted_in_the_largest_changes_table(key, base, cand, un
     of an observation have 2 fixed decimals; proportions and rates keep their format."""
     markdown = render_markdown(_result([_comparison(key, base=base, cand=cand, unit=unit)]))
     assert row in markdown.splitlines()
+
+
+def test_summary_counts_of_no_figures():
+    assert summary_counts([]) == (
+        "0 figures: 0 compared (0 changed, 0 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate"
+    )
+
+
+def test_summary_counts_count_skipped_and_one_sided_figures_apart_from_compared():
+    comparisons = [
+        _comparison(ComparisonKey("conditions", "A", "point"), base=0.05, cand=0.08),
+        _comparison(ComparisonKey("conditions", "B", "point"), base=0.05, cand=0.05),
+        _comparison(ComparisonKey("conditions", "C", "point"), base=0.05, cand=0.05),
+        _comparison(ComparisonKey("conditions", "D", "point"), base=None, cand=None, state=SKIPPED, reason="r"),
+        _comparison(ComparisonKey("conditions", "E", "point"), base=None, cand=None, state=ONLY_IN_BASELINE),
+        _comparison(ComparisonKey("conditions", "F", "point"), base=None, cand=None, state=ONLY_IN_BASELINE),
+        _comparison(ComparisonKey("conditions", "G", "point"), base=None, cand=None, state=ONLY_IN_CANDIDATE),
+    ]
+    assert summary_counts(comparisons) == (
+        "7 figures: 3 compared (1 changed, 2 unchanged), 1 skipped, 2 only in the baseline, 1 only in the candidate"
+    )
+
+
+def test_the_summary_and_every_block_use_the_same_counts_line():
+    comparisons = [
+        _comparison(ComparisonKey("population", "population", "alive"), base=2, cand=3, unit=COUNT),
+        _comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.05),
+        _comparison(ComparisonKey("conditions", "MI", "lifetime"), base=None, cand=None, state=SKIPPED, reason="r"),
+    ]
+    lines = render_markdown(_result(comparisons)).splitlines()
+    summary = lines[lines.index("## Summary") + 2]
+    population = lines[lines.index("## Population") + 2]
+    conditions = lines[lines.index("## Conditions") + 2]
+    assert summary == (
+        "3 figures: 2 compared (1 changed, 1 unchanged), 1 skipped, 0 only in the baseline, 0 only in the candidate."
+    )
+    assert population == (
+        "1 figures: 1 compared (1 changed, 0 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate."
+    )
+    assert conditions == (
+        "2 figures: 1 compared (0 changed, 1 unchanged), 1 skipped, 0 only in the baseline, 0 only in the candidate."
+    )
+    assert not any(line.startswith("Compared ") for line in lines)

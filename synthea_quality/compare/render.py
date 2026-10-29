@@ -95,7 +95,15 @@ def summary_counts(comparisons: Sequence[Comparison]) -> str:
     adds it. Raises nothing.
     """
 
-    raise NotImplementedError
+    changed = sum(1 for c in comparisons if c.state == CHANGED)
+    unchanged = sum(1 for c in comparisons if c.state == UNCHANGED)
+    skipped = sum(1 for c in comparisons if c.state == SKIPPED)
+    only_baseline = sum(1 for c in comparisons if c.state == ONLY_IN_BASELINE)
+    only_candidate = sum(1 for c in comparisons if c.state == ONLY_IN_CANDIDATE)
+    return (
+        f"{len(comparisons)} figures: {changed + unchanged} compared ({changed} changed, {unchanged} unchanged), "
+        f"{skipped} skipped, {only_baseline} only in the baseline, {only_candidate} only in the candidate"
+    )
 
 
 def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
@@ -119,27 +127,12 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
     if note:
         blocks += [f"> {note}", ""]
 
-    compared = len(result.comparisons)
-    changed = sum(1 for c in result.comparisons if c.state == CHANGED)
-    unchanged = sum(1 for c in result.comparisons if c.state == UNCHANGED)
-    skipped = sum(1 for c in result.comparisons if c.state == SKIPPED)
-    only_baseline = sum(1 for c in result.comparisons if c.state == ONLY_IN_BASELINE)
-    only_candidate = sum(1 for c in result.comparisons if c.state == ONLY_IN_CANDIDATE)
-
     blocks += [
         "## Summary",
         "",
-        f"Compared {compared} figures: {changed} changed, {unchanged} unchanged.",
+        f"{summary_counts(result.comparisons)}.",
+        "",
     ]
-    if skipped:
-        blocks.append(
-            f"{skipped} could not be measured on at least one side (skipped, with a reason)."
-        )
-    if only_baseline or only_candidate:
-        blocks.append(
-            f"{only_baseline} only in the baseline, {only_candidate} only in the candidate."
-        )
-    blocks += [""]
 
     ranked = largest_changes(result.comparisons, top)
     blocks += [f"## Largest changes (top {top})", ""]
@@ -157,17 +150,8 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
             continue
         blocks += [f"## {BLOCK_TITLES[block]}", ""]
         block_changed = [c for c in block_comparisons if c.state == CHANGED]
-        block_unchanged = [c for c in block_comparisons if c.state == UNCHANGED]
         block_skipped = [c for c in block_comparisons if c.state == SKIPPED]
-        blocks.append(
-            f"{len(block_comparisons)} figures, {len(block_changed)} changed, "
-            f"{len(block_unchanged)} unchanged."
-        )
-        if block_skipped:
-            blocks.append(
-                f"{len(block_skipped)} could not be measured (skipped, with a reason)."
-            )
-        blocks += [""]
+        blocks += [f"{summary_counts(block_comparisons)}.", ""]
         if block == "population":
             for c in block_skipped:
                 if c.key.measure == c.key.element and c.reason:
