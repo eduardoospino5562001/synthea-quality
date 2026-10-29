@@ -22,6 +22,7 @@ from synthea_quality.compare.models import (
     COMPUTED,
     COUNT,
     DAYS,
+    NUMBER,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
@@ -29,6 +30,7 @@ from synthea_quality.compare.models import (
     PROPORTION,
     SKIPPED,
     UNCHANGED,
+    YEARS,
     Comparison,
     ComparisonKey,
     Figure,
@@ -51,6 +53,9 @@ BREAKDOWN_PARTS = ("total", "sex", "age")
 
 #: Population sections whose metrics and distributions become figures.
 POPULATION_SECTIONS = ("population", "age", "distribution.GENDER")
+
+#: Metrics of the ``age`` section that are ages, not counts of patients.
+AGE_METRICS_IN_YEARS = ("median", "min", "max")
 
 #: Measures of a condition's prevalence and incidence, with their units.
 CONDITION_MEASURES = (
@@ -117,7 +122,12 @@ def _population_figures(report: ModuleValidationReport) -> list[tuple[Comparison
         for name, value in section.metrics.items():
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 continue
-            unit = PERCENT if str(name).endswith("_percent") else COUNT
+            if str(name).endswith("_percent"):
+                unit = PERCENT
+            elif section.section_id == "age" and name in AGE_METRICS_IN_YEARS:
+                unit = YEARS
+            else:
+                unit = COUNT
             pairs.append(
                 (
                     _key("population", section.section_id, str(name), ""),
@@ -220,7 +230,7 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
             continue
         for group in observation.groups:
             units = group.units if group.units else ""
-            unit = units if units else COUNT
+            unit = units if units else NUMBER
             numerator = group.summary.n
             for statistic in OBSERVATION_STATISTICS:
                 value = getattr(group.summary, statistic)
@@ -246,7 +256,7 @@ def _observation_figures(report: ModuleValidationReport) -> list[tuple[Compariso
                             Figure(
                                 unit=stat_unit,
                                 value=value,
-                                numerator=stratum.patients,
+                                numerator=stratum.summary.n,
                                 state=COMPUTED,
                             ),
                         )

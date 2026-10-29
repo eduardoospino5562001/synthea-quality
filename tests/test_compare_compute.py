@@ -13,6 +13,7 @@ from synthea_quality.compare.models import (
     CHANGED,
     COUNT,
     DAYS,
+    NUMBER,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PER_1000_PERSON_YEARS,
@@ -20,6 +21,7 @@ from synthea_quality.compare.models import (
     PROPORTION,
     SKIPPED,
     UNCHANGED,
+    YEARS,
     Comparison,
     ComparisonKey,
     Figure,
@@ -869,8 +871,10 @@ def test_las_metricas_porcentuales_de_la_poblacion_usan_la_unidad_percent(tmp_pa
     for key in percent_keys:
         assert figures[key].unit == PERCENT, key
     for key in figures:
-        if key.block == "population" and not key.measure.endswith("_percent"):
-            assert figures[key].unit == COUNT, key
+        if key.block != "population" or key.measure.endswith("_percent"):
+            continue
+        expected = YEARS if key.element == "age" and key.measure in ("median", "min", "max") else COUNT
+        assert figures[key].unit == expected, key
 
 
 # --------------------------------------------------------------------------- #
@@ -1302,4 +1306,62 @@ def test_prevalence_and_incidence_skipped_for_different_reasons_keep_their_own_r
     assert _states(compare(skipped, computed)) == expected
 
 
+def test_the_age_median_minimum_and_maximum_are_in_years(tmp_path):
+    figures = figures_by_key(build_report(tmp_path))
+    for measure, value in (("median", 55.5), ("min", 35), ("max", 76)):
+        figure = figures[ComparisonKey("population", "age", measure, "")]
+        assert figure.unit == YEARS, measure
+        assert figure.value == value, measure
+    # The other metrics of the age section are still counts of patients.
+    assert figures[ComparisonKey("population", "age", "alive", "")].unit == COUNT
+    assert figures[ComparisonKey("population", "age", "denominator", "")].unit == COUNT
 
+
+def test_observation_values_without_units_are_plain_numbers(tmp_path):
+    directory = write_dataset(tmp_path)
+    write_table(
+        directory,
+        "observations",
+        [
+            {
+                "DATE": "2026-01-01T00:00:00Z",
+                "PATIENT": "a1",
+                "CODE": "8480-6",
+                "VALUE": "150",
+                "UNITS": "",
+                "TYPE": "numeric",
+            },
+        ],
+    )
+    figures = figures_by_key(build_report_in(directory))
+    assert figures[ComparisonKey("observations", "8480-6", "median", "")].unit == NUMBER
+    assert figures[ComparisonKey("observations", "8480-6", "median", "")].value == 150.0
+    assert figures[ComparisonKey("observations", "8480-6", "median", "GENDER:M")].unit == NUMBER
+    # The number of values stays a count.
+    assert figures[ComparisonKey("observations", "8480-6", "n", "")].unit == COUNT
+
+
+def test_the_numerator_of_an_observation_stratum_is_its_number_of_values(tmp_path):
+    directory = write_dataset(tmp_path)
+    # Only a1 (a man) has a value; a2 (a woman) is alive and has none, so the
+    # GENDER:F stratum has one patient and no value.
+    write_table(
+        directory,
+        "observations",
+        [
+            {
+                "DATE": "2026-01-01T00:00:00Z",
+                "PATIENT": "a1",
+                "CODE": "8480-6",
+                "VALUE": "150",
+                "UNITS": "mm[Hg]",
+                "TYPE": "numeric",
+            },
+        ],
+    )
+    figures = figures_by_key(build_report_in(directory))
+    women = figures[ComparisonKey("observations", "8480-6", "n", "mm[Hg]|GENDER:F")]
+    assert (women.value, women.numerator) == (0, 0)
+    assert figures[ComparisonKey("observations", "8480-6", "median", "mm[Hg]|GENDER:F")].numerator == 0
+    men = figures[ComparisonKey("observations", "8480-6", "n", "mm[Hg]|GENDER:M")]
+    assert (men.value, men.numerator) == (1, 1)
