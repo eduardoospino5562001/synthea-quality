@@ -449,6 +449,31 @@ no expected value, no threshold and no verdict: a change is a fact about the two
 datasets, and whether a change matters depends on the statistic and on the size of the
 population. Comparing a change with a threshold is a separate, later step.
 
+### Prepare a PR comparison comment
+
+From a checkout of this repository, with two already-built Synthea directories:
+
+```bash
+scripts/pr_compare.sh /path/to/base-build /path/to/pr-build \
+    examples/myocardial_infarction.json 1 1000 reports/pr-comparison
+.venv/bin/python scripts/pr_comment.py reports/pr-comparison/synthea_compare.md \
+    > reports/pr-comparison/comment.md
+```
+
+Each build must contain an executable `run_synthea`, and the output directory must
+be absent or empty. The script runs both builds with the same patient and clinician
+seed and population size, enables CSV export, then calls `synthea-compare` with the
+module file and each run's metadata. It writes the exports under `base/` and `pr/`
+and `synthea_compare.md` and `.json` at the output directory's root.
+
+`pr_comment.py` prepares the Markdown for a PR comment; it does not publish it. Reports
+up to 65,536 characters are kept in full. Longer reports are cut at a line boundary
+(by characters if a single line exceeds the available space), reserving room for a
+notice pointing to the full report in the workflow's `synthea-compare-report` artifact.
+The limit counts characters, not UTF-8 bytes, and includes the notice. A workflow using
+this formatter must upload that artifact and publish `comment.md` separately; the fork
+workflow and its live demonstration are not part of these scripts.
+
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
