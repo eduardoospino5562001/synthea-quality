@@ -12,7 +12,7 @@ from csv_tables import write_table
 
 from synthea_quality import __version__
 from synthea_quality.compare.cli import EXIT_ERROR, EXIT_OK, main
-from synthea_quality.compare.render import JSON_NAME, MARKDOWN_NAME
+from synthea_quality.compare.render import BLOCK_TITLES, BLOCKS, JSON_NAME, MARKDOWN_NAME
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 EXAMPLE = REPOSITORY / "examples" / "myocardial_infarction.json"
@@ -148,3 +148,33 @@ def test_the_console_script_runs_as_installed(tmp_path):
         capture_output=True, text=True, check=False,
     )
     assert completed.returncode == EXIT_OK, completed.stderr
+
+
+def test_the_console_prints_one_counts_line_per_block_like_the_markdown(tmp_path, capsys):
+    base = dataset(tmp_path / "base")
+    out = tmp_path / "out"
+    code = main(
+        [str(base), str(base), "--module", str(EXAMPLE), "--output-dir", str(out),
+         "--reference-date", "2026-01-01"]
+    )
+    assert code == EXIT_OK
+    printed = capsys.readouterr().out.splitlines()
+    markdown = (out / MARKDOWN_NAME).read_text(encoding="utf-8").splitlines()
+    for block in BLOCKS:
+        title = BLOCK_TITLES[block]
+        if f"## {title}" not in markdown:
+            continue
+        counts = markdown[markdown.index(f"## {title}") + 2]
+        # The console repeats the block's line of the Markdown, without its final period.
+        assert f"{title}:  {counts.removesuffix('.')}" in printed, title
+    assert not any(" compared, " in line for line in printed)
+
+
+def test_the_module_example_of_the_help_has_balanced_brackets(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    printed = capsys.readouterr().out
+    example = printed.split("module file (see examples/myocardial_infarction.json):")[1].split("\n\n")[0]
+    assert example.count("[") == example.count("]")
+    assert example.count("{") == example.count("}")
+    assert "}]]," not in example

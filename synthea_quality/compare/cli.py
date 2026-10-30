@@ -22,17 +22,13 @@ from pathlib import Path
 from synthea_quality import __version__
 from synthea_quality.compare.build import build
 from synthea_quality.compare.compute import compare, extract_figures
-from synthea_quality.compare.models import (
-    CHANGED,
-    ONLY_IN_BASELINE,
-    ONLY_IN_CANDIDATE,
-    SKIPPED,
-    UNCHANGED,
-)
 from synthea_quality.compare.render import (
+    BLOCK_TITLES,
+    BLOCKS,
     JSON_NAME,
     MARKDOWN_NAME,
     ComparisonResult,
+    summary_counts,
     write_json,
     write_markdown,
 )
@@ -53,7 +49,7 @@ EXIT_ERROR = 2
 _EPILOG = """\
 module file (see examples/myocardial_infarction.json):
   {"module": {"name": "...", "synthea_modules": ["..."]},
-   "conditions": [{"name": "...", "codes": ["..."], "acute": true}]],
+   "conditions": [{"name": "...", "codes": ["..."], "acute": true}],
    "observations": [...], "medications": [...], "index": {"condition": "..."},
    "outcomes": [...], "by": [...]}
 
@@ -236,32 +232,11 @@ def print_summary(
     print(f"Baseline:   {result.baseline_dir}")
     print(f"Candidate:  {result.candidate_dir}")
     print(f"Module:     {result.module_file}")
-    for block in ("population", "conditions", "observations", "medications", "indexed"):
+    for block in BLOCKS:
         block_rows = [c for c in result.comparisons if c.key.block == block]
         if not block_rows:
             continue
-        title = {
-            "population": "Population",
-            "conditions": "Conditions",
-            "observations": "Observations",
-            "medications": "Medications",
-            "indexed": "Indexed cohort",
-        }[block]
-        changed = sum(1 for c in block_rows if c.state == CHANGED)
-        skipped = sum(1 for c in block_rows if c.state == SKIPPED)
-        only_b = sum(1 for c in block_rows if c.state == ONLY_IN_BASELINE)
-        only_c = sum(1 for c in block_rows if c.state == ONLY_IN_CANDIDATE)
-        unchanged = sum(1 for c in block_rows if c.state == UNCHANGED)
-        parts = [f"{len(block_rows)} compared", f"{changed} changed"]
-        if unchanged:
-            parts.append(f"{unchanged} unchanged")
-        if skipped:
-            parts.append(f"{skipped} skipped")
-        if only_b:
-            parts.append(f"{only_b} only in baseline")
-        if only_c:
-            parts.append(f"{only_c} only in candidate")
-        print(f"{title}:  {', '.join(parts)}")
+        print(f"{BLOCK_TITLES[block]}:  {summary_counts(block_rows)}")
     print()
     print("Reports:")
     print(f"  {markdown_path}")
