@@ -14,8 +14,9 @@ modifies the generator or the dataset it inspects.
 
 > **Status: MVP — deterministic checks (`synthea-quality`), a descriptive profile
 > (`synthea-profile`), condition prevalence (`synthea-prevalence`), incidence
-> (`synthea-incidence`), observation values (`synthea-observations`) and all of them, with
-> the medications of a cohort, for one module at once (`synthea-validate-module`).**
+> (`synthea-incidence`), observation values (`synthea-observations`), all of them, with
+> the medications of a cohort, for one module at once (`synthea-validate-module`), and the
+> comparison of that validation on two datasets (`synthea-compare`).**
 > Read *Current limitations* and *Roadmap* before relying on it for anything beyond that.
 
 ## What it is
@@ -105,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.12.1
+synthea-quality 0.13.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -257,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.12.1",
+    "tool_version": "0.13.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -379,6 +380,75 @@ share of a cohort (or of every alive patient) with each one, active at the refer
 and ever, with a 95% Wilson interval. See *Medications in a cohort* below; there is no
 separate command.
 
+## Compare two datasets
+
+`synthea-compare` describes what changes between two Synthea datasets measured with the
+same module file: a baseline and a candidate, for example the same module before and
+after a change, or two runs of the generator with different settings. It runs
+`synthea-validate-module` over both directories with the same parameters and writes
+`synthea_compare.md` and `synthea_compare.json`. Neither directory is modified.
+
+```bash
+.venv/bin/synthea-compare ~/synthea-sample-data/csv-latest /path/to/candidate/csv \
+    --module examples/myocardial_infarction.json \
+    --reference-date 2026-01-01 \
+    --output-dir reports
+```
+
+The report has five blocks: the population, the prevalence and incidence of the module's
+conditions, its observations, its medications, and its indexed cohort when the file
+declares one. Each figure carries both values, the difference (`candidate - baseline`) in
+its own unit and the relative difference, which is empty when the baseline is zero. The
+JSON adds the 95% interval, the numerator and the denominator of both sides and the
+provenance of each side (directory, module, reference date, years of history and the
+tables read), so a later test can use the counts without reading the CSVs again.
+
+The Markdown lists the largest changes first (the 20 largest, `--top N` to change them),
+then one section per block: a line with how many figures there are and how many were
+compared (changed and unchanged), skipped and found on one side only; the rows that
+changed; and, under *Not compared*, every skipped or one-sided figure with why. A table
+one side cannot read becomes `skipped` with its reason, never a zero. When the reference
+dates differ, a note at the top says so, because that changes who is alive and their ages;
+when the exported years of history differ, because that changes which records were
+exported. The notes of each side's validation are listed under *Notes*, and the parts of
+that report the comparison does not extract under *Parts not compared*. Units: proportions
+in percent and their differences in percentage points, incidence per 1,000 person-years,
+ages, observation values and plain numbers with 2 decimals, and counts and days as
+integers.
+
+Compared with a copy of the sample with the myocardial infarction rows of two patients
+removed, the console reads:
+
+```
+synthea-compare (synthea-quality 0.13.0)
+
+Baseline:   /path/to/baseline/csv
+Candidate:  /path/to/candidate/csv
+Module:     examples/myocardial_infarction.json
+Population:  22 figures: 22 compared (0 changed, 22 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
+Conditions:  24 figures: 24 compared (11 changed, 13 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
+
+Reports:
+  reports/synthea_compare.md
+  reports/synthea_compare.json
+```
+
+and the first row of the Markdown is the largest change:
+
+```
+| conditions | Myocardial infarction | incidence |  | 2.16 (0.05–12.04) | 0.00 (0.00–7.85) | -2.16 | -100.00% |
+```
+
+Options: `--reference-date`, or `--metadata-baseline` with `--metadata-candidate` (one
+metadata file per run), `--window-years` and `--age-bands` with the same meaning as in
+`synthea-validate-module`, and `--output-dir` for the two reports. It exits `0` when the
+report was written, whatever was skipped, and `2` when it could not be completed.
+
+The report describes differences; it does not decide whether they are acceptable. It has
+no expected value, no threshold and no verdict: a change is a fact about the two
+datasets, and whether a change matters depends on the statistic and on the size of the
+population. Comparing a change with a threshold is a separate, later step.
+
 ## Dataset profile
 
 The checks above say whether a dataset is broken. `synthea-profile` says what it
@@ -456,7 +526,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.12.1)
+synthea-profile (synthea-quality 0.13.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -694,7 +764,8 @@ its metadata this cannot be confirmed.
 
 When the metadata says `exporter.years_of_history` is greater than 0, **every** analysis
 report (`synthea-profile`, `synthea-prevalence`, `synthea-incidence`,
-`synthea-observations`, `synthea-validate-module`) shows a notice right after its title:
+`synthea-observations`, `synthea-validate-module`) shows a notice right after its title
+(`synthea-compare` lists the notices of each side under *Notes*):
 the dataset is filtered by time and statistics that look back — lifetime prevalence,
 "ever" medication use, prior cases in incidence, the earliest records — may rest on
 incomplete data. With `0` or without metadata there is no notice; a metadata file without
@@ -1113,8 +1184,8 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1174 unit and component tests, about 25 seconds |
-| Acceptance | `.venv/bin/pytest -m integration` | yes | 77 end-to-end tests that run the commands as a user would, about 90 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1295 unit and component tests, about 25 seconds |
+| Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
 The acceptance suite needs the official sample, downloaded outside the repository:
