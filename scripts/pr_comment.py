@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Format reports within GitHub's 65,536-character PR comment limit."""
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
