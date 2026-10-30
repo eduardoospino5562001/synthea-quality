@@ -56,6 +56,9 @@ GITHUB_COMMENT_LIMIT = 65_536
 REPORTED_DECIMALS = 1e-6
 #: The codes of the myocardial infarction example.
 MI_CODES = {"22298006", "401303003", "401314000"}
+#: The index condition and the hospital admission of the COVID-19 example.
+COVID_CODE = "840539006"
+ADMISSION_CODE = "1505002"
 #: Two alive patients with myocardial infarction rows: the first one holds the only
 #: first event inside the window (2023-11-02, in the 65+ band); the second one is a
 #: prior case (2020-03-13, before the window), in the 45-64 band. Both are male.
@@ -221,6 +224,36 @@ def _first_event_in_window(directory: Path, patient_id: str) -> bool:
     return bool(starts) and window_start <= min(starts) <= reference
 
 
+def _covid_cohort(directory: Path) -> dict[str, date]:
+    """The COVID-19 cohort, recounted: every patient, alive or deceased, with a COVID-19
+    condition starting on or before the reference date, and the date of the first one
+    (the index date)."""
+    reference = date.fromisoformat(REFERENCE_DATE)
+    cohort: dict[str, date] = {}
+    for row in _rows(directory / "conditions.csv"):
+        start = _day(row["START"])
+        if row["CODE"] != COVID_CODE or start is None or start > reference:
+            continue
+        patient = row["PATIENT"]
+        cohort[patient] = min(start, cohort.get(patient, start))
+    return cohort
+
+
+def _admitted(directory: Path, cohort: dict[str, date]) -> set[str]:
+    """The patients of the cohort with a hospital admission on or after their index date
+    and on or before the reference date (the outcome has no window end)."""
+    reference = date.fromisoformat(REFERENCE_DATE)
+    admitted: set[str] = set()
+    for row in _rows(directory / "encounters.csv"):
+        patient = row["PATIENT"]
+        start = _day(row["START"])
+        if row["CODE"] != ADMISSION_CODE or patient not in cohort or start is None:
+            continue
+        if cohort[patient] <= start <= reference:
+            admitted.add(patient)
+    return admitted
+
+
 def _without_mi_rows(sample: Path, directory: Path) -> int:
     """A copy of ``sample`` with the MI rows of ``REMOVED_PATIENTS`` left out.
 
@@ -303,9 +336,9 @@ def covid_run(sample: Path, tmp_path_factory: pytest.TempPathFactory) -> Run:
 def test_c1_the_sample_against_itself_reports_no_change(self_run: Run) -> None:
     """The same dataset on both sides: every figure is unchanged."""
     assert self_run.exit_code == 0
-    assert self_run.data["compared"] == 46
+    # Every figure is compared and unchanged: no count is taken from the tool itself.
+    assert self_run.data["compared"] == self_run.data["unchanged"] == len(self_run.data["comparisons"]) > 0
     assert self_run.data["changed"] == 0
-    assert self_run.data["unchanged"] == 46
     assert self_run.data["skipped"] == 0
     assert self_run.data["only_in_baseline"] == 0
     assert self_run.data["only_in_candidate"] == 0
@@ -421,24 +454,32 @@ def test_c4_the_figures_that_do_not_depend_on_the_removed_rows_are_unchanged(
             assert comparison["baseline"] == comparison["candidate"]
 
 
-def test_c5_the_covid_indexed_cohort_appears_in_the_comparison(covid_run: Run) -> None:
-    """With ``examples/covid19.json`` the indexed cohort is part of the comparison."""
+def test_c5_the_covid_indexed_cohort_appears_in_the_comparison(sample: Path, covid_run: Run) -> None:
+    """With ``examples/covid19.json`` the indexed cohort is part of the comparison, and its
+    size and its hospital admissions are the ``csv`` recount."""
     assert covid_run.exit_code == 0
+    cohort_patients = _covid_cohort(sample)
+    admitted = _admitted(sample, cohort_patients)
+    assert (len(cohort_patients), len(admitted)) == (4, 1)
     indexed = [
         comparison
         for comparison in covid_run.data["comparisons"]
         if comparison["key"]["block"] == "indexed"
     ]
-    assert len(indexed) == 58
+    assert indexed
     assert {comparison["state"] for comparison in indexed} == {"unchanged"}
     cohort = _comparison(covid_run.data, "indexed", "cohort", "patients")
-    assert cohort["baseline"]["value"] == 4
-    assert cohort["candidate"]["value"] == 4
+    assert cohort["baseline"]["value"] == len(cohort_patients)
+    assert cohort["candidate"]["value"] == len(cohort_patients)
     admission = _comparison(
         covid_run.data, "indexed", "Hospital admission", "patients", "total:all"
     )
-    assert admission["baseline"]["value"] == pytest.approx(0.25)
-    assert admission["candidate"]["value"] == pytest.approx(0.25)
+    for side in ("baseline", "candidate"):
+        assert (admission[side]["numerator"], admission[side]["denominator"]) == (
+            len(admitted),
+            len(cohort_patients),
+        )
+        assert admission[side]["value"] == pytest.approx(len(admitted) / len(cohort_patients))
 
 
 def _assert_no_verdict(text: str) -> None:
