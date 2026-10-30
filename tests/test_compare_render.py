@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+
 import pytest
 
 from synthea_quality import __version__
@@ -10,6 +13,7 @@ from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
     COUNT,
+    NOT_COMPARED,
     NUMBER,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
@@ -29,6 +33,7 @@ from synthea_quality.compare.render import (
     render_markdown,
     summary_counts,
 )
+from synthea_quality.export_history import ExportHistory
 from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
 
 GENERATED_AT = "2026-09-29T00:00:00+00:00"
@@ -200,8 +205,10 @@ def test_markdown_reference_date_difference_note():
         generated_at=GENERATED_AT,
     )
     markdown = render_markdown(result)
-    assert "Note:" in markdown
-    assert "reference dates differ" in markdown
+    assert (
+        "> Note: the reference dates differ (baseline none, candidate 2026-02-01): this changes who is alive and "
+        "their ages." in markdown.splitlines()
+    )
 
 
 def test_markdown_no_verdict_words():
@@ -477,3 +484,71 @@ def test_a_figure_covered_by_a_skipped_side_shows_the_measured_value_and_the_rea
     lines = render_markdown(_result(compare(baseline, candidate))).splitlines()
     assert f"| Death | patients | total:all | 50.00% | — | {reason} |" in lines
     assert f"| Death | death |  | — | — | {reason} |" in lines
+
+
+def _result_with(baseline: ModuleValidationReport, candidate: ModuleValidationReport, comparisons=()):
+    """A result whose two sides are the given reports."""
+    return ComparisonResult(
+        module_file="module.json",
+        module=ModuleInfo("Test module"),
+        baseline_dir="/baseline",
+        candidate_dir="/candidate",
+        baseline_report=baseline,
+        candidate_report=candidate,
+        comparisons=list(comparisons),
+        generated_at=GENERATED_AT,
+    )
+
+
+def test_the_markdown_and_the_json_say_what_is_not_compared():
+    result = _result([_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.05)])
+    lines = render_markdown(result).splitlines()
+    assert "## Parts not compared" in lines
+    for part in NOT_COMPARED:
+        assert f"- {part}" in lines
+    assert json.loads(render_json(result))["not_compared"] == list(NOT_COMPARED)
+
+
+def test_the_notes_of_each_side_are_in_the_markdown():
+    baseline = replace(_report(), notes=("The exported history is unknown.",))
+    candidate = replace(_report(), notes=("Incidence counts every patient.", "The exported history is unknown."))
+    lines = render_markdown(_result_with(baseline, candidate)).splitlines()
+    notes = lines[lines.index("## Notes"):]
+    assert notes[:9] == [
+        "## Notes",
+        "",
+        "Baseline:",
+        "- The exported history is unknown.",
+        "",
+        "Candidate:",
+        "- Incidence counts every patient.",
+        "- The exported history is unknown.",
+        "",
+    ]
+
+
+def test_without_notes_there_is_no_notes_section():
+    assert "## Notes" not in render_markdown(_result([]))
+
+
+def test_a_different_years_of_history_changes_the_exported_records_not_the_patients():
+    history = ExportHistory(years=10, status="read", metadata_file="meta.json", cutoff=None)
+    candidate = replace(_report(), export_history=history)
+    markdown = render_markdown(_result_with(_report(), candidate))
+    assert (
+        "> Note: the years of history differ (baseline None, candidate 10): this changes which records were "
+        "exported (lifetime prevalence, ever use and prior cases look back)." in markdown.splitlines()
+    )
+    assert "alive" not in markdown.split("## Reference date")[1].split("## Summary")[0]
+
+
+def test_the_json_counts_the_figures_apart_from_the_compared_ones():
+    comparisons = [
+        _comparison(ComparisonKey("conditions", "A", "point"), base=0.05, cand=0.08),
+        _comparison(ComparisonKey("conditions", "B", "point"), base=0.05, cand=0.05),
+        _comparison(ComparisonKey("conditions", "C", "point"), base=None, cand=None, state=SKIPPED, reason="r"),
+        _comparison(ComparisonKey("conditions", "D", "point"), base=None, cand=None, state=ONLY_IN_BASELINE),
+    ]
+    data = json.loads(render_json(_result(comparisons)))
+    assert (data["figures"], data["compared"], data["changed"], data["unchanged"]) == (4, 2, 1, 1)
+    assert (data["skipped"], data["only_in_baseline"], data["only_in_candidate"]) == (1, 1, 0)

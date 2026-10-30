@@ -23,6 +23,7 @@ from synthea_quality.compare.models import (
     CHANGED,
     COUNT,
     DAYS,
+    NOT_COMPARED,
     ONLY_IN_BASELINE,
     ONLY_IN_CANDIDATE,
     PERCENT,
@@ -129,6 +130,7 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
     note = _difference_note(result.baseline_report, result.candidate_report)
     if note:
         blocks += [f"> {note}", ""]
+    blocks += _notes(result.baseline_report, result.candidate_report)
 
     blocks += [
         "## Summary",
@@ -167,6 +169,15 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
             blocks += ["Not compared:", ""] + _not_compared_table(block_not_compared) + [""]
         blocks += [""]
 
+    blocks += [
+        "## Parts not compared",
+        "",
+        "These parts of the module validation report are not extracted; they stay in the report of each side:",
+        "",
+    ]
+    blocks += [f"- {part}" for part in NOT_COMPARED]
+    blocks += [""]
+
     return "\n".join(line.rstrip() for line in blocks) + "\n"
 
 
@@ -192,18 +203,33 @@ def _difference_note(
     cand_date = cand_ref.value if cand_ref is not None else None
     if base_date != cand_date:
         parts.append(
-            f"the reference dates differ: baseline {base_date or 'none'}, "
-            f"candidate {cand_date or 'none'}"
+            f"the reference dates differ (baseline {base_date or 'none'}, "
+            f"candidate {cand_date or 'none'}): this changes who is alive and their ages"
         )
     base_years = baseline.export_history.years
     cand_years = candidate.export_history.years
     if base_years != cand_years:
+        # The exporter's years_of_history filters records, not patients (README,
+        # "The exported history"): it never changes who is alive.
         parts.append(
-            f"the years of history differ: baseline {base_years}, candidate {cand_years}"
+            f"the years of history differ (baseline {base_years}, candidate {cand_years}): this changes which "
+            "records were exported (lifetime prevalence, ever use and prior cases look back)"
         )
     if not parts:
         return None
-    return "Note: " + "; ".join(parts) + ". This changes the alive patients and their ages."
+    return "Note: " + "; ".join(parts) + "."
+
+
+def _notes(baseline: ModuleValidationReport, candidate: ModuleValidationReport) -> list[str]:
+    """The notes of the validation report of each side, as ``synthea-validate-module``
+    shows them, or nothing when neither side has one."""
+    if not baseline.notes and not candidate.notes:
+        return []
+    lines = ["## Notes", ""]
+    for label, report in (("Baseline", baseline), ("Candidate", candidate)):
+        if report.notes:
+            lines += [f"{label}:"] + [f"- {note}" for note in report.notes] + [""]
+    return lines
 
 
 def _largest_changes_table(ranked: list[Comparison]) -> list[str]:
@@ -360,7 +386,9 @@ def render_json(result: ComparisonResult) -> str:
         "baseline": _side_provenance(result.baseline_report, result.baseline_dir, result.module_file),
         "candidate": _side_provenance(result.candidate_report, result.candidate_dir, result.module_file),
         "module": result.module.to_dict(),
-        "compared": len(result.comparisons),
+        "not_compared": list(NOT_COMPARED),
+        "figures": len(result.comparisons),
+        "compared": sum(1 for c in result.comparisons if c.state in (CHANGED, UNCHANGED)),
         "changed": sum(1 for c in result.comparisons if c.state == CHANGED),
         "unchanged": sum(1 for c in result.comparisons if c.state == UNCHANGED),
         "skipped": sum(1 for c in result.comparisons if c.state == SKIPPED),
