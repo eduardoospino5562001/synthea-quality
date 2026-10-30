@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.13.0
+synthea-quality 0.14.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.13.0",
+    "tool_version": "0.14.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -420,7 +420,7 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.13.0)
+synthea-compare (synthea-quality 0.14.0)
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
@@ -448,6 +448,32 @@ The report describes differences; it does not decide whether they are acceptable
 no expected value, no threshold and no verdict: a change is a fact about the two
 datasets, and whether a change matters depends on the statistic and on the size of the
 population. Comparing a change with a threshold is a separate, later step.
+
+### Prepare a PR comparison comment
+
+From a checkout of this repository, with two already-built Synthea directories:
+
+```bash
+scripts/pr_compare.sh /path/to/base-build /path/to/pr-build \
+    examples/myocardial_infarction.json 1 1000 reports/pr-comparison
+.venv/bin/python scripts/pr_comment.py reports/pr-comparison/synthea_compare.md \
+    > reports/pr-comparison/comment.md
+```
+
+Each build must contain an executable `run_synthea`, and the output directory must
+be absent or empty; its parent directory must exist. The script runs both builds
+with the same patient and clinician seed and population size, enables CSV export,
+then calls `synthea-compare` with the module file and each run's metadata. It writes
+the exports under `base/` and `pr/` and `synthea_compare.md` and `.json` at the output
+directory's root.
+
+`pr_comment.py` prepares the Markdown for a PR comment; it does not publish it. Reports
+up to 65,536 characters are kept in full. Longer reports are cut at a line boundary
+(by characters if a single line exceeds the available space), reserving room for a
+notice pointing to the full report in the workflow's `synthea-compare-report` artifact.
+The limit counts characters, not UTF-8 bytes, and includes the notice. A workflow using
+this formatter must upload that artifact and publish `comment.md` separately; the fork
+workflow and its live demonstration are not part of these scripts.
 
 ## Dataset profile
 
@@ -526,7 +552,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.13.0)
+synthea-profile (synthea-quality 0.14.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
