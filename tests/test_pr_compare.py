@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -61,9 +62,12 @@ def comparison(tmp_path: Path) -> list[str]:
 
 
 def run_script(arguments: list[str]) -> subprocess.CompletedProcess[str]:
-    """Isolate fake build failures from the caller's environment."""
+    """Use pytest's CLI environment and isolate fake build failure flags."""
     environment = os.environ.copy()
     environment.pop("FAKE_SYNTHEA_FAIL", None)
+    environment["PATH"] = (
+        f"{Path(sys.executable).parent}{os.pathsep}{environment.get('PATH', '')}"
+    )
     return subprocess.run(
         ["bash", str(SCRIPT), *arguments], capture_output=True, text=True,
         check=False, env=environment,
