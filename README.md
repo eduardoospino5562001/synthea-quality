@@ -461,10 +461,11 @@ scripts/pr_compare.sh /path/to/base-build /path/to/pr-build \
 ```
 
 Each build must contain an executable `run_synthea`, and the output directory must
-be absent or empty. The script runs both builds with the same patient and clinician
-seed and population size, enables CSV export, then calls `synthea-compare` with the
-module file and each run's metadata. It writes the exports under `base/` and `pr/`
-and `synthea_compare.md` and `.json` at the output directory's root.
+be absent or empty; its parent directory must exist. The script runs both builds
+with the same patient and clinician seed and population size, enables CSV export,
+then calls `synthea-compare` with the module file and each run's metadata. It writes
+the exports under `base/` and `pr/` and `synthea_compare.md` and `.json` at the output
+directory's root.
 
 `pr_comment.py` prepares the Markdown for a PR comment; it does not publish it. Reports
 up to 65,536 characters are kept in full. Longer reports are cut at a line boundary

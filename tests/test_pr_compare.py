@@ -102,6 +102,23 @@ def test_non_empty_out_dir_is_exit_1(comparison: list[str]) -> None:
     assert run_script(comparison).returncode == 1
 
 
+def test_out_dir_with_missing_parent_is_exit_1(comparison: list[str], tmp_path: Path) -> None:
+    """Reject a missing parent without creating anything outside OUT_DIR."""
+    parent = tmp_path / "missing"
+    comparison[5] = str(parent / "out")
+    result = run_script(comparison)
+    assert result.returncode == 1
+    assert "its parent must exist" in result.stderr
+    assert not parent.exists()
+
+
+def test_existing_empty_out_dir_is_accepted(comparison: list[str]) -> None:
+    """Creating only OUT_DIR must not reject an already empty directory."""
+    Path(comparison[5]).mkdir()
+    result = run_script(comparison)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("seed", ["abc", "0"])
 def test_seed_must_be_a_positive_integer(comparison: list[str], seed: str) -> None:
     """Reject nonnumeric and zero seeds before generating anything."""

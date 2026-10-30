@@ -32,8 +32,10 @@ if [ -e "$OUT_DIR" ] || [ -L "$OUT_DIR" ]; then
   [ -d "$OUT_DIR" ] || usage_error "OUT_DIR must be a directory"
   contents=("$OUT_DIR"/*)
   [ "${#contents[@]}" -eq 0 ] || usage_error "OUT_DIR must be empty"
+else
+  mkdir -- "$OUT_DIR" \
+    || usage_error "Cannot create OUT_DIR: $OUT_DIR (its parent must exist)"
 fi
-mkdir -p -- "$OUT_DIR" || usage_error "Cannot create OUT_DIR: $OUT_DIR"
 OUT_DIR="$(cd "$OUT_DIR" && pwd -P)"
 MODULE="$(cd "$(dirname "$MODULE")" && pwd -P)/$(basename "$MODULE")"
 
