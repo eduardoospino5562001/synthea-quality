@@ -63,6 +63,16 @@ def test_multibyte_text_counts_characters_not_bytes() -> None:
     assert build_comment(report) == report
 
 
+def test_truncation_keeps_multibyte_text_within_the_character_cap() -> None:
+    report = "\n".join(["é🎉" * 500] * 200)
+    suffix = "\n\n" + NOTICE
+    comment = build_comment(report)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert comment.endswith(suffix)
+    assert report.startswith(comment[: -len(suffix)])
+    assert len(comment) + len(report.splitlines()[0]) + 1 > MAX_COMMENT_CHARS
+
+
 def test_empty_report_is_value_error() -> None:
     for report in ("", "   \n"):
         with pytest.raises(ValueError, match="^report is empty$"):
@@ -81,6 +91,24 @@ def test_cli_prints_the_comment(tmp_path: Path) -> None:
     )
     assert result.returncode == 0
     assert result.stdout == report
+    assert result.stderr == ""
+
+
+def test_cli_truncates_a_long_report_to_the_cap(tmp_path: Path) -> None:
+    report = "report line\n" * 10_000
+    path = tmp_path / "report.md"
+    path.write_text(report, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "pr_comment.py"), str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert len(result.stdout) <= 65_536
+    suffix = "\n\n" + NOTICE
+    assert result.stdout.endswith(suffix)
+    assert report.startswith(result.stdout[: -len(suffix)])
     assert result.stderr == ""
 
 
