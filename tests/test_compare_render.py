@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from synthea_quality import __version__
+from synthea_quality.compare.compute import compare
 from synthea_quality.compare.models import (
     CHANGED,
     COMPUTED,
@@ -429,3 +430,50 @@ def test_the_summary_and_every_block_use_the_same_counts_line():
         "2 figures: 1 compared (0 changed, 1 unchanged), 1 skipped, 0 only in the baseline, 0 only in the candidate."
     )
     assert not any(line.startswith("Compared ") for line in lines)
+
+
+def test_skipped_and_one_sided_figures_are_listed_with_why_they_were_not_compared():
+    comparisons = [
+        _comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08),
+        _comparison(
+            ComparisonKey("conditions", "MI", "lifetime"), base=None, cand=None, state=SKIPPED,
+            reason="no condition records",
+        ),
+        _comparison(
+            ComparisonKey("conditions", "MI", "incidence", "sex:F"), base=None, cand=None, state=ONLY_IN_BASELINE
+        ),
+        _comparison(
+            ComparisonKey("conditions", "MI", "incidence", "sex:M"), base=None, cand=None, state=ONLY_IN_CANDIDATE
+        ),
+    ]
+    lines = render_markdown(_result(comparisons)).splitlines()
+    section = lines[lines.index("## Conditions"):]
+    assert "Not compared:" in section
+    assert "| Element | Measure | Stratum | Baseline | Candidate | Why not compared |" in section
+    assert "| MI | lifetime |  | — | — | no condition records |" in section
+    assert "| MI | incidence | sex:F | — | — | only in the baseline |" in section
+    assert "| MI | incidence | sex:M | — | — | only in the candidate |" in section
+    # The changed figure stays in the table of changes, not in this one.
+    assert not any(line.startswith("| MI | point |") and line.endswith("|  |") for line in section)
+
+
+def test_a_block_with_every_figure_compared_has_no_not_compared_table():
+    comparisons = [_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.05)]
+    markdown = render_markdown(_result(comparisons))
+    assert "Not compared:" not in markdown
+    assert "Why not compared" not in markdown
+
+
+def test_a_figure_covered_by_a_skipped_side_shows_the_measured_value_and_the_reason():
+    reason = "observations.csv is not in the dataset"
+    baseline = {
+        ComparisonKey("indexed", "Death", "patients", "total:all"): Figure(
+            unit=PROPORTION, value=0.5, numerator=1, denominator=2
+        ),
+    }
+    candidate = {
+        ComparisonKey("indexed", "Death", "death", ""): Figure(unit=COUNT, state=SKIPPED, reason=reason),
+    }
+    lines = render_markdown(_result(compare(baseline, candidate))).splitlines()
+    assert f"| Death | patients | total:all | 50.00% | — | {reason} |" in lines
+    assert f"| Death | death |  | — | — | {reason} |" in lines

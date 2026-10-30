@@ -50,6 +50,9 @@ BLOCK_TITLES = {
     "indexed": "Indexed cohort",
 }
 
+#: The states of a figure that was not compared: listed with why in each block.
+NOT_COMPARED_STATES = (SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE)
+
 #: Legend shown once under the "Largest changes" table. It tells how to read
 #: the units of the figures (percentage points for proportions, per 1,000
 #: person-years for rates, 2 decimals for ages, observation values and plain
@@ -151,6 +154,7 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
         blocks += [f"## {BLOCK_TITLES[block]}", ""]
         block_changed = [c for c in block_comparisons if c.state == CHANGED]
         block_skipped = [c for c in block_comparisons if c.state == SKIPPED]
+        block_not_compared = [c for c in block_comparisons if c.state in NOT_COMPARED_STATES]
         blocks += [f"{summary_counts(block_comparisons)}.", ""]
         if block == "population":
             for c in block_skipped:
@@ -158,7 +162,9 @@ def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
                     blocks.append(f"Section {c.key.element} not measured: {c.reason}.")
                     blocks.append("")
         if block_changed:
-            blocks += _block_table(block_changed)
+            blocks += _block_table(block_changed) + [""]
+        if block_not_compared:
+            blocks += ["Not compared:", ""] + _not_compared_table(block_not_compared) + [""]
         blocks += [""]
 
     return "\n".join(line.rstrip() for line in blocks) + "\n"
@@ -240,6 +246,34 @@ def _block_table(changed: list[Comparison]) -> list[str]:
         ("Element", "Measure", "Stratum", "Baseline", "Candidate", "Difference", "Relative"),
         rows,
         align=("", "", "", "r", "r", "r", "r"),
+    )
+
+
+def _not_compared_table(rows: list[Comparison]) -> list[str]:
+    """The figures of a block that were not compared, each with why: the reason
+    of the side that could not measure it, or the one side it was found on."""
+    table_rows = []
+    for c in rows:
+        if c.state == SKIPPED:
+            why = c.reason or "skipped"
+        elif c.state == ONLY_IN_BASELINE:
+            why = "only in the baseline"
+        else:
+            why = "only in the candidate"
+        table_rows.append(
+            (
+                c.key.element,
+                c.key.measure,
+                c.key.stratum,
+                _format_figure(c.baseline),
+                _format_figure(c.candidate),
+                why,
+            )
+        )
+    return _table(
+        ("Element", "Measure", "Stratum", "Baseline", "Candidate", "Why not compared"),
+        table_rows,
+        align=("", "", "", "r", "r", ""),
     )
 
 
