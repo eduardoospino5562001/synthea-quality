@@ -45,6 +45,15 @@ def test_one_line_longer_than_the_limit_is_cut_by_characters() -> None:
     )
 
 
+def test_leading_newline_does_not_empty_the_comment() -> None:
+    report = "\n" + "x" * 80_000
+    suffix = "\n\n" + NOTICE
+    comment = build_comment(report)
+    assert len(comment) > len(suffix)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert comment.endswith(suffix)
+
+
 def test_multibyte_text_counts_characters_not_bytes() -> None:
     report = "\n".join(["é" * 1_000] * 40)
     assert len(report.encode("utf-8")) > MAX_COMMENT_CHARS

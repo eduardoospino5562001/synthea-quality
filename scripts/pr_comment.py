@@ -18,7 +18,7 @@ def build_comment(report_md: str) -> str:
     suffix = "\n\n" + _NOTICE
     budget = MAX_COMMENT_CHARS - len(suffix)
     boundary = report_md.rfind("\n", 0, budget + 1)
-    excerpt = report_md[:boundary] if boundary >= 0 else report_md[:budget]
+    excerpt = report_md[:boundary] if boundary > 0 else report_md[:budget]
     return excerpt.rstrip("\r\n") + suffix
 
 
