@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.13.0
+synthea-quality 0.14.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.13.0",
+    "tool_version": "0.14.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -420,7 +420,7 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.13.0)
+synthea-compare (synthea-quality 0.14.0)
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
@@ -526,7 +526,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.13.0)
+synthea-profile (synthea-quality 0.14.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
