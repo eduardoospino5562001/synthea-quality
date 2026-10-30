@@ -119,11 +119,28 @@ def test_existing_empty_out_dir_is_accepted(comparison: list[str]) -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("seed", ["abc", "0"])
-def test_seed_must_be_a_positive_integer(comparison: list[str], seed: str) -> None:
-    """Reject nonnumeric and zero seeds before generating anything."""
-    comparison[3] = seed
-    assert run_script(comparison).returncode == 1
+def test_out_dir_that_is_a_file_is_exit_1(comparison: list[str]) -> None:
+    """Reject a file as an output directory before running either build."""
+    output = Path(comparison[5])
+    output.touch()
+    result = run_script(comparison)
+    assert result.returncode == 1
+    assert "OUT_DIR must be a directory" in result.stderr
+    assert output.is_file()
+
+
+@pytest.mark.parametrize(("argument", "index", "value"), [
+    ("SEED", 3, "abc"), ("SEED", 3, "0"),
+    ("POPULATION", 4, "abc"), ("POPULATION", 4, "0"), ("POPULATION", 4, " 5"),
+])
+def test_integer_arguments_must_be_positive(
+    comparison: list[str], argument: str, index: int, value: str,
+) -> None:
+    """Reject invalid seeds and populations before generating anything."""
+    comparison[index] = value
+    result = run_script(comparison)
+    assert result.returncode == 1
+    assert f"{argument} must be a positive integer" in result.stderr
 
 
 def test_synthea_failure_on_pr_side_is_exit_2(comparison: list[str], tmp_path: Path) -> None:
