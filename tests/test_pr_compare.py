@@ -58,7 +58,7 @@ def comparison(tmp_path: Path) -> list[str]:
     """Keep build paths with spaces to exercise shell argument quoting."""
     base = fake_build(tmp_path / "base build")
     pr = fake_build(tmp_path / "pr build")
-    return [str(base), str(pr), str(EXAMPLE), "7", "1000", str(tmp_path / "output")]
+    return [str(base), str(pr), str(EXAMPLE), "7", "1000", str(tmp_path / "output"), "20260101"]
 
 
 def run_script(arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -80,9 +80,22 @@ def test_passes_seed_population_and_csv_flags(comparison: list[str]) -> None:
     assert result.returncode == 0, result.stderr
     for build, side in zip(comparison[:2], ("base", "pr"), strict=True):
         assert (Path(build) / "args.txt").read_text().splitlines() == [
-            "-s", "7", "-cs", "7", "-p", "1000", "--exporter.csv.export=true",
+            "-s", "7", "-cs", "7", "-p", "1000", "-r", "20260101", "-e", "20260101",
+            "--exporter.csv.export=true",
             f"--exporter.baseDirectory={comparison[5]}/{side}/",
         ]
+
+
+def test_passes_reference_and_end_dates_to_both_builds(comparison: list[str]) -> None:
+    """Pin both clocks to the supplied date rather than the current day."""
+    comparison[6] = "20261231"
+    result = run_script(comparison)
+    assert result.returncode == 0, result.stderr
+    for build in comparison[:2]:
+        arguments = (Path(build) / "args.txt").read_text().splitlines()
+        for flag in ("-r", "-e"):
+            assert arguments.count(flag) == 1
+            assert arguments[arguments.index(flag) + 1] == comparison[6]
 
 
 def test_writes_both_report_files(comparison: list[str]) -> None:
@@ -96,6 +109,24 @@ def test_writes_both_report_files(comparison: list[str]) -> None:
 def test_wrong_number_of_arguments_is_exit_1(comparison: list[str]) -> None:
     """Usage errors must be distinct from generation failures."""
     assert run_script(comparison[:5]).returncode == 1
+
+
+def test_missing_reference_date_is_exit_1(comparison: list[str]) -> None:
+    """Reject the old six-argument invocation without creating its output."""
+    result = run_script(comparison[:6])
+    assert result.returncode == 1
+    assert "Expected seven arguments" in result.stderr
+    assert not Path(comparison[5]).exists()
+
+
+@pytest.mark.parametrize("reference_date", ["2026-01-01", "2026011", "abcdefgh"])
+def test_invalid_reference_date_is_exit_1(comparison: list[str], reference_date: str) -> None:
+    """Reject malformed dates before creating the output directory."""
+    comparison[6] = reference_date
+    result = run_script(comparison)
+    assert result.returncode == 1
+    assert "REFERENCE_DATE must use yyyyMMdd format" in result.stderr
+    assert not Path(comparison[5]).exists()
 
 
 def test_non_empty_out_dir_is_exit_1(comparison: list[str]) -> None:
