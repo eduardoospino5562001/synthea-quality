@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.14.0
+synthea-quality 0.14.1
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.14.0",
+    "tool_version": "0.14.1",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -420,7 +420,7 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.14.0)
+synthea-compare (synthea-quality 0.14.1)
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
@@ -455,7 +455,7 @@ From a checkout of this repository, with two already-built Synthea directories:
 
 ```bash
 scripts/pr_compare.sh /path/to/base-build /path/to/pr-build \
-    examples/myocardial_infarction.json 1 1000 reports/pr-comparison
+    examples/myocardial_infarction.json 1 1000 reports/pr-comparison 20260101
 .venv/bin/python scripts/pr_comment.py reports/pr-comparison/synthea_compare.md \
     > reports/pr-comparison/comment.md
 ```
@@ -466,6 +466,10 @@ with the same patient and clinician seed and population size, enables CSV export
 then calls `synthea-compare` with the module file and each run's metadata. It writes
 the exports under `base/` and `pr/` and `synthea_compare.md` and `.json` at the output
 directory's root.
+
+The required seventh argument, `REFERENCE_DATE`, uses `yyyyMMdd` format and is
+passed as both `-r` and `-e` to both builds. Fixing these dates keeps runs
+independent of the current day.
 
 `pr_comment.py` prepares the Markdown for a PR comment; it does not publish it. Reports
 up to 65,536 characters are kept in full. Longer reports are cut at a line boundary
@@ -552,7 +556,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.14.0)
+synthea-profile (synthea-quality 0.14.1)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -1210,7 +1214,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1295 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1326 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
