@@ -4,17 +4,18 @@ set -euo pipefail
 
 usage_error() {
   echo "$*" >&2
-  echo "usage: scripts/pr_compare.sh BASE_BUILD_DIR PR_BUILD_DIR MODULE_FILE SEED POPULATION OUT_DIR" >&2
+  echo "usage: scripts/pr_compare.sh BASE_BUILD_DIR PR_BUILD_DIR MODULE_FILE SEED POPULATION OUT_DIR REFERENCE_DATE" >&2
   exit 1
 }
 
-[ "$#" -eq 6 ] || usage_error "Expected six arguments"
+[ "$#" -eq 7 ] || usage_error "Expected seven arguments"
 BASE_BUILD="$1"
 PR_BUILD="$2"
 MODULE="$3"
 SEED="$4"
 POPULATION="$5"
 OUT_DIR="$6"
+REFERENCE_DATE="$7"
 
 for build in "$BASE_BUILD" "$PR_BUILD"; do
   [ -d "$build" ] && [ -f "$build/run_synthea" ] && [ -x "$build/run_synthea" ] \
@@ -25,6 +26,8 @@ done
   || usage_error "SEED must be a positive integer"
 [[ "$POPULATION" =~ ^[0-9]+$ && "$POPULATION" =~ [1-9] ]] \
   || usage_error "POPULATION must be a positive integer"
+[[ "$REFERENCE_DATE" =~ ^[0-9]{8}$ ]] \
+  || usage_error "REFERENCE_DATE must use yyyyMMdd format"
 [ -n "$OUT_DIR" ] || usage_error "OUT_DIR must not be empty"
 
 shopt -s nullglob dotglob
@@ -47,6 +50,7 @@ for side in base pr; do
     build="$PR_BUILD"
   fi
   if ! (cd "$build" && ./run_synthea -s "$SEED" -cs "$SEED" -p "$POPULATION" \
+      -r "$REFERENCE_DATE" -e "$REFERENCE_DATE" \
       --exporter.csv.export=true "--exporter.baseDirectory=$OUT_DIR/$side/"); then
     echo "Synthea failed on $side side" >&2
     exit 2
