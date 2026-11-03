@@ -242,9 +242,10 @@ def resolve_reference_date(
 ) -> ReferenceResolution:
     """Resolve the reference date for a dataset, following the order in the module docstring.
 
-    ``encounters.csv`` (only its ``START`` and ``STOP`` columns) is read when it is the
-    fallback, and with a metadata file, to compare its ``endTime`` with the latest
-    encounter. A date the user gives is taken as it is, and nothing is read.
+    ``encounters.csv`` is read when it is the fallback (its ``START`` and ``STOP``
+    columns), and with a metadata file (its ``START`` column only) to compare
+    ``endTime`` with the latest encounter start. A date the user gives is taken as it
+    is, and nothing is read.
 
     :raises ValueError: both ``user_date`` and ``metadata_path`` were given.
     :raises ReferenceDateError: the explicit date or metadata file cannot be used.

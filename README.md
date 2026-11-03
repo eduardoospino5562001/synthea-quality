@@ -1215,7 +1215,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1333 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1334 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
