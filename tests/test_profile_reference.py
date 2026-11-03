@@ -21,6 +21,7 @@ from synthea_quality.profile.reference import (
     reference_from_metadata,
     reference_from_user,
     resolve_reference_date,
+    scan_encounters,
 )
 from synthea_quality.structure import validate_tables
 
@@ -309,6 +310,28 @@ def test_metadata_check_without_a_start_column_records_its_absence(tmp_path: Pat
     assert resolution.encounters.state.value == "absent"
     assert resolution.encounters.reason == "encounters.csv has no START column"
     assert resolution.encounters.used_for == "consistency of the metadata endTime (latest START)"
+
+
+def test_scan_encounters_without_a_requested_stop_column_records_its_absence(
+    tmp_path: Path,
+) -> None:
+    """A missing requested column is named even when another date column exists."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "START": "2020-03-01T00:00:00Z"}],
+        columns=("Id", "START"),
+    )
+    latest, encounters = scan_encounters(
+        discover_dataset(tmp_path),
+        DatasetLoader(),
+        None,
+        used_for="latest STOP",
+        date_columns=("STOP",),
+    )
+    assert latest is None
+    assert encounters.state.value == "absent"
+    assert encounters.reason == "encounters.csv has no STOP column"
 
 
 @pytest.mark.parametrize(("start", "unparseable"), [("", 0), ("soon", 1)])

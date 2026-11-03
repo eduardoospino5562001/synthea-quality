@@ -73,6 +73,10 @@ SYNTHEA_END_TIME_PROVENANCE = (
 #: The encounter columns scanned for the approximation.
 ENCOUNTER_DATE_COLUMNS = ("START", "STOP")
 
+#: The encounter columns scanned to check a metadata endTime: only START, since an
+#: encounter still open at the end of the simulation may stop after it.
+METADATA_CHECK_DATE_COLUMNS = ("START",)
+
 
 class ReferenceDateError(SyntheaQualityError):
     """An explicitly requested reference date cannot be used (bad value or file)."""
@@ -254,7 +258,11 @@ def resolve_reference_date(
     if metadata_path is not None:
         explicit = reference_from_metadata(metadata_path)
         latest, encounters = scan_encounters(
-            discovery, loader, structure, used_for=USED_FOR_METADATA_CHECK, date_columns=("START",)
+            discovery,
+            loader,
+            structure,
+            used_for=USED_FOR_METADATA_CHECK,
+            date_columns=METADATA_CHECK_DATE_COLUMNS,
         )
         notes: list[str] = []
         latest_date = latest.date if latest is not None else None
@@ -339,9 +347,9 @@ def scan_encounters(
                 used_for,
                 InputState.ABSENT,
                 reason=(
-                    "encounters.csv has no START column"
-                    if date_columns == ("START",)
-                    else "encounters.csv has neither a START nor a STOP column"
+                    f"encounters.csv has no {date_columns[0]} column"
+                    if len(date_columns) == 1
+                    else f"encounters.csv has neither a {' nor a '.join(date_columns)} column"
                 ),
             )
         loaded = loader.load(table.path, table="encounters", columns=columns)
