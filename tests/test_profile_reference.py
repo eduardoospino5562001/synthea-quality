@@ -174,6 +174,37 @@ def test_resolution_falls_back_to_the_latest_encounter(tmp_path):
     assert resolution.notes == ()
 
 
+def test_approximation_detail_does_not_claim_a_bound(tmp_path: Path) -> None:
+    """A latest encounter stop does not locate the real end on either side of it."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "START": "2020-02-28T10:00:00Z", "STOP": "2020-03-05T10:00:00Z"}],
+    )
+    resolution = resolve(tmp_path)
+    assert resolution.reference is not None
+    detail = resolution.reference.detail
+    assert "lower bound" not in detail
+    assert "precedes" not in detail
+    assert "may be earlier or later than the real end" in detail
+
+
+def test_approximation_without_start_or_stop_records_its_absence(tmp_path: Path) -> None:
+    """A table without either date column records why the approximation is unavailable."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "PATIENT": "p1"}],
+        columns=("Id", "PATIENT"),
+    )
+    resolution = resolve(tmp_path)
+    assert resolution.reference is None
+    assert resolution.latest is None
+    assert resolution.encounters is not None
+    assert resolution.encounters.state.value == "absent"
+    assert resolution.encounters.reason == "encounters.csv has neither a START nor a STOP column"
+
+
 def test_resolution_without_encounters_has_a_reason_and_no_date(tmp_path):
     write_table(tmp_path, "patients", [{"Id": "p1"}])
     resolution = resolve(tmp_path)
