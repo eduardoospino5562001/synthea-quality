@@ -189,6 +189,22 @@ def test_approximation_detail_does_not_claim_a_bound(tmp_path: Path) -> None:
     assert "may be earlier or later than the real end" in detail
 
 
+def test_approximation_without_start_or_stop_records_its_absence(tmp_path: Path) -> None:
+    """A table without either date column records why the approximation is unavailable."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "PATIENT": "p1"}],
+        columns=("Id", "PATIENT"),
+    )
+    resolution = resolve(tmp_path)
+    assert resolution.reference is None
+    assert resolution.latest is None
+    assert resolution.encounters is not None
+    assert resolution.encounters.state.value == "absent"
+    assert resolution.encounters.reason == "encounters.csv has neither a START nor a STOP column"
+
+
 def test_resolution_without_encounters_has_a_reason_and_no_date(tmp_path):
     write_table(tmp_path, "patients", [{"Id": "p1"}])
     resolution = resolve(tmp_path)
