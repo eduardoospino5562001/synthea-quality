@@ -27,10 +27,11 @@ resolves the date in a fixed order and records where it came from:
 When none of them is available the reference date is ``None`` with a reason, and the
 sections that need it are ``SKIPPED``; nothing else is guessed.
 
-A metadata ``endTime`` earlier than the latest encounter is contradictory (the
+A metadata ``endTime`` earlier than the latest encounter ``START`` is contradictory (the
 metadata may belong to another run). It is not an error — the user chose the source —
-but the resolution carries a note so the report shows the inconsistency. A date the
-user types is taken as it is: it may legitimately be any date an analysis is anchored
+but the resolution carries a note so the report shows the inconsistency. A later ``STOP``
+is normal for an encounter still open when the simulation ends and adds no note. A date
+the user types is taken as it is: it may legitimately be any date an analysis is anchored
 at, and nothing is read to second-guess it.
 
 This module depends on neither the renderers nor the command line, so later analyses

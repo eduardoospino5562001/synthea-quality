@@ -546,8 +546,9 @@ profile resolves it in this order and records the source in both reports:
 
 The two options are mutually exclusive. The approximation is normally a lower bound of
 the real end: every exported encounter precedes it. A metadata `endTime` earlier than the
-latest encounter is contradictory — the file may belong to another run — so the profile
-uses it as asked and adds a note.
+latest encounter `START` is contradictory — the file may belong to another run — so the
+profile uses it as asked and adds a note. A later `STOP` is normal for an encounter still
+open when the simulation ends and does not add a note.
 
 The same file may hold `exporter.years_of_history`, which drives the time-filtered
 dataset notice (see *The exported history* under *Incidence*): every analysis report
@@ -1214,7 +1215,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1326 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1333 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
