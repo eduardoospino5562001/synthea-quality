@@ -20,9 +20,10 @@ resolves the date in a fixed order and records where it came from:
    (``ReferenceSource.SYNTHEA_METADATA``) — the confirmed source;
 3. otherwise the latest ``START``/``STOP`` timestamp in ``encounters.csv``
    (``ReferenceSource.MAX_ENCOUNTER_DATE``), always marked ``approximate``. Every
-   exported encounter happened before the simulation stopped, so this is normally a
-   lower bound of the real end date, and on the official sample it falls one day before
-   the archive was published. It is an estimate and the report says so.
+   exported encounter starts before the simulation ends, but one still open then can
+   stop after it: Synthea closes it at the simulation's end or when its contents finish.
+   The approximation can fall before or after the real end; on the official sample it
+   falls one day before the archive was published. It is an estimate and the report says so.
 
 When none of them is available the reference date is ``None`` with a reason, and the
 sections that need it are ``SKIPPED``; nothing else is guessed.
@@ -204,9 +205,10 @@ def reference_from_encounters(latest: LatestEncounter) -> ReferenceDate | None:
             f"timestamps{ignored}). The CSV export does not record when the simulation "
             f"ended: Synthea simulates up to Generator.stop, which defaults to the time it "
             f"ran ('-e YYYYMMDD' overrides it) and is written only to the run metadata "
-            f"file, as endTime. Every exported encounter precedes that end, so this date is "
-            f"normally a lower bound of it. Use --reference-date or --metadata for an "
-            f"exact date."
+            f"file, as endTime. Every exported encounter starts before that end, but one "
+            f"still open when the simulation stops can end after it, so this date may be "
+            f"earlier or later than the real end. Use --reference-date or --metadata for "
+            f"an exact date."
         ),
         approximate=True,
     )

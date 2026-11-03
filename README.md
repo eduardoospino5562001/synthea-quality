@@ -544,8 +544,9 @@ profile resolves it in this order and records the source in both reports:
 | `--metadata FILE` | `endTime` of a Synthea metadata file | `synthea_metadata`, exact |
 | neither | the latest `START`/`STOP` in `encounters.csv` | `max_encounter_date`, **approximation** |
 
-The two options are mutually exclusive. The approximation is normally a lower bound of
-the real end: every exported encounter precedes it. A metadata `endTime` earlier than the
+The two options are mutually exclusive. The approximation can fall on either side of
+the real end: every exported encounter starts before it, but one still open when the
+simulation ends can stop after it. A metadata `endTime` earlier than the
 latest encounter `START` is contradictory — the file may belong to another run — so the
 profile uses it as asked and adds a note. A later `STOP` is normal for an encounter still
 open when the simulation ends and does not add a note.
