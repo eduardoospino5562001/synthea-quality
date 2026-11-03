@@ -237,3 +237,114 @@ def test_metadata_without_encounters_is_used_and_records_the_absent_table(tmp_pa
     assert resolution.reference.value == "2020-03-01"
     assert resolution.notes == ()
     assert resolution.encounters.state.value == "absent"
+
+
+def test_metadata_check_ignores_a_stop_after_end_time(tmp_path: Path) -> None:
+    """An encounter open at the simulation's end does not contradict its metadata."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "START": "2020-02-28T10:00:00Z", "STOP": "2020-03-05T10:00:00Z"}],
+    )
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.notes == ()
+
+
+def test_metadata_check_ignores_a_later_stop_when_start_is_on_end_time(tmp_path: Path) -> None:
+    """The metadata's day still includes an encounter starting late on that day."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "START": "2020-03-01T23:59:59Z", "STOP": "2020-03-05T10:00:00Z"}],
+    )
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.notes == ()
+    assert resolution.latest is not None
+    assert resolution.latest.columns == ("START",)
+    assert resolution.latest.values == 1
+
+
+def test_metadata_check_note_uses_the_latest_start_instead_of_stop(tmp_path: Path) -> None:
+    """A genuine inconsistency names the latest start, not another encounter's stop."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [
+            {"Id": "e1", "START": "2020-03-02T00:00:00Z", "STOP": "2020-03-03T10:00:00Z"},
+            {"Id": "e2", "START": "2020-02-28T10:00:00Z", "STOP": "2020-03-05T10:00:00Z"},
+        ],
+    )
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.reference is not None
+    assert resolution.reference.value == "2020-03-01"
+    assert len(resolution.notes) == 1
+    assert "earlier than the latest encounter (2020-03-02)" in resolution.notes[0]
+    assert "based on the latest START timestamp" in resolution.notes[0]
+    assert resolution.latest is not None
+    assert resolution.latest.timestamp == datetime(2020, 3, 2)
+    assert resolution.latest.columns == ("START",)
+    assert resolution.latest.values == 2
+    assert resolution.encounters is not None
+    assert resolution.encounters.used_for == "consistency of the metadata endTime (latest START)"
+
+
+def test_metadata_check_without_a_start_column_records_its_absence(tmp_path: Path) -> None:
+    """A STOP-only table cannot establish when an encounter started."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "STOP": "2020-03-05T10:00:00Z"}],
+        columns=("Id", "STOP"),
+    )
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.reference is not None
+    assert resolution.reference.value == "2020-03-01"
+    assert resolution.notes == ()
+    assert resolution.latest is None
+    assert resolution.encounters is not None
+    assert resolution.encounters.state.value == "absent"
+    assert resolution.encounters.reason == "encounters.csv has no START column"
+    assert resolution.encounters.used_for == "consistency of the metadata endTime (latest START)"
+
+
+@pytest.mark.parametrize(("start", "unparseable"), [("", 0), ("soon", 1)])
+def test_metadata_check_does_not_fall_back_to_stop_for_an_unusable_start(
+    tmp_path: Path, start: str, unparseable: int
+) -> None:
+    """Unusable starts stay counted as such; future stops do not replace them."""
+    write_table(
+        tmp_path,
+        "encounters",
+        [{"Id": "e1", "START": start, "STOP": "2020-03-05T10:00:00Z"}],
+    )
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.notes == ()
+    assert resolution.latest is not None
+    assert resolution.latest.timestamp is None
+    assert resolution.latest.columns == ("START",)
+    assert resolution.latest.values == 0
+    assert resolution.latest.unparseable == unparseable
+    assert resolution.encounters is not None
+    assert resolution.encounters.state.value == "read"
+    assert resolution.encounters.rows == 1
+
+
+def test_metadata_check_with_header_only_encounters_adds_no_note(tmp_path: Path) -> None:
+    """An empty table provides no start that could contradict the metadata."""
+    write_table(tmp_path, "encounters", [])
+    metadata = write_metadata(tmp_path / "run.json", "20200301")
+    resolution = resolve(tmp_path, metadata_path=metadata)
+    assert resolution.notes == ()
+    assert resolution.latest is not None
+    assert resolution.latest.timestamp is None
+    assert resolution.latest.columns == ("START",)
+    assert resolution.latest.values == 0
+    assert resolution.latest.unparseable == 0
+    assert resolution.encounters is not None
+    assert resolution.encounters.state.value == "read"
+    assert resolution.encounters.rows == 0

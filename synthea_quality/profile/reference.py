@@ -224,7 +224,7 @@ class ReferenceResolution:
 
 #: What ``encounters.csv`` is read for, depending on the source of the date.
 USED_FOR_APPROXIMATION = "reference date approximation (latest START/STOP)"
-USED_FOR_METADATA_CHECK = "consistency of the metadata endTime (latest START/STOP)"
+USED_FOR_METADATA_CHECK = "consistency of the metadata endTime (latest START)"
 
 
 def resolve_reference_date(
@@ -253,16 +253,16 @@ def resolve_reference_date(
     if metadata_path is not None:
         explicit = reference_from_metadata(metadata_path)
         latest, encounters = scan_encounters(
-            discovery, loader, structure, used_for=USED_FOR_METADATA_CHECK
+            discovery, loader, structure, used_for=USED_FOR_METADATA_CHECK, date_columns=("START",)
         )
         notes: list[str] = []
         latest_date = latest.date if latest is not None else None
         if latest_date is not None and latest_date.isoformat() > explicit.value:
             notes.append(
                 f"The metadata endTime ({explicit.value}) is earlier than the latest encounter "
-                f"({latest_date.isoformat()}). A simulation cannot export encounters after it "
-                f"ended, so the metadata file may belong to a different run. The metadata date "
-                f"is used as requested."
+                f"({latest_date.isoformat()}), based on the latest START timestamp. A simulation "
+                f"cannot export encounters starting after it ended, so the metadata file may "
+                f"belong to a different run. The metadata date is used as requested."
             )
         return ReferenceResolution(
             reference=explicit,
@@ -306,8 +306,12 @@ def scan_encounters(
     structure: Mapping[str, StructureReport] | None,
     *,
     used_for: str,
+    date_columns: tuple[str, ...] = ENCOUNTER_DATE_COLUMNS,
 ) -> tuple[LatestEncounter | None, TableInput]:
     """Read ``encounters.csv``'s timestamps and find the latest one.
+
+    Selecting columns lets the metadata check ignore encounters' future stop times
+    while the approximation still scans both START and STOP.
 
     Returns the latest encounter (``None`` when the table could not be scanned) and what
     happened to the table. A table whose rows do not line up with its header is not
@@ -327,13 +331,17 @@ def scan_encounters(
         return None, TableInput("encounters", used_for, InputState.UNREADABLE, reason=gated)
     try:
         header = loader.read_header(table.path)
-        columns = [c for c in ENCOUNTER_DATE_COLUMNS if c in header]
+        columns = [c for c in date_columns if c in header]
         if not columns:
             return None, TableInput(
                 "encounters",
                 used_for,
                 InputState.ABSENT,
-                reason="encounters.csv has neither a START nor a STOP column",
+                reason=(
+                    "encounters.csv has no START column"
+                    if date_columns == ("START",)
+                    else "encounters.csv has neither a START nor a STOP column"
+                ),
             )
         loaded = loader.load(table.path, table="encounters", columns=columns)
     except TableLoadError as exc:
