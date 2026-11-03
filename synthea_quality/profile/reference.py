@@ -27,10 +27,11 @@ resolves the date in a fixed order and records where it came from:
 When none of them is available the reference date is ``None`` with a reason, and the
 sections that need it are ``SKIPPED``; nothing else is guessed.
 
-A metadata ``endTime`` earlier than the latest encounter is contradictory (the
+A metadata ``endTime`` earlier than the latest encounter ``START`` is contradictory (the
 metadata may belong to another run). It is not an error — the user chose the source —
-but the resolution carries a note so the report shows the inconsistency. A date the
-user types is taken as it is: it may legitimately be any date an analysis is anchored
+but the resolution carries a note so the report shows the inconsistency. A later ``STOP``
+is normal for an encounter still open when the simulation ends and adds no note. A date
+the user types is taken as it is: it may legitimately be any date an analysis is anchored
 at, and nothing is read to second-guess it.
 
 This module depends on neither the renderers nor the command line, so later analyses
@@ -71,6 +72,10 @@ SYNTHEA_END_TIME_PROVENANCE = (
 
 #: The encounter columns scanned for the approximation.
 ENCOUNTER_DATE_COLUMNS = ("START", "STOP")
+
+#: The encounter columns scanned to check a metadata endTime: only START, since an
+#: encounter still open at the end of the simulation may stop after it.
+METADATA_CHECK_DATE_COLUMNS = ("START",)
 
 
 class ReferenceDateError(SyntheaQualityError):
@@ -224,7 +229,7 @@ class ReferenceResolution:
 
 #: What ``encounters.csv`` is read for, depending on the source of the date.
 USED_FOR_APPROXIMATION = "reference date approximation (latest START/STOP)"
-USED_FOR_METADATA_CHECK = "consistency of the metadata endTime (latest START/STOP)"
+USED_FOR_METADATA_CHECK = "consistency of the metadata endTime (latest START)"
 
 
 def resolve_reference_date(
@@ -237,9 +242,10 @@ def resolve_reference_date(
 ) -> ReferenceResolution:
     """Resolve the reference date for a dataset, following the order in the module docstring.
 
-    ``encounters.csv`` (only its ``START`` and ``STOP`` columns) is read when it is the
-    fallback, and with a metadata file, to compare its ``endTime`` with the latest
-    encounter. A date the user gives is taken as it is, and nothing is read.
+    ``encounters.csv`` is read when it is the fallback (its ``START`` and ``STOP``
+    columns), and with a metadata file (its ``START`` column only) to compare
+    ``endTime`` with the latest encounter start. A date the user gives is taken as it
+    is, and nothing is read.
 
     :raises ValueError: both ``user_date`` and ``metadata_path`` were given.
     :raises ReferenceDateError: the explicit date or metadata file cannot be used.
@@ -253,16 +259,20 @@ def resolve_reference_date(
     if metadata_path is not None:
         explicit = reference_from_metadata(metadata_path)
         latest, encounters = scan_encounters(
-            discovery, loader, structure, used_for=USED_FOR_METADATA_CHECK
+            discovery,
+            loader,
+            structure,
+            used_for=USED_FOR_METADATA_CHECK,
+            date_columns=METADATA_CHECK_DATE_COLUMNS,
         )
         notes: list[str] = []
         latest_date = latest.date if latest is not None else None
         if latest_date is not None and latest_date.isoformat() > explicit.value:
             notes.append(
                 f"The metadata endTime ({explicit.value}) is earlier than the latest encounter "
-                f"({latest_date.isoformat()}). A simulation cannot export encounters after it "
-                f"ended, so the metadata file may belong to a different run. The metadata date "
-                f"is used as requested."
+                f"({latest_date.isoformat()}), based on the latest START timestamp. A simulation "
+                f"cannot export encounters starting after it ended, so the metadata file may "
+                f"belong to a different run. The metadata date is used as requested."
             )
         return ReferenceResolution(
             reference=explicit,
@@ -306,8 +316,12 @@ def scan_encounters(
     structure: Mapping[str, StructureReport] | None,
     *,
     used_for: str,
+    date_columns: tuple[str, ...] = ENCOUNTER_DATE_COLUMNS,
 ) -> tuple[LatestEncounter | None, TableInput]:
     """Read ``encounters.csv``'s timestamps and find the latest one.
+
+    Selecting columns lets the metadata check ignore encounters' future stop times
+    while the approximation still scans both START and STOP.
 
     Returns the latest encounter (``None`` when the table could not be scanned) and what
     happened to the table. A table whose rows do not line up with its header is not
@@ -327,13 +341,17 @@ def scan_encounters(
         return None, TableInput("encounters", used_for, InputState.UNREADABLE, reason=gated)
     try:
         header = loader.read_header(table.path)
-        columns = [c for c in ENCOUNTER_DATE_COLUMNS if c in header]
+        columns = [c for c in date_columns if c in header]
         if not columns:
             return None, TableInput(
                 "encounters",
                 used_for,
                 InputState.ABSENT,
-                reason="encounters.csv has neither a START nor a STOP column",
+                reason=(
+                    f"encounters.csv has no {date_columns[0]} column"
+                    if len(date_columns) == 1
+                    else f"encounters.csv has neither a {' nor a '.join(date_columns)} column"
+                ),
             )
         loaded = loader.load(table.path, table="encounters", columns=columns)
     except TableLoadError as exc:

@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.14.1
+synthea-quality 0.14.2
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.14.1",
+    "tool_version": "0.14.2",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -420,7 +420,7 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.14.1)
+synthea-compare (synthea-quality 0.14.2)
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
@@ -546,8 +546,9 @@ profile resolves it in this order and records the source in both reports:
 
 The two options are mutually exclusive. The approximation is normally a lower bound of
 the real end: every exported encounter precedes it. A metadata `endTime` earlier than the
-latest encounter is contradictory — the file may belong to another run — so the profile
-uses it as asked and adds a note.
+latest encounter `START` is contradictory — the file may belong to another run — so the
+profile uses it as asked and adds a note. A later `STOP` is normal for an encounter still
+open when the simulation ends and does not add a note.
 
 The same file may hold `exporter.years_of_history`, which drives the time-filtered
 dataset notice (see *The exported history* under *Incidence*): every analysis report
@@ -556,7 +557,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.14.1)
+synthea-profile (synthea-quality 0.14.2)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -1214,7 +1215,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1326 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1334 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
