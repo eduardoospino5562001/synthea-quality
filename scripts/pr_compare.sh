@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generate matching populations and compare their CSV exports.
 set -euo pipefail
+# Pin the zone so builds from different machines remain comparable.
+export TZ=UTC
 
 usage_error() {
   echo "$*" >&2
