@@ -34,6 +34,7 @@ def fake_build(directory: Path, *, fail: bool = False, metadata: bool = True) ->
         + ("export FAKE_SYNTHEA_FAIL=1\n" if fail else "")
         + 'BUILD="$(cd "$(dirname "$0")" && pwd)"\n'
         'printf "%s\\n" "$@" > "$BUILD/args.txt"\n'
+        'printf "%s\\n" "${TZ-}" > "$BUILD/tz.txt"\n'
         '[ "${FAKE_SYNTHEA_FAIL:-0}" != 1 ] || exit 1\n'
         'out=""\ncsv=false\n'
         'for arg in "$@"; do\n'
@@ -84,6 +85,19 @@ def test_passes_seed_population_and_csv_flags(comparison: list[str]) -> None:
             "--exporter.csv.export=true",
             f"--exporter.baseDirectory={comparison[5]}/{side}/",
         ]
+
+
+def test_pins_timezone_for_both_builds(
+    comparison: list[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Override the caller's time zone for both generator processes."""
+    monkeypatch.setenv("TZ", "America/Bogota")
+    result = run_script(comparison)
+    assert result.returncode == 0, result.stderr
+    assert {
+        side: (Path(build) / "tz.txt").read_text(encoding="utf-8").strip()
+        for side, build in zip(("base", "pr"), comparison[:2], strict=True)
+    } == {"base": "UTC", "pr": "UTC"}
 
 
 def test_passes_reference_and_end_dates_to_both_builds(comparison: list[str]) -> None:

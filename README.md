@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.14.3
+synthea-quality 0.14.4
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.14.3",
+    "tool_version": "0.14.4",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -420,7 +420,7 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.14.3)
+synthea-compare (synthea-quality 0.14.4)
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
@@ -470,6 +470,12 @@ directory's root.
 The required seventh argument, `REFERENCE_DATE`, uses `yyyyMMdd` format and is
 passed as both `-r` and `-e` to both builds. Fixing these dates keeps runs
 independent of the current day.
+
+The script sets `TZ=UTC` for both builds. With the same seed, population and
+dates, Synthea's output was observed to change with the machine's time zone
+(61,536 encounters at UTC-5, 61,465 at UTC), so fixing the zone keeps runs on
+different machines comparable. The cause inside Synthea has not been identified.
+Other environment differences, such as the JDK, are not fixed by this setting.
 
 `pr_comment.py` prepares the Markdown for a PR comment; it does not publish it. Reports
 up to 65,536 characters are kept in full. Longer reports are cut at a line boundary
@@ -558,7 +564,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.14.3)
+synthea-profile (synthea-quality 0.14.4)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -1216,7 +1222,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1336 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1337 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
