@@ -34,6 +34,8 @@ def _closing_details(text: str) -> str:
 
 
 def _excerpt(report: str, budget: int) -> str:
+    if budget == 0:
+        return ""
     boundary = report.rfind("\n", 0, budget + 1)
     return (report[:boundary] if boundary > 0 else report[:budget]).rstrip("\r\n")
 
@@ -51,10 +53,12 @@ def build_comment(report_md: str) -> str:
 
     suffix = "\n\n" + _NOTICE
     budget = MAX_COMMENT_CHARS - len(suffix)
-    excerpt = _excerpt(report_md, budget)
+    limit = budget
+    excerpt = _excerpt(report_md, limit)
     closing = _closing_details(excerpt)
     while len(excerpt) + len(closing) > budget:
-        excerpt = _excerpt(report_md, budget - len(closing))
+        limit = max(0, min(limit - 1, budget - len(closing)))
+        excerpt = _excerpt(report_md, limit)
         closing = _closing_details(excerpt)
     return excerpt + closing + suffix
 

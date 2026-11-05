@@ -146,3 +146,15 @@ def test_truncation_outside_details_adds_no_stray_closer(prefix: str) -> None:
     comment = build_comment(prefix + "row\n" * 20_000)
     assert comment.count("</details>") == prefix.count("</details>")
     assert len(comment) <= MAX_COMMENT_CHARS
+
+
+def test_deeply_nested_details_truncation_terminates() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); from pr_comment import build_comment; "
+         "sys.stdout.write(build_comment('<details>\\n' * 7000 + 'x' * 70000))",
+         str(SCRIPTS_DIR)],
+        capture_output=True, text=True, timeout=5, check=True,
+    )
+    assert len(completed.stdout) <= MAX_COMMENT_CHARS
+    assert NOTICE in completed.stdout
