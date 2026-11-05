@@ -653,4 +653,13 @@ def test_data_cannot_escape_details_or_console_rows() -> None:
     assert "\\|" not in console
     assert "x|y next" in console
     assert "\x1b" not in console
-    assert "<details>" not in console and "</" not in console
+    assert "</details><b>x|y next" in console
+
+
+def test_console_preserves_real_paths_on_one_line() -> None:
+    from synthea_quality.compare.render import render_console
+
+    result = replace(_result([]), baseline_dir="/tmp/a*b*/<dir>", candidate_dir="/tmp/a\x1bb\nc")
+    console = render_console(result)
+    assert "Baseline:   /tmp/a*b*/<dir>\n" in console
+    assert "Candidate:  /tmp/a b c\n" in console

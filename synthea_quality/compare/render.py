@@ -212,9 +212,7 @@ def _markdown_text(text: str) -> str:
 
 
 def _console_text(text: str) -> str:
-    # Angle brackets are data, not terminal markup; full-width forms retain them
-    # without leaking HTML tags. Pipes are retained as data, never as separators.
-    return _single_line(text).replace("<", "‹").replace(">", "›").replace("**", "∗∗")
+    return _single_line(text)
 
 
 def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20) -> str:
