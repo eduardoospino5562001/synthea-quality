@@ -703,3 +703,15 @@ def test_not_compared_rows_identify_their_block_in_both_formats() -> None:
     for block in ("conditions", "observations"):
         assert f"| {block} | Same element | n |" in markdown
         assert any(line.startswith(block) and "Same element" in line for line in console.splitlines())
+
+
+@pytest.mark.parametrize("state", [UNCHANGED, SKIPPED, CHANGED])
+def test_units_legend_is_always_present_once(state: str) -> None:
+    from synthea_quality.compare.render import UNITS_LEGEND
+
+    result = _result([_comparison(ComparisonKey("conditions", "MI", "point"), state=state)])
+    markdown = render_markdown(result)
+    visible, folded = markdown.split("<details>")
+    assert markdown.count(UNITS_LEGEND) == 1
+    assert (UNITS_LEGEND in visible) is (state == CHANGED)
+    assert (UNITS_LEGEND in folded) is (state != CHANGED)

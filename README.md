@@ -408,8 +408,8 @@ figures changed and how many were compared. Always visible below them are the no
 change how the figures read (reference dates or years of history that differ, a reference
 date that is approximate or missing, notes that differ between the two sides), every figure
 not compared with why, and the largest changes (the 20 largest, `--top N` to change them).
-Everything else folds inside `<details>`, which shows as plain text outside GitHub: the
-datasets, the reference dates, the notes both sides share, one section per block and the
+Everything else folds inside `<details>`, which some viewers outside GitHub show as plain
+text: the datasets, the reference dates, the notes both sides share, one section per block and the
 parts of the validation report the comparison does not extract. A table one side cannot
 read becomes `skipped` with its reason, never a zero. Units: proportions in percent and
 their differences in percentage points, incidence per 1,000 person-years, ages, observation
@@ -1234,7 +1234,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1357 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1368 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 

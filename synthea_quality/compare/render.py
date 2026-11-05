@@ -53,7 +53,8 @@ BLOCK_TITLES = {
 #: The states of a figure that was not compared: listed with why in each block.
 NOT_COMPARED_STATES = (SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE)
 
-#: Legend shown once under the "Largest changes" table. It tells how to read
+#: Legend shown once under the "Largest changes" table, or folded when absent.
+#: It tells how to read
 #: the units of the figures (percentage points for proportions, per 1,000
 #: person-years for rates, 2 decimals for ages, observation values and plain
 #: numbers, integers for counts and days); it states no verdict.
@@ -254,6 +255,8 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
               f"Module: {_inline_code(view.module_file)}", f"Version: synthea-quality {__version__}", "",
               "## Reference date", ""]
     lines += [f"- {_markdown_text(reference)}" for reference in view.references] + [""]
+    if not view.largest:
+        lines += [UNITS_LEGEND, ""]
     if view.shared_notes:
         lines += ["## Shared notes", ""] + [f"- {_markdown_text(note)}" for note in view.shared_notes] + [""]
     lines += ["## Summary", "", f"{view.counts}.", ""]
