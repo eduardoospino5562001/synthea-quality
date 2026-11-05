@@ -181,3 +181,32 @@ def test_truncated_rendered_paths_do_not_change_fold_depth(path: str) -> None:
     assert lines.count("</details>") == 1
     assert lines.index(NOTICE) > lines.index("</details>")
     assert len(comment) <= MAX_COMMENT_CHARS
+
+
+@pytest.mark.parametrize("truncate", [False, True])
+def test_rendered_note_code_survives_comment_formatting(truncate: bool) -> None:
+    from synthea_quality.compare.render import ComparisonResult, render_markdown
+    from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
+
+    note = "Use `synthea-incidence --alive-only`."
+    module = ModuleInfo("Test module")
+    notes = (note, "`a`b`", "`</details>`", "</details>\n<b>x|y</b>")
+    if truncate:
+        notes += ("row\n" * 20_000,)
+    report = ModuleValidationReport(
+        data_dir="/data", module_file="module.json", module=module, reference_date=None,
+        reference_reason="no encounters", age_bands=(0,), alive=2,
+        population=(), conditions=(), generated_at="fixed", notes=notes,
+    )
+    comment = build_comment(render_markdown(ComparisonResult(
+        module_file="module.json", module=module, baseline_dir="/baseline", candidate_dir="/candidate",
+        baseline_report=report, candidate_report=report, comparisons=[], generated_at="fixed",
+    )))
+    assert note in comment
+    assert "\\`synthea-incidence" not in comment
+    assert "\\`a\\`b\\`" in comment
+    assert "&lt;/details&gt;" in comment
+    assert comment.splitlines().count("</details>") == 1
+    assert len(comment) <= MAX_COMMENT_CHARS
+    if truncate:
+        assert comment.endswith("</details>\n\n" + NOTICE)
