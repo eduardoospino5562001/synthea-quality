@@ -138,7 +138,7 @@ class ComparisonView:
     largest: list[tuple[str, ...]]
     blocks: tuple[BlockView, ...]
     counts: str
-    top: int
+    changed: int
     baseline_dir: str
     candidate_dir: str
     module_file: str
@@ -201,7 +201,8 @@ def build_view(result: ComparisonResult, *, top: int = 20) -> ComparisonView:
         tuple(notices), references, shared,
         _not_compared_rows([c for c in result.comparisons if c.state in NOT_COMPARED_STATES]),
         _change_rows(largest_changes(result.comparisons, top)), tuple(blocks),
-        summary_counts(result.comparisons), top, result.baseline_dir, result.candidate_dir, result.module_file,
+        summary_counts(result.comparisons), sum(c.state == CHANGED for c in result.comparisons),
+        result.baseline_dir, result.candidate_dir, result.module_file,
     )
 
 
@@ -265,7 +266,7 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
             NOT_COMPARED_HEADER, view.not_compared, align=("", "", "", "", "r", "r", "")
         ) + [""]
     if view.largest:
-        lines += [f"## Largest changes (top {view.top})", ""] + _table(
+        lines += [f"## Largest changes (showing {len(view.largest)} of {view.changed})", ""] + _table(
             LARGEST_HEADER, view.largest, align=("", "", "", "", "r", "r", "r", "r")
         ) + ["", UNITS_LEGEND, ""]
     lines += ["<details>",
@@ -314,7 +315,7 @@ def render_console(
     if view.not_compared:
         lines += ["Not compared:"] + _console_table(NOT_COMPARED_HEADER, view.not_compared) + [""]
     if view.largest:
-        lines += [f"Largest changes (top {view.top}):"]
+        lines += [f"Largest changes (showing {len(view.largest)} of {view.changed}):"]
         lines += _console_table(LARGEST_HEADER, view.largest) + ["", UNITS_LEGEND, ""]
     if view.largest or view.not_compared:
         lines += [f"{block.title}:  {block.counts}" for block in view.blocks] + [""]

@@ -157,7 +157,7 @@ def test_markdown_top_greater_than_changes_returns_all():
     comparisons = [_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08)]
     result = _result(comparisons)
     markdown = render_markdown(result, top=100)
-    assert "## Largest changes (top 100)" in markdown
+    assert "## Largest changes (showing 1 of 1)" in markdown
     # The one change is in the table, not only counted in the summary.
     assert "| conditions | MI | point |  | 5.00% | 8.00% | +3.00 pp | +60.00% |" in markdown.splitlines()
 
@@ -778,3 +778,27 @@ def test_prose_backslash_before_span_and_json_note_remain_literal() -> None:
     view = replace(build_view(result), notices=(text,))
     assert "Notes:\nUse \\code and other.\n" in render_console(view)
     assert json.loads(render_json(result))["baseline"]["notes"] == [text]
+
+
+@pytest.mark.parametrize(("changed", "top", "shown"), [(17, 20, 17), (20, 20, 20), (5, 2, 2), (0, 20, 0)])
+def test_largest_heading_counts_shown_rows_and_only_changed_figures(changed: int, top: int, shown: int) -> None:
+    from synthea_quality.compare.render import build_view, render_console
+
+    comparisons = [
+        _comparison(ComparisonKey("conditions", f"Element {index}", "point"), base=1, cand=2)
+        for index in range(changed)
+    ]
+    comparisons += [
+        _comparison(ComparisonKey("conditions", state, "point"), state=state, reason="unavailable")
+        for state in (UNCHANGED, SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE)
+    ]
+    view = build_view(_result(comparisons), top=top)
+    markdown, console = render_markdown(view), render_console(view)
+    if changed:
+        heading = f"Largest changes (showing {shown} of {changed})"
+        assert f"## {heading}\n" in markdown
+        assert f"{heading}:\n" in console
+        assert len(view.largest) == shown
+    else:
+        assert "Largest changes" not in markdown
+        assert "Largest changes" not in console
