@@ -65,7 +65,7 @@ UNITS_LEGEND = (
 #: Scope is explicit even when every extracted figure is unchanged.
 SCOPE_LIMIT = "Only these figures are compared, not every row of the CSV files."
 LARGEST_HEADER = ("Block", "Element", "Measure", "Stratum", "Baseline", "Candidate", "Difference", "Relative")
-NOT_COMPARED_HEADER = ("Element", "Measure", "Stratum", "Baseline", "Candidate", "Why not compared")
+NOT_COMPARED_HEADER = ("Block", "Element", "Measure", "Stratum", "Baseline", "Candidate", "Why not compared")
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,7 +240,7 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
         lines += [f"> {_markdown_text(note)}" for note in view.notices] + [""]
     if view.not_compared:
         lines += ["## Not compared", ""] + _table(
-            NOT_COMPARED_HEADER, view.not_compared, align=("", "", "", "r", "r", "")
+            NOT_COMPARED_HEADER, view.not_compared, align=("", "", "", "", "r", "r", "")
         ) + [""]
     if view.largest:
         lines += [f"## Largest changes (top {view.top})", ""] + _table(
@@ -371,6 +371,7 @@ def _not_compared_rows(rows: list[Comparison]) -> list[tuple[str, ...]]:
             why = "only in the candidate"
         table_rows.append(
             (
+                c.key.block,
                 c.key.element,
                 c.key.measure,
                 c.key.stratum,

@@ -456,10 +456,10 @@ def test_skipped_and_one_sided_figures_are_listed_with_why_they_were_not_compare
     lines = render_markdown(_result(comparisons)).splitlines()
     section = lines[:lines.index("<details>")]
     assert "## Not compared" in section
-    assert "| Element | Measure | Stratum | Baseline | Candidate | Why not compared |" in section
-    assert "| MI | lifetime |  | — | — | no condition records |" in section
-    assert "| MI | incidence | sex:F | — | — | only in the baseline |" in section
-    assert "| MI | incidence | sex:M | — | — | only in the candidate |" in section
+    assert "| Block | Element | Measure | Stratum | Baseline | Candidate | Why not compared |" in section
+    assert "| conditions | MI | lifetime |  | — | — | no condition records |" in section
+    assert "| conditions | MI | incidence | sex:F | — | — | only in the baseline |" in section
+    assert "| conditions | MI | incidence | sex:M | — | — | only in the candidate |" in section
     # The changed figure stays in the table of changes, not in this one.
     assert not any(line.startswith("| MI | point |") and line.endswith("|  |") for line in section)
 
@@ -482,8 +482,8 @@ def test_a_figure_covered_by_a_skipped_side_shows_the_measured_value_and_the_rea
         ComparisonKey("indexed", "Death", "death", ""): Figure(unit=COUNT, state=SKIPPED, reason=reason),
     }
     lines = render_markdown(_result(compare(baseline, candidate))).splitlines()
-    assert f"| Death | patients | total:all | 50.00% | — | {reason} |" in lines
-    assert f"| Death | death |  | — | — | {reason} |" in lines
+    assert f"| indexed | Death | patients | total:all | 50.00% | — | {reason} |" in lines
+    assert f"| indexed | Death | death |  | — | — | {reason} |" in lines
 
 
 def _result_with(baseline: ModuleValidationReport, candidate: ModuleValidationReport, comparisons=()):
@@ -689,3 +689,17 @@ def test_markdown_names_and_cells_keep_inline_syntax_literal() -> None:
     markdown = render_markdown(result)
     assert f"# Comparison: {literal}\n" in markdown
     assert f"| {literal} |" in markdown
+
+
+def test_not_compared_rows_identify_their_block_in_both_formats() -> None:
+    from synthea_quality.compare.render import build_view, render_console
+
+    view = build_view(_result([
+        _comparison(ComparisonKey(block, "Same element", "n"), state=SKIPPED, reason="unavailable")
+        for block in ("conditions", "observations")
+    ]))
+    markdown = render_markdown(view).split("<details>")[0]
+    console = render_console(view)
+    for block in ("conditions", "observations"):
+        assert f"| {block} | Same element | n |" in markdown
+        assert any(line.startswith(block) and "Same element" in line for line in console.splitlines())

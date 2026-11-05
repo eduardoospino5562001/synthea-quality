@@ -136,7 +136,7 @@ def test_s4_the_markdown_lists_every_skipped_figure_with_its_reason(runs) -> Non
         assert len(rows) == len(_skipped(data))
         for comparison in _skipped(data):
             key = comparison["key"]
-            start = f"| {key['element']} | {key['measure']} | {key['stratum']} |"
+            start = f"| {key['block']} | {key['element']} | {key['measure']} | {key['stratum']} |"
             assert any(row.startswith(start) and row.endswith(f" {comparison['reason']} |") for row in rows), start
 
 
