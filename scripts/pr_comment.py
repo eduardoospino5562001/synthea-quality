@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Format reports within GitHub's 65,536-character PR comment limit."""
+"""Limit comments while recognizing only the renderer's whole-line fold tags.
+
+Data is escaped or placed behind a prefix, so tags inside code spans must never
+change the structural depth used to keep the artifact notice visible.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +14,31 @@ MAX_COMMENT_CHARS = 65_536
 _NOTICE = "_The full report is in the synthea-compare-report artifact of this workflow._"
 
 
+def _closing_details(text: str) -> str:
+    """Count whole-line tags because prefixed data and code spans are not structure."""
+    depth = 0
+    for line in text.splitlines():
+        if line == "<details>":
+            depth += 1
+        elif line == "</details>":
+            depth = max(0, depth - 1)
+    return "\n</details>" * depth
+
+
+def _excerpt(report: str, budget: int) -> str:
+    if budget == 0:
+        return ""
+    boundary = report.rfind("\n", 0, budget + 1)
+    return (report[:boundary] if boundary > 0 else report[:budget]).rstrip("\r\n")
+
+
 def build_comment(report_md: str) -> str:
-    """Respect GitHub's character cap, retaining full lines and an artifact notice."""
+    """Keep the artifact notice outside folded content within the character cap.
+
+    Reserve closing tags before cutting again so even a boundary-length folded
+    report leaves room for its notice. Only the renderer's whole-line tags count;
+    escaped or prefixed data, including tags inside code spans, is not structure.
+    """
     if not report_md.strip():
         raise ValueError("report is empty")
     if len(report_md) <= MAX_COMMENT_CHARS:
@@ -19,9 +46,14 @@ def build_comment(report_md: str) -> str:
 
     suffix = "\n\n" + _NOTICE
     budget = MAX_COMMENT_CHARS - len(suffix)
-    boundary = report_md.rfind("\n", 0, budget + 1)
-    excerpt = report_md[:boundary] if boundary > 0 else report_md[:budget]
-    return excerpt.rstrip("\r\n") + suffix
+    limit = budget
+    excerpt = _excerpt(report_md, limit)
+    closing = _closing_details(excerpt)
+    while len(excerpt) + len(closing) > budget:
+        limit = max(0, min(limit - 1, budget - len(closing)))
+        excerpt = _excerpt(report_md, limit)
+        closing = _closing_details(excerpt)
+    return excerpt + closing + suffix
 
 
 def main() -> int:

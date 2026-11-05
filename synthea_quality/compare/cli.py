@@ -23,12 +23,12 @@ from synthea_quality import __version__
 from synthea_quality.compare.build import build
 from synthea_quality.compare.compute import compare, extract_figures
 from synthea_quality.compare.render import (
-    BLOCK_TITLES,
-    BLOCKS,
     JSON_NAME,
     MARKDOWN_NAME,
     ComparisonResult,
-    summary_counts,
+    ComparisonView,
+    build_view,
+    render_console,
     write_json,
     write_markdown,
 )
@@ -198,9 +198,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             comparisons=comparisons,
             generated_at=utc_now_iso(),
         )
-        markdown_path = write_markdown(
-            comparison_result, Path(args.output_dir) / MARKDOWN_NAME, top=args.top
-        )
+        view = build_view(comparison_result, top=args.top)
+        markdown_path = write_markdown(view, Path(args.output_dir) / MARKDOWN_NAME)
         json_path = write_json(comparison_result, Path(args.output_dir) / JSON_NAME)
     except (SyntheaQualityError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -213,7 +212,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         traceback.print_exc()
         return EXIT_ERROR
 
-    print_summary(comparison_result, markdown_path, json_path)
+    print_summary(view, markdown_path, json_path)
     return EXIT_OK
 
 
@@ -223,21 +222,7 @@ def run() -> None:
 
 
 def print_summary(
-    result: ComparisonResult, markdown_path: Path, json_path: Path
+    result: ComparisonResult | ComparisonView, markdown_path: Path, json_path: Path
 ) -> None:
-    """Print the short terminal summary: one line per block and the report paths."""
-
-    print(f"synthea-compare (synthea-quality {__version__})")
-    print()
-    print(f"Baseline:   {result.baseline_dir}")
-    print(f"Candidate:  {result.candidate_dir}")
-    print(f"Module:     {result.module_file}")
-    for block in BLOCKS:
-        block_rows = [c for c in result.comparisons if c.key.block == block]
-        if not block_rows:
-            continue
-        print(f"{BLOCK_TITLES[block]}:  {summary_counts(block_rows)}")
-    print()
-    print("Reports:")
-    print(f"  {markdown_path}")
-    print(f"  {json_path}")
+    """Use the prepared view so terminal and GitHub readers see the same scope."""
+    print(render_console(result, markdown_path, json_path), end="")

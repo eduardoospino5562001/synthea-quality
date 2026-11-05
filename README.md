@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.14.4
+synthea-quality 0.15.0
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.14.4",
+    "tool_version": "0.15.0",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -403,37 +403,49 @@ JSON adds the 95% interval, the numerator and the denominator of both sides and 
 provenance of each side (directory, module, reference date, years of history and the
 tables read), so a later test can use the counts without reading the CSVs again.
 
-The Markdown lists the largest changes first (the 20 largest, `--top N` to change them),
-then one section per block: a line with how many figures there are and how many were
-compared (changed and unchanged), skipped and found on one side only; the rows that
-changed; and, under *Not compared*, every skipped or one-sided figure with why. A table
-one side cannot read becomes `skipped` with its reason, never a zero. When the reference
-dates differ, a note at the top says so, because that changes who is alive and their ages;
-when the exported years of history differ, because that changes which records were
-exported. The notes of each side's validation are listed under *Notes*, and the parts of
-that report the comparison does not extract under *Parts not compared*. Units: proportions
-in percent and their differences in percentage points, incidence per 1,000 person-years,
-ages, observation values and plain numbers with 2 decimals, and counts and days as
-integers.
+The Markdown is written for a GitHub comment: a title and a headline saying how many
+figures changed and how many were compared. Always visible below them are the notices that
+change how the figures read (reference dates or years of history that differ, a reference
+date that is approximate or missing, notes that differ between the two sides), every figure
+not compared with why, and the largest changes (the 20 largest, `--top N` to change them).
+Everything else folds inside `<details>`, which some viewers outside GitHub show as plain
+text: the datasets, the reference dates, the notes both sides share, one section per block and the
+parts of the validation report the comparison does not extract. A table one side cannot
+read becomes `skipped` with its reason, never a zero. Units: proportions in percent and
+their differences in percentage points, incidence per 1,000 person-years, ages, observation
+values and plain numbers with 2 decimals, and counts and days as integers.
+
+The console prints the same headline, notices, figures not compared and largest changes as
+plain text, built from the same data and without HTML, followed by where the two reports
+are. With no change and nothing to flag, that is the headline and the paths.
 
 Compared with a copy of the sample with the myocardial infarction rows of two patients
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.14.4)
+synthea-compare (synthea-quality 0.15.0)
+Comparison: Myocardial infarction
+
+11 of 46 figures changed. 46 of 46 figures compared, 0 not compared. Only these figures are compared, not every row of the CSV files.
+
+Largest changes (top 20):
+Block       Element                Measure    Stratum  Baseline           Candidate         Difference  Relative
+conditions  Myocardial infarction  incidence           2.16 (0.05–12.04)  0.00 (0.00–7.85)  -2.16       -100.00%
+...
+
+Population:  22 figures: 22 compared (0 changed, 22 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
+Conditions:  24 figures: 24 compared (11 changed, 13 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
 
 Baseline:   /path/to/baseline/csv
 Candidate:  /path/to/candidate/csv
 Module:     examples/myocardial_infarction.json
-Population:  22 figures: 22 compared (0 changed, 22 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
-Conditions:  24 figures: 24 compared (11 changed, 13 unchanged), 0 skipped, 0 only in the baseline, 0 only in the candidate
 
 Reports:
   reports/synthea_compare.md
   reports/synthea_compare.json
 ```
 
-and the first row of the Markdown is the largest change:
+and the first row of the *Largest changes* table in the Markdown is the largest change:
 
 ```
 | conditions | Myocardial infarction | incidence |  | 2.16 (0.05–12.04) | 0.00 (0.00–7.85) | -2.16 | -100.00% |
@@ -564,7 +576,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.14.4)
+synthea-profile (synthea-quality 0.15.0)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -1222,7 +1234,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1337 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1378 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 

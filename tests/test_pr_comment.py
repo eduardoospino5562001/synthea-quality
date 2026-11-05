@@ -121,3 +121,63 @@ def test_cli_without_file_is_exit_1() -> None:
     )
     assert result.returncode == 1
     assert result.stderr
+
+
+@pytest.mark.parametrize("prefix", ["<details>\n<summary>Details</summary>\n\n", "heading\n<details>\n"])
+def test_truncated_details_close_before_visible_notice(prefix: str) -> None:
+    report = prefix + "row\n" * 20_000
+    comment = build_comment(report)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert comment.endswith("\n</details>\n\n" + NOTICE)
+    assert comment.count("<details>") == comment.count("</details>")
+
+
+def test_closing_details_fits_at_character_boundary() -> None:
+    prefix = "<details>\n"
+    suffix = "\n</details>\n\n" + NOTICE
+    report = prefix + "x" * (MAX_COMMENT_CHARS - len(prefix) - len(suffix)) + "\n" + "x" * 70_000
+    comment = build_comment(report)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert "</details>\n\n" + NOTICE in comment
+    assert len(comment) == MAX_COMMENT_CHARS
+
+
+@pytest.mark.parametrize("prefix", ["&lt;details&gt;\n", "<details>\nclosed\n</details>\n", "heading\n"])
+def test_truncation_outside_details_adds_no_stray_closer(prefix: str) -> None:
+    comment = build_comment(prefix + "row\n" * 20_000)
+    assert comment.count("</details>") == prefix.count("</details>")
+    assert len(comment) <= MAX_COMMENT_CHARS
+
+
+def test_deeply_nested_details_truncation_terminates() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); from pr_comment import build_comment; "
+         "sys.stdout.write(build_comment('<details>\\n' * 7000 + 'x' * 70000))",
+         str(SCRIPTS_DIR)],
+        capture_output=True, text=True, timeout=5, check=True,
+    )
+    assert len(completed.stdout) <= MAX_COMMENT_CHARS
+    assert NOTICE in completed.stdout
+
+
+@pytest.mark.parametrize("path", ["/tmp/</details>", "/tmp/<details>"])
+def test_truncated_rendered_paths_do_not_change_fold_depth(path: str) -> None:
+    from synthea_quality.compare.render import ComparisonResult, render_markdown
+    from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
+
+    module = ModuleInfo("Test module")
+    report = ModuleValidationReport(
+        data_dir=path, module_file="module.json", module=module, reference_date=None,
+        reference_reason="no encounters", age_bands=(0,), alive=2,
+        population=(), conditions=(), generated_at="fixed", notes=("x" * 70_000,),
+    )
+    markdown = render_markdown(ComparisonResult(
+        module_file="module.json", module=module, baseline_dir=path, candidate_dir="/candidate",
+        baseline_report=report, candidate_report=report, comparisons=[], generated_at="fixed",
+    ))
+    comment = build_comment(markdown)
+    lines = comment.splitlines()
+    assert lines.count("</details>") == 1
+    assert lines.index(NOTICE) > lines.index("</details>")
+    assert len(comment) <= MAX_COMMENT_CHARS

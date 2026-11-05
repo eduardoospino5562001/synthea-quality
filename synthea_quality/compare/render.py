@@ -1,19 +1,18 @@
-"""[COMPARE] Markdown and JSON renderings of a comparison.
+"""[COMPARE] Compact GitHub and console presentations share one prepared view.
 
-The Markdown is meant to be read top-down: scope and reference date of each side,
-a visible note when the reference dates or the years of history differ, a summary
-of how many figures were compared and how many changed, a table of the largest
-changes, and one section per block with only the changed rows. The JSON carries
-every figure (changed and unchanged) with both sides, their intervals, numerators
-and denominators, and the provenance of each side. It states no verdict: there is
-no pass/fail, no threshold and no significant.
+The view keeps notices and unmeasured figures visible while GitHub folds the
+provenance and block detail. Formatting never recomputes comparisons. Data is
+escaped only at the presentation boundary; JSON retains every original value.
 """
 
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +53,8 @@ BLOCK_TITLES = {
 #: The states of a figure that was not compared: listed with why in each block.
 NOT_COMPARED_STATES = (SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE)
 
-#: Legend shown once under the "Largest changes" table. It tells how to read
+#: Legend shown once under the "Largest changes" table, or folded when absent.
+#: It tells how to read
 #: the units of the figures (percentage points for proportions, per 1,000
 #: person-years for rates, 2 decimals for ages, observation values and plain
 #: numbers, integers for counts and days); it states no verdict.
@@ -62,6 +62,11 @@ UNITS_LEGEND = (
     "pp = percentage points; incidence per 1,000 person-years; ages, observation values and plain numbers "
     "with 2 decimals; counts and days as integers."
 )
+
+#: Scope is explicit even when every extracted figure is unchanged.
+SCOPE_LIMIT = "Only these figures are compared, not every row of the CSV files."
+LARGEST_HEADER = ("Block", "Element", "Measure", "Stratum", "Baseline", "Candidate", "Difference", "Relative")
+NOT_COMPARED_HEADER = ("Block", "Element", "Measure", "Stratum", "Baseline", "Candidate", "Why not compared")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,85 +115,206 @@ def summary_counts(comparisons: Sequence[Comparison]) -> str:
     )
 
 
-def render_markdown(result: ComparisonResult, *, top: int = 20) -> str:
-    """The comparison as Markdown, top to bottom, with no verdict words."""
+@dataclass(frozen=True, slots=True)
+class BlockView:
+    """Prepared block detail keeps both presentations on the same counts."""
 
-    name = result.module.name or Path(result.module_file).stem
-    blocks = [
-        f"# Comparison: {name}",
-        "",
-        f"Compares two Synthea datasets: `{result.baseline_dir}` vs `{result.candidate_dir}`.",
-        f"Module: `{result.module_file}`",
-        f"Version: synthea-quality {__version__}",
-        "",
-        "## Reference date",
-        "",
-        _reference_line("Baseline", result.baseline_report),
-        _reference_line("Candidate", result.candidate_report),
-        "",
-    ]
-    note = _difference_note(result.baseline_report, result.candidate_report)
-    if note:
-        blocks += [f"> {note}", ""]
-    blocks += _notes(result.baseline_report, result.candidate_report)
+    title: str
+    counts: str
+    changed: list[tuple[str, ...]]
+    notices: tuple[str, ...]
 
-    blocks += [
-        "## Summary",
-        "",
-        f"{summary_counts(result.comparisons)}.",
-        "",
-    ]
 
-    ranked = largest_changes(result.comparisons, top)
-    blocks += [f"## Largest changes (top {top})", ""]
-    if ranked:
-        blocks += _largest_changes_table(ranked)
+@dataclass(frozen=True, slots=True)
+class ComparisonView:
+    """Presentation-ready content, prepared once for both output formats."""
+
+    name: str
+    headline: str
+    notices: tuple[str, ...]
+    references: tuple[str, ...]
+    shared_notes: tuple[str, ...]
+    not_compared: list[tuple[str, ...]]
+    largest: list[tuple[str, ...]]
+    blocks: tuple[BlockView, ...]
+    counts: str
+    top: int
+    baseline_dir: str
+    candidate_dir: str
+    module_file: str
+
+
+def _headline(comparisons: Sequence[Comparison]) -> str:
+    total = len(comparisons)
+    changed = sum(c.state == CHANGED for c in comparisons)
+    compared = sum(c.state in (CHANGED, UNCHANGED) for c in comparisons)
+    missing = total - compared
+    if not total:
+        return "No figures to compare."
+    if not compared:
+        return f"No figures could be compared: {total} of {total} figures not compared."
+    if changed:
+        first = f"{changed} of {total} figures changed."
+    elif missing:
+        return f"No compared figure changed; {missing} of {total} figures could not be compared. {SCOPE_LIMIT}"
     else:
-        blocks.append("No figures changed.")
-    blocks += [""]
-    blocks.append(UNITS_LEGEND)
-    blocks += [""]
+        first = "No figures changed."
+    return f"{first} {compared} of {total} figures compared, {missing} not compared. {SCOPE_LIMIT}"
 
+
+def build_view(result: ComparisonResult, *, top: int = 20) -> ComparisonView:
+    """Prepare all selection and wording once, leaving renderers only layout.
+
+    Shared notes retain baseline order; side-specific notes remain visible and
+    labelled. Missing or approximate reference dates are notices even when equal.
+    """
+    baseline, candidate = result.baseline_report, result.candidate_report
+    notices = []
+    difference = _difference_note(baseline, candidate)
+    if difference:
+        notices.append(difference)
+    references = tuple(_reference_line(label, report) for label, report in (
+        ("Baseline", baseline), ("Candidate", candidate)
+    ))
+    for reference, report in zip(references, (baseline, candidate), strict=True):
+        if report.reference_date is None or report.reference_date.approximate:
+            notices.append(reference)
+    shared = tuple(note for note in baseline.notes if note in candidate.notes)
+    for label, report in (("Baseline", baseline), ("Candidate", candidate)):
+        notices.extend(f"{label}: {note}" for note in report.notes if note not in shared)
+    blocks = []
     for block in BLOCKS:
-        block_comparisons = [c for c in result.comparisons if c.key.block == block]
-        if not block_comparisons:
+        rows = [c for c in result.comparisons if c.key.block == block]
+        if not rows:
             continue
-        blocks += [f"## {BLOCK_TITLES[block]}", ""]
-        block_changed = [c for c in block_comparisons if c.state == CHANGED]
-        block_skipped = [c for c in block_comparisons if c.state == SKIPPED]
-        block_not_compared = [c for c in block_comparisons if c.state in NOT_COMPARED_STATES]
-        blocks += [f"{summary_counts(block_comparisons)}.", ""]
-        if block == "population":
-            for c in block_skipped:
-                if c.key.measure == c.key.element and c.reason:
-                    blocks.append(f"Section {c.key.element} not measured: {c.reason}.")
-                    blocks.append("")
-        if block_changed:
-            blocks += _block_table(block_changed) + [""]
-        if block_not_compared:
-            blocks += ["Not compared:", ""] + _not_compared_table(block_not_compared) + [""]
-        blocks += [""]
+        section_notices = tuple(
+            f"Section {c.key.element} not measured: {c.reason}." for c in rows
+            if block == "population" and c.state == SKIPPED and c.key.measure == c.key.element and c.reason
+        )
+        blocks.append(BlockView(
+            BLOCK_TITLES[block], summary_counts(rows),
+            [row[1:] for row in _change_rows([c for c in rows if c.state == CHANGED])],
+            section_notices,
+        ))
+    return ComparisonView(
+        result.module.name or Path(result.module_file).stem, _headline(result.comparisons),
+        tuple(notices), references, shared,
+        _not_compared_rows([c for c in result.comparisons if c.state in NOT_COMPARED_STATES]),
+        _change_rows(largest_changes(result.comparisons, top)), tuple(blocks),
+        summary_counts(result.comparisons), top, result.baseline_dir, result.candidate_dir, result.module_file,
+    )
 
-    blocks += [
-        "## Parts not compared",
-        "",
-        "These parts of the module validation report are not extracted; they stay in the report of each side:",
-        "",
-    ]
-    blocks += [f"- {part}" for part in NOT_COMPARED]
-    blocks += [""]
 
-    return "\n".join(line.rstrip() for line in blocks) + "\n"
+def _single_line(text: str) -> str:
+    return "".join(" " if unicodedata.category(char).startswith("C") or char.isspace() else char for char in text)
+
+
+def _markdown_text(text: str) -> str:
+    text = escape(_single_line(text), quote=False).replace("\\", "\\\\")
+    for character in "`*[]":
+        text = text.replace(character, "\\" + character)
+    return table_cell(text)
+
+
+def _console_text(text: str) -> str:
+    return _single_line(text)
+
+
+def _inline_code(text: str) -> str:
+    """Keep paths literal despite backticks and CommonMark's space trimming."""
+    text = _single_line(text)
+    if not text:
+        return ""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    delimiter = "`" * (longest + 1)
+    if (text.startswith("`") or text.endswith("`")
+            or (text.startswith(" ") and text.endswith(" ") and text.strip(" "))):
+        text = f" {text} "
+    return f"{delimiter}{text}{delimiter}"
+
+
+def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20) -> str:
+    """Fold context, keeping notices and all unmeasured figures visible."""
+    view = build_view(result, top=top) if isinstance(result, ComparisonResult) else result
+    first, separator, rest = view.headline.partition(". ")
+    headline = f"**{first}.** {rest}" if separator else f"**{first}**"
+    lines = [f"# Comparison: {_markdown_text(view.name)}", "", headline, ""]
+    if view.notices:
+        lines += ["## Notes", ""]
+        lines += [f"> {_markdown_text(note)}" for note in view.notices] + [""]
+    if view.not_compared:
+        lines += ["## Not compared", ""] + _table(
+            NOT_COMPARED_HEADER, view.not_compared, align=("", "", "", "", "r", "r", "")
+        ) + [""]
+    if view.largest:
+        lines += [f"## Largest changes (top {view.top})", ""] + _table(
+            LARGEST_HEADER, view.largest, align=("", "", "", "", "r", "r", "r", "r")
+        ) + ["", UNITS_LEGEND, ""]
+    lines += ["<details>",
+              f"<summary>Details: datasets, reference dates, {len(view.shared_notes)} shared notes, "
+              "figures by block and parts not compared</summary>", "",
+              f"Compares two Synthea datasets: {_inline_code(view.baseline_dir)} "
+              f"vs {_inline_code(view.candidate_dir)}.",
+              f"Module: {_inline_code(view.module_file)}", f"Version: synthea-quality {__version__}", "",
+              "## Reference date", ""]
+    lines += [f"- {_markdown_text(reference)}" for reference in view.references] + [""]
+    if not view.largest:
+        lines += [UNITS_LEGEND, ""]
+    if view.shared_notes:
+        lines += ["## Shared notes", ""] + [f"- {_markdown_text(note)}" for note in view.shared_notes] + [""]
+    lines += ["## Summary", "", f"{view.counts}.", ""]
+    for block in view.blocks:
+        lines += [f"## {block.title}", "", f"{block.counts}.", ""]
+        for notice in block.notices:
+            lines += [_markdown_text(notice), ""]
+        if block.changed:
+            lines += _table(LARGEST_HEADER[1:], block.changed, align=("", "", "", "r", "r", "r", "r")) + [""]
+    lines += ["## Parts not compared", "",
+              "These parts of the module validation report are not extracted; "
+              "they stay in the report of each side:", ""]
+    lines += [f"- {part}" for part in NOT_COMPARED] + ["", "</details>"]
+    return "\n".join(line.rstrip() for line in lines) + "\n"
+
+
+def _console_table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> list[str]:
+    prepared = [tuple(_console_text(cell) for cell in row) for row in [header, *rows]]
+    widths = [max(len(row[index]) for row in prepared) for index in range(len(header))]
+    return ["  ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip() for row in prepared]
+
+
+def render_console(
+    result: ComparisonResult | ComparisonView, markdown_path: Path | None = None,
+    json_path: Path | None = None, *, top: int = 20,
+) -> str:
+    """Present the shared view in plain, aligned text for terminal readers."""
+    view = build_view(result, top=top) if isinstance(result, ComparisonResult) else result
+    lines = [f"synthea-compare (synthea-quality {__version__})",
+             f"Comparison: {_console_text(view.name)}", "", view.headline, ""]
+    if view.notices:
+        lines += ["Notes:"] + [_console_text(note) for note in view.notices] + [""]
+    if view.not_compared:
+        lines += ["Not compared:"] + _console_table(NOT_COMPARED_HEADER, view.not_compared) + [""]
+    if view.largest:
+        lines += [f"Largest changes (top {view.top}):"]
+        lines += _console_table(LARGEST_HEADER, view.largest) + ["", UNITS_LEGEND, ""]
+    if view.largest or view.not_compared:
+        lines += [f"{block.title}:  {block.counts}" for block in view.blocks] + [""]
+    lines += [f"Baseline:   {_console_text(view.baseline_dir)}", f"Candidate:  {_console_text(view.candidate_dir)}",
+              f"Module:     {_console_text(view.module_file)}"]
+    if markdown_path is not None or json_path is not None:
+        lines += ["", "Reports:"]
+        lines += [f"  {_console_text(str(path))}" for path in (markdown_path, json_path) if path is not None]
+    return "\n".join(lines) + "\n"
 
 
 def _reference_line(label: str, report: ModuleValidationReport) -> str:
     reference = report.reference_date
     if reference is None:
-        return f"- {label}: none — {report.reference_reason}"
+        return f"{label}: none — {report.reference_reason}"
     kind = "an approximation" if reference.approximate else "exact"
     return (
-        f"- {label}: `{reference.value}` — {kind}, source "
-        f"`{reference.source.value}`. {reference.detail}"
+        f"{label}: {reference.value} — {kind}, source "
+        f"{reference.source.value}. {reference.detail}"
     )
 
 
@@ -220,20 +346,8 @@ def _difference_note(
     return "Note: " + "; ".join(parts) + "."
 
 
-def _notes(baseline: ModuleValidationReport, candidate: ModuleValidationReport) -> list[str]:
-    """The notes of the validation report of each side, as ``synthea-validate-module``
-    shows them, or nothing when neither side has one."""
-    if not baseline.notes and not candidate.notes:
-        return []
-    lines = ["## Notes", ""]
-    for label, report in (("Baseline", baseline), ("Candidate", candidate)):
-        if report.notes:
-            lines += [f"{label}:"] + [f"- {note}" for note in report.notes] + [""]
-    return lines
-
-
-def _largest_changes_table(ranked: list[Comparison]) -> list[str]:
-    rows = []
+def _change_rows(ranked: list[Comparison]) -> list[tuple[str, ...]]:
+    rows: list[tuple[str, ...]] = []
     for c in ranked:
         rows.append(
             (
@@ -247,38 +361,13 @@ def _largest_changes_table(ranked: list[Comparison]) -> list[str]:
                 _format_relative(c.relative_difference),
             )
         )
-    return _table(
-        ("Block", "Element", "Measure", "Stratum", "Baseline", "Candidate", "Difference", "Relative"),
-        rows,
-        align=("", "", "", "", "r", "r", "r", "r"),
-    )
+    return rows
 
 
-def _block_table(changed: list[Comparison]) -> list[str]:
-    rows = []
-    for c in changed:
-        rows.append(
-            (
-                c.key.element,
-                c.key.measure,
-                c.key.stratum,
-                _format_figure(c.baseline),
-                _format_figure(c.candidate),
-                _format_difference(c.difference, c.unit),
-                _format_relative(c.relative_difference),
-            )
-        )
-    return _table(
-        ("Element", "Measure", "Stratum", "Baseline", "Candidate", "Difference", "Relative"),
-        rows,
-        align=("", "", "", "r", "r", "r", "r"),
-    )
-
-
-def _not_compared_table(rows: list[Comparison]) -> list[str]:
+def _not_compared_rows(rows: list[Comparison]) -> list[tuple[str, ...]]:
     """The figures of a block that were not compared, each with why: the reason
     of the side that could not measure it, or the one side it was found on."""
-    table_rows = []
+    table_rows: list[tuple[str, ...]] = []
     for c in rows:
         if c.state == SKIPPED:
             why = c.reason or "skipped"
@@ -288,6 +377,7 @@ def _not_compared_table(rows: list[Comparison]) -> list[str]:
             why = "only in the candidate"
         table_rows.append(
             (
+                c.key.block,
                 c.key.element,
                 c.key.measure,
                 c.key.stratum,
@@ -296,24 +386,20 @@ def _not_compared_table(rows: list[Comparison]) -> list[str]:
                 why,
             )
         )
-    return _table(
-        ("Element", "Measure", "Stratum", "Baseline", "Candidate", "Why not compared"),
-        table_rows,
-        align=("", "", "", "r", "r", ""),
-    )
+    return table_rows
 
 
 def _table(
-    header: tuple[str, ...], rows: list[tuple[Any, ...]], *, align: tuple[str, ...]
+    header: tuple[str, ...], rows: list[tuple[str, ...]], *, align: tuple[str, ...]
 ) -> list[str]:
     header_list = list(header)
     separators = ["---:" if a == "r" else "---" for a in align]
     lines = [
-        "| " + " | ".join(table_cell(str(cell)) for cell in header_list) + " |",
+        "| " + " | ".join(_markdown_text(cell) for cell in header_list) + " |",
         "| " + " | ".join(separators) + " |",
     ]
     lines += [
-        "| " + " | ".join(table_cell(str(cell)) for cell in row) + " |" for row in rows
+        "| " + " | ".join(_markdown_text(cell) for cell in row) + " |" for row in rows
     ]
     return lines
 
@@ -414,7 +500,8 @@ def _side_provenance(
     }
 
 
-def write_markdown(result: ComparisonResult, path: str | Path, *, top: int = 20) -> Path:
+def write_markdown(result: ComparisonResult | ComparisonView, path: str | Path, *, top: int = 20) -> Path:
+    """Write GitHub output, accepting an already prepared view for CLI reuse."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(render_markdown(result, top=top), encoding="utf-8")
