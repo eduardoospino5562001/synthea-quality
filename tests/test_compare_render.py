@@ -439,7 +439,7 @@ def test_the_summary_and_every_block_use_the_same_counts_line():
     assert not any(line.startswith("Compared ") for line in lines)
 
 
-def test_skipped_and_one_sided_figures_are_listed_with_why_they_were_not_compared():
+def test_skipped_and_one_sided_figures_are_listed_with_why_they_were_not_compared() -> None:
     comparisons = [
         _comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08),
         _comparison(
@@ -454,8 +454,8 @@ def test_skipped_and_one_sided_figures_are_listed_with_why_they_were_not_compare
         ),
     ]
     lines = render_markdown(_result(comparisons)).splitlines()
-    section = lines[lines.index("## Conditions"):]
-    assert "Not compared:" in section
+    section = lines[:lines.index("<details>")]
+    assert "## Not compared" in section
     assert "| Element | Measure | Stratum | Baseline | Candidate | Why not compared |" in section
     assert "| MI | lifetime |  | — | — | no condition records |" in section
     assert "| MI | incidence | sex:F | — | — | only in the baseline |" in section
@@ -509,26 +509,23 @@ def test_the_markdown_and_the_json_say_what_is_not_compared():
     assert json.loads(render_json(result))["not_compared"] == list(NOT_COMPARED)
 
 
-def test_the_notes_of_each_side_are_in_the_markdown():
+def test_the_notes_of_each_side_are_in_the_markdown() -> None:
     baseline = replace(_report(), notes=("The exported history is unknown.",))
     candidate = replace(_report(), notes=("Incidence counts every patient.", "The exported history is unknown."))
-    lines = render_markdown(_result_with(baseline, candidate)).splitlines()
-    notes = lines[lines.index("## Notes"):]
-    assert notes[:9] == [
-        "## Notes",
-        "",
-        "Baseline:",
-        "- The exported history is unknown.",
-        "",
-        "Candidate:",
-        "- Incidence counts every patient.",
-        "- The exported history is unknown.",
-        "",
-    ]
+    visible, folded = render_markdown(_result_with(baseline, candidate)).split("<details>")
+    assert "> Candidate: Incidence counts every patient." in visible
+    assert "The exported history is unknown." not in visible
+    assert "- The exported history is unknown." in folded
 
 
-def test_without_notes_there_is_no_notes_section():
-    assert "## Notes" not in render_markdown(_result([]))
+def test_without_notes_there_is_no_notes_section() -> None:
+    from synthea_quality.profile.models import ReferenceDate, ReferenceSource
+
+    reference = ReferenceDate("2026-01-01", ReferenceSource.MAX_ENCOUNTER_DATE, "exact date", False)
+    report = replace(_report(), reference_date=reference)
+    markdown = render_markdown(_result_with(report, report))
+    assert "## Notes" not in markdown
+    assert len([line for line in markdown.split("<details>")[0].splitlines() if line]) == 2
 
 
 def test_a_different_years_of_history_changes_the_exported_records_not_the_patients():
@@ -552,3 +549,108 @@ def test_the_json_counts_the_figures_apart_from_the_compared_ones():
     data = json.loads(render_json(_result(comparisons)))
     assert (data["figures"], data["compared"], data["changed"], data["unchanged"]) == (4, 2, 1, 1)
     assert (data["skipped"], data["only_in_baseline"], data["only_in_candidate"]) == (1, 1, 0)
+
+
+@pytest.mark.parametrize(
+    ("states", "headline"),
+    [
+        ([], "No figures to compare."),
+        ([UNCHANGED], "No figures changed. 1 of 1 figures compared, 0 not compared."),
+        ([CHANGED], "1 of 1 figures changed. 1 of 1 figures compared, 0 not compared."),
+        ([SKIPPED], "No figures could be compared: 1 of 1 figures not compared."),
+        ([ONLY_IN_BASELINE], "No figures could be compared: 1 of 1 figures not compared."),
+        ([ONLY_IN_CANDIDATE], "No figures could be compared: 1 of 1 figures not compared."),
+        ([UNCHANGED, SKIPPED], "No compared figure changed; 1 of 2 figures could not be compared."),
+        ([SKIPPED, ONLY_IN_BASELINE], "No figures could be compared: 2 of 2 figures not compared."),
+    ],
+)
+def test_compact_formats_share_headline_and_visible_rows(states: list[str], headline: str) -> None:
+    from synthea_quality.compare.render import build_view, render_console
+
+    comparisons = [
+        _comparison(ComparisonKey("conditions", f"Element {index}", "point"), state=state,
+                    base=1, cand=2 if state == CHANGED else 1, reason="unavailable")
+        for index, state in enumerate(states)
+    ]
+    view = build_view(_result(comparisons))
+    markdown = render_markdown(view)
+    console = render_console(view)
+    visible = markdown.split("<details>")[0]
+    assert headline in visible.replace("**", "")
+    assert headline in console
+    for forbidden in ("<details>", "<summary>", "</", "**", "|"):
+        assert forbidden not in console
+    for index, state in enumerate(states):
+        if state in (SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE):
+            assert f"Element {index}" in visible
+            assert f"Element {index}" in console
+    if states != [UNCHANGED]:
+        assert "No figures changed" not in markdown
+    if CHANGED not in states:
+        assert "Largest changes" not in markdown
+        assert "Largest changes" not in console
+    assert "<summary>" in markdown
+    assert "</summary>\n\n" in markdown
+    assert render_markdown(view) == markdown
+    assert render_console(view) == console
+    lines = markdown.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("| ") and (index == 0 or not lines[index - 1].startswith("| ")):
+            assert lines[index - 1] == ""
+
+
+def test_shared_notes_are_counted_and_differing_notes_stay_visible() -> None:
+    from synthea_quality.compare.render import render_console
+
+    base = replace(_report(), notes=("shared note", "baseline note"))
+    cand = replace(_report(), notes=("shared note", "candidate note"))
+    result = _result_with(base, cand)
+    markdown = render_markdown(result)
+    visible, folded = markdown.split("<details>")
+    assert "baseline note" in visible and "candidate note" in visible
+    assert "shared note" not in visible
+    assert "1 shared notes" in folded
+    assert "shared note" in folded
+    console = render_console(result)
+    assert "baseline note" in console and "candidate note" in console
+    assert "shared note" not in console
+
+
+@pytest.mark.parametrize("kind", ["different", "approximate", "missing"])
+def test_reference_notices_are_visible_in_both_formats(kind: str) -> None:
+    from synthea_quality.compare.render import render_console
+    from synthea_quality.profile.models import ReferenceDate, ReferenceSource
+
+    reference = ReferenceDate("2026-01-01", ReferenceSource.MAX_ENCOUNTER_DATE, "reference detail", False)
+    base = replace(_report(), reference_date=reference)
+    candidate_reference = None if kind == "missing" else replace(
+        reference, value="2026-02-01" if kind == "different" else reference.value,
+        approximate=kind == "approximate",
+    )
+    result = _result_with(base, replace(_report(), reference_date=candidate_reference))
+    visible = render_markdown(result).split("<details>")[0]
+    console = render_console(result)
+    expected = {
+        "different": "reference dates differ", "approximate": "an approximation", "missing": "none — no encounters",
+    }[kind]
+    assert expected in visible and expected in console
+
+
+def test_data_cannot_escape_details_or_console_rows() -> None:
+    from synthea_quality.compare.render import render_console
+
+    hostile = "</details><b>x|y\nnext\x1b"
+    result = replace(
+        _result([_comparison(ComparisonKey("conditions", hostile, "point"), state=SKIPPED, reason=hostile)]),
+        module=ModuleInfo(hostile), module_file=hostile, baseline_dir=hostile,
+        baseline_report=replace(_report(), notes=(hostile,)),
+    )
+    markdown = render_markdown(result)
+    assert markdown.count("</details>") == 1
+    assert "<b>" not in markdown
+    assert "&lt;/details&gt;&lt;b&gt;x\\|y next" in markdown
+    console = render_console(result)
+    assert "\\|" not in console
+    assert "x|y next" in console
+    assert "\x1b" not in console
+    assert "<details>" not in console and "</" not in console

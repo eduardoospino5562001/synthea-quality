@@ -150,11 +150,17 @@ def test_the_console_script_runs_as_installed(tmp_path):
     assert completed.returncode == EXIT_OK, completed.stderr
 
 
-def test_the_console_prints_one_counts_line_per_block_like_the_markdown(tmp_path, capsys):
+@pytest.mark.parametrize("changed", [False, True])
+def test_console_block_counts_only_when_needed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], changed: bool,
+) -> None:
     base = dataset(tmp_path / "base")
+    candidate = dataset(tmp_path / "candidate")
+    if changed:
+        write_table(candidate, "patients", [{"Id": "a1", "BIRTHDATE": "1950-01-01", "GENDER": "M"}])
     out = tmp_path / "out"
     code = main(
-        [str(base), str(base), "--module", str(EXAMPLE), "--output-dir", str(out),
+        [str(base), str(candidate), "--module", str(EXAMPLE), "--output-dir", str(out),
          "--reference-date", "2026-01-01"]
     )
     assert code == EXIT_OK
@@ -166,8 +172,9 @@ def test_the_console_prints_one_counts_line_per_block_like_the_markdown(tmp_path
             continue
         counts = markdown[markdown.index(f"## {title}") + 2]
         # The console repeats the block's line of the Markdown, without its final period.
-        assert f"{title}:  {counts.removesuffix('.')}" in printed, title
-    assert not any(" compared, " in line for line in printed)
+        assert (f"{title}:  {counts.removesuffix('.')}" in printed) is changed, title
+    for forbidden in ("<details>", "<summary>", "</", "**", "|"):
+        assert forbidden not in "\n".join(printed)
 
 
 def test_the_module_example_of_the_help_has_balanced_brackets(capsys):
