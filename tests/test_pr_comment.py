@@ -121,3 +121,28 @@ def test_cli_without_file_is_exit_1() -> None:
     )
     assert result.returncode == 1
     assert result.stderr
+
+
+@pytest.mark.parametrize("prefix", ["<details>\n<summary>Details</summary>\n\n", "heading\n<details>\n"])
+def test_truncated_details_close_before_visible_notice(prefix: str) -> None:
+    report = prefix + "row\n" * 20_000
+    comment = build_comment(report)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert comment.endswith("\n</details>\n\n" + NOTICE)
+    assert comment.count("<details>") == comment.count("</details>")
+
+
+def test_closing_details_fits_at_character_boundary() -> None:
+    prefix = "<details>"
+    report = prefix + "x" * (MAX_COMMENT_CHARS - len(prefix)) + "\nmore"
+    comment = build_comment(report)
+    assert len(comment) <= MAX_COMMENT_CHARS
+    assert "</details>\n\n" + NOTICE in comment
+    assert len(comment) == MAX_COMMENT_CHARS
+
+
+@pytest.mark.parametrize("prefix", ["&lt;details&gt;\n", "<details>\nclosed\n</details>\n", "heading\n"])
+def test_truncation_outside_details_adds_no_stray_closer(prefix: str) -> None:
+    comment = build_comment(prefix + "row\n" * 20_000)
+    assert comment.count("</details>") == prefix.count("</details>")
+    assert len(comment) <= MAX_COMMENT_CHARS

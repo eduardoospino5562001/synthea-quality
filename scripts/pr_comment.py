@@ -4,14 +4,46 @@
 from __future__ import annotations
 
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 MAX_COMMENT_CHARS = 65_536
 _NOTICE = "_The full report is in the synthea-compare-report artifact of this workflow._"
 
 
+class _DetailsDepth(HTMLParser):
+    """Track real HTML tags without interpreting escaped report data as markup."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "details":
+            self.depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "details":
+            self.depth = max(0, self.depth - 1)
+
+
+def _closing_details(text: str) -> str:
+    parser = _DetailsDepth()
+    parser.feed(text)
+    return "\n</details>" * parser.depth
+
+
+def _excerpt(report: str, budget: int) -> str:
+    boundary = report.rfind("\n", 0, budget + 1)
+    return (report[:boundary] if boundary > 0 else report[:budget]).rstrip("\r\n")
+
+
 def build_comment(report_md: str) -> str:
-    """Respect GitHub's character cap, retaining full lines and an artifact notice."""
+    """Keep the artifact notice outside folded content within the character cap.
+
+    Reserve closing tags before cutting again so even a boundary-length folded
+    report leaves room for its notice. Escaped data never contributes tags.
+    """
     if not report_md.strip():
         raise ValueError("report is empty")
     if len(report_md) <= MAX_COMMENT_CHARS:
@@ -19,9 +51,12 @@ def build_comment(report_md: str) -> str:
 
     suffix = "\n\n" + _NOTICE
     budget = MAX_COMMENT_CHARS - len(suffix)
-    boundary = report_md.rfind("\n", 0, budget + 1)
-    excerpt = report_md[:boundary] if boundary > 0 else report_md[:budget]
-    return excerpt.rstrip("\r\n") + suffix
+    excerpt = _excerpt(report_md, budget)
+    closing = _closing_details(excerpt)
+    while len(excerpt) + len(closing) > budget:
+        excerpt = _excerpt(report_md, budget - len(closing))
+        closing = _closing_details(excerpt)
+    return excerpt + closing + suffix
 
 
 def main() -> int:
