@@ -209,7 +209,10 @@ def _single_line(text: str) -> str:
 
 
 def _markdown_text(text: str) -> str:
-    return table_cell(escape(_single_line(text), quote=False).replace("\\", "\\\\"))
+    text = escape(_single_line(text), quote=False).replace("\\", "\\\\")
+    for character in "`*[]":
+        text = text.replace(character, "\\" + character)
+    return table_cell(text)
 
 
 def _console_text(text: str) -> str:

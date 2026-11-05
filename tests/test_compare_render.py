@@ -320,9 +320,9 @@ def test_markdown_table_cells_keep_one_column_count_per_row():
         assert len(cells) == len(header_cells), f"{row!r} has {len(cells)} cells, the header {len(header_cells)}"
 
     # Pipes, line breaks and Unicode all land in a single cell.
-    assert "mm[Hg]\\|age_band:18-44" in markdown
+    assert "mm\\[Hg\\]\\|age_band:18-44" in markdown
     assert "H\u2764\ufe0ftension\\|with a pipe" in markdown
-    assert "mm[Hg] age_band:65-74" in markdown
+    assert "mm\\[Hg\\] age_band:65-74" in markdown
 
 
 def test_markdown_states_the_units_once_under_largest_changes():
@@ -370,7 +370,7 @@ def test_markdown_states_the_units_once_under_largest_changes():
             119.0,
             125.5,
             "mm[Hg]",
-            "| observations | Systolic | median | mm[Hg] | 119.00 | 125.50 | +6.50 | +5.46% |",
+            "| observations | Systolic | median | mm\\[Hg\\] | 119.00 | 125.50 | +6.50 | +5.46% |",
         ),
         (
             ComparisonKey("conditions", "MI", "incidence"),
@@ -677,3 +677,15 @@ def test_markdown_paths_are_literal_inline_code(path: str, span: str) -> None:
     markdown = render_markdown(result)
     assert f"Compares two Synthea datasets: {span} vs {span}." in markdown
     assert f"Module: {span}\n" in markdown
+
+
+def test_markdown_names_and_cells_keep_inline_syntax_literal() -> None:
+    text = "[link](url) ![img](url) *em* `code` keep_under"
+    literal = "\\[link\\](url) !\\[img\\](url) \\*em\\* \\`code\\` keep_under"
+    result = replace(
+        _result([_comparison(ComparisonKey("conditions", text, "point"), base=1, cand=2)]),
+        module=ModuleInfo(text),
+    )
+    markdown = render_markdown(result)
+    assert f"# Comparison: {literal}\n" in markdown
+    assert f"| {literal} |" in markdown
