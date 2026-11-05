@@ -715,3 +715,19 @@ def test_units_legend_is_always_present_once(state: str) -> None:
     assert markdown.count(UNITS_LEGEND) == 1
     assert (UNITS_LEGEND in visible) is (state == CHANGED)
     assert (UNITS_LEGEND in folded) is (state != CHANGED)
+
+
+@pytest.mark.parametrize("text", [" a ", " ", "a b", "`a`", "``", "a`b", " `a` ", ""])
+def test_inline_code_preserves_content_after_commonmark_decoding(text: str) -> None:
+    from synthea_quality.compare.render import _inline_code
+
+    span = _inline_code(text)
+    if not text:
+        assert span == ""
+        return
+    delimiter_length = len(span) - len(span.lstrip("`"))
+    assert delimiter_length > 0
+    content = span[delimiter_length:-delimiter_length]
+    if content.startswith(" ") and content.endswith(" ") and content.strip(" "):
+        content = content[1:-1]
+    assert content == text

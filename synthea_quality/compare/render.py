@@ -221,11 +221,14 @@ def _console_text(text: str) -> str:
 
 
 def _inline_code(text: str) -> str:
-    """Keep paths literal with a delimiter that cannot occur in their text."""
+    """Keep paths literal despite backticks and CommonMark's space trimming."""
     text = _single_line(text)
+    if not text:
+        return ""
     longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
     delimiter = "`" * (longest + 1)
-    if text.startswith("`") or text.endswith("`"):
+    if (text.startswith("`") or text.endswith("`")
+            or (text.startswith(" ") and text.endswith(" ") and text.strip(" "))):
         text = f" {text} "
     return f"{delimiter}{text}{delimiter}"
 
