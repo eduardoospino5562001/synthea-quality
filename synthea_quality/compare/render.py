@@ -8,6 +8,7 @@ escaped only at the presentation boundary; JSON retains every original value.
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -215,6 +216,16 @@ def _console_text(text: str) -> str:
     return _single_line(text)
 
 
+def _inline_code(text: str) -> str:
+    """Keep paths literal with a delimiter that cannot occur in their text."""
+    text = _single_line(text)
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    delimiter = "`" * (longest + 1)
+    if text.startswith("`") or text.endswith("`"):
+        text = f" {text} "
+    return f"{delimiter}{text}{delimiter}"
+
+
 def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20) -> str:
     """Fold context, keeping notices and all unmeasured figures visible."""
     view = build_view(result, top=top) if isinstance(result, ComparisonResult) else result
@@ -235,9 +246,9 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
     lines += ["<details>",
               f"<summary>Details: datasets, reference dates, {len(view.shared_notes)} shared notes, "
               "figures by block and parts not compared</summary>", "",
-              f"Compares two Synthea datasets: {_markdown_text(view.baseline_dir)} "
-              f"vs {_markdown_text(view.candidate_dir)}.",
-              f"Module: {_markdown_text(view.module_file)}", f"Version: synthea-quality {__version__}", "",
+              f"Compares two Synthea datasets: {_inline_code(view.baseline_dir)} "
+              f"vs {_inline_code(view.candidate_dir)}.",
+              f"Module: {_inline_code(view.module_file)}", f"Version: synthea-quality {__version__}", "",
               "## Reference date", ""]
     lines += [f"- {_markdown_text(reference)}" for reference in view.references] + [""]
     if view.shared_notes:

@@ -646,8 +646,8 @@ def test_data_cannot_escape_details_or_console_rows() -> None:
         baseline_report=replace(_report(), notes=(hostile,)),
     )
     markdown = render_markdown(result)
-    assert markdown.count("</details>") == 1
-    assert "<b>" not in markdown
+    assert markdown.splitlines().count("</details>") == 1
+    assert "<b>" not in markdown.split("<details>")[0]
     assert "&lt;/details&gt;&lt;b&gt;x\\|y next" in markdown
     console = render_console(result)
     assert "\\|" not in console
@@ -663,3 +663,17 @@ def test_console_preserves_real_paths_on_one_line() -> None:
     console = render_console(result)
     assert "Baseline:   /tmp/a*b*/<dir>\n" in console
     assert "Candidate:  /tmp/a b c\n" in console
+
+
+@pytest.mark.parametrize(
+    ("path", "span"),
+    [("/tmp/a*b*/<dir>", "`/tmp/a*b*/<dir>`"),
+     ("/tmp/a``b", "```/tmp/a``b```"),
+     ("`a`", "`` `a` ``"),
+     ("/tmp/a\nb", "`/tmp/a b`")],
+)
+def test_markdown_paths_are_literal_inline_code(path: str, span: str) -> None:
+    result = replace(_result([]), baseline_dir=path, candidate_dir=path, module_file=path)
+    markdown = render_markdown(result)
+    assert f"Compares two Synthea datasets: {span} vs {span}." in markdown
+    assert f"Module: {span}\n" in markdown
