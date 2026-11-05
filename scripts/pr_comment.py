@@ -1,36 +1,28 @@
 #!/usr/bin/env python3
-"""Format reports within GitHub's 65,536-character PR comment limit."""
+"""Limit comments while recognizing only the renderer's whole-line fold tags.
+
+Data is escaped or placed behind a prefix, so tags inside code spans must never
+change the structural depth used to keep the artifact notice visible.
+"""
 
 from __future__ import annotations
 
 import sys
-from html.parser import HTMLParser
 from pathlib import Path
 
 MAX_COMMENT_CHARS = 65_536
 _NOTICE = "_The full report is in the synthea-compare-report artifact of this workflow._"
 
 
-class _DetailsDepth(HTMLParser):
-    """Track real HTML tags without interpreting escaped report data as markup."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.depth = 0
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "details":
-            self.depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "details":
-            self.depth = max(0, self.depth - 1)
-
-
 def _closing_details(text: str) -> str:
-    parser = _DetailsDepth()
-    parser.feed(text)
-    return "\n</details>" * parser.depth
+    """Count whole-line tags because prefixed data and code spans are not structure."""
+    depth = 0
+    for line in text.splitlines():
+        if line == "<details>":
+            depth += 1
+        elif line == "</details>":
+            depth = max(0, depth - 1)
+    return "\n</details>" * depth
 
 
 def _excerpt(report: str, budget: int) -> str:
@@ -44,7 +36,8 @@ def build_comment(report_md: str) -> str:
     """Keep the artifact notice outside folded content within the character cap.
 
     Reserve closing tags before cutting again so even a boundary-length folded
-    report leaves room for its notice. Escaped data never contributes tags.
+    report leaves room for its notice. Only the renderer's whole-line tags count;
+    escaped or prefixed data, including tags inside code spans, is not structure.
     """
     if not report_md.strip():
         raise ValueError("report is empty")

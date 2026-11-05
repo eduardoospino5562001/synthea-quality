@@ -133,8 +133,9 @@ def test_truncated_details_close_before_visible_notice(prefix: str) -> None:
 
 
 def test_closing_details_fits_at_character_boundary() -> None:
-    prefix = "<details>"
-    report = prefix + "x" * (MAX_COMMENT_CHARS - len(prefix)) + "\nmore"
+    prefix = "<details>\n"
+    suffix = "\n</details>\n\n" + NOTICE
+    report = prefix + "x" * (MAX_COMMENT_CHARS - len(prefix) - len(suffix)) + "\n" + "x" * 70_000
     comment = build_comment(report)
     assert len(comment) <= MAX_COMMENT_CHARS
     assert "</details>\n\n" + NOTICE in comment
@@ -158,3 +159,25 @@ def test_deeply_nested_details_truncation_terminates() -> None:
     )
     assert len(completed.stdout) <= MAX_COMMENT_CHARS
     assert NOTICE in completed.stdout
+
+
+@pytest.mark.parametrize("path", ["/tmp/</details>", "/tmp/<details>"])
+def test_truncated_rendered_paths_do_not_change_fold_depth(path: str) -> None:
+    from synthea_quality.compare.render import ComparisonResult, render_markdown
+    from synthea_quality.validate.models import ModuleInfo, ModuleValidationReport
+
+    module = ModuleInfo("Test module")
+    report = ModuleValidationReport(
+        data_dir=path, module_file="module.json", module=module, reference_date=None,
+        reference_reason="no encounters", age_bands=(0,), alive=2,
+        population=(), conditions=(), generated_at="fixed", notes=("x" * 70_000,),
+    )
+    markdown = render_markdown(ComparisonResult(
+        module_file="module.json", module=module, baseline_dir=path, candidate_dir="/candidate",
+        baseline_report=report, candidate_report=report, comparisons=[], generated_at="fixed",
+    ))
+    comment = build_comment(markdown)
+    lines = comment.splitlines()
+    assert lines.count("</details>") == 1
+    assert lines.index(NOTICE) > lines.index("</details>")
+    assert len(comment) <= MAX_COMMENT_CHARS
