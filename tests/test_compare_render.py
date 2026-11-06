@@ -157,7 +157,7 @@ def test_markdown_top_greater_than_changes_returns_all():
     comparisons = [_comparison(ComparisonKey("conditions", "MI", "point"), base=0.05, cand=0.08)]
     result = _result(comparisons)
     markdown = render_markdown(result, top=100)
-    assert "## Largest changes (top 100)" in markdown
+    assert "## Largest changes (showing 1 of 1)" in markdown
     # The one change is in the table, not only counted in the summary.
     assert "| conditions | MI | point |  | 5.00% | 8.00% | +3.00 pp | +60.00% |" in markdown.splitlines()
 
@@ -731,3 +731,74 @@ def test_inline_code_preserves_content_after_commonmark_decoding(text: str) -> N
     if content.startswith(" ") and content.endswith(" ") and content.strip(" "):
         content = content[1:-1]
     assert content == text
+
+
+@pytest.mark.parametrize("text", [
+    "Use `synthea-incidence --alive-only`.",
+    "Use `a` and `b` together.",
+    "Use `A_z-0.1:=/@+, x`.",
+    "", "Unicode café outside `code` | stays literal.",
+])
+def test_prose_code_spans_are_shared_by_both_formats(text: str) -> None:
+    from synthea_quality.compare.render import _markdown_text, build_view, render_console
+
+    view = build_view(_result([_comparison(ComparisonKey("conditions", "MI", "point"))]))
+    view = replace(view, notices=(text,), references=(text,), shared_notes=(text,),
+                   blocks=(replace(view.blocks[0], notices=(text,)),))
+    markdown = render_markdown(view)
+    expected = _markdown_text(text).replace("\\`", "`")
+    assert f"> {expected}".rstrip() + "\n" in markdown
+    assert markdown.count(f"- {expected}".rstrip() + "\n") == 2
+    assert f"\n{expected}\n" in markdown
+    assert f"Notes:\n{text.replace('`', '')}\n" in render_console(view)
+
+
+@pytest.mark.parametrize("text", [
+    "`<b>x</b>`", "`a|b`", "``a``", "`sin cerrar", "`</details>`", "`a`b`",
+    "` leading`", "`trailing `", "``", "`é`", "`a\nb`", "`a\x1bb`",
+    "valid `a` then `a|b`", "valid `a` then `unclosed", "`a``b`",
+])
+def test_invalid_prose_backticks_keep_the_entire_line_literal(text: str) -> None:
+    from synthea_quality.compare.render import _console_text, _markdown_text, build_view, render_console
+
+    view = replace(build_view(_result([])), notices=(text,))
+    markdown = render_markdown(view)
+    assert f"> {_markdown_text(text)}\n" in markdown
+    assert f"Notes:\n{_console_text(text)}\n" in render_console(view)
+    assert markdown.splitlines().count("</details>") == 1
+
+
+def test_prose_backslash_before_span_and_json_note_remain_literal() -> None:
+    from synthea_quality.compare.render import build_view, render_console
+
+    text = "Use \\`code` and `other`."
+    report = replace(_report(), notes=(text,))
+    result = replace(_result([]), baseline_report=report, candidate_report=report)
+    assert "- Use \\\\`code` and `other`.\n" in render_markdown(result)
+    view = replace(build_view(result), notices=(text,))
+    assert "Notes:\nUse \\code and other.\n" in render_console(view)
+    assert json.loads(render_json(result))["baseline"]["notes"] == [text]
+
+
+@pytest.mark.parametrize(("changed", "top", "shown"), [(17, 20, 17), (20, 20, 20), (5, 2, 2), (0, 20, 0)])
+def test_largest_heading_counts_shown_rows_and_only_changed_figures(changed: int, top: int, shown: int) -> None:
+    from synthea_quality.compare.render import build_view, render_console
+
+    comparisons = [
+        _comparison(ComparisonKey("conditions", f"Element {index}", "point"), base=1, cand=2)
+        for index in range(changed)
+    ]
+    comparisons += [
+        _comparison(ComparisonKey("conditions", state, "point"), state=state, reason="unavailable")
+        for state in (UNCHANGED, SKIPPED, ONLY_IN_BASELINE, ONLY_IN_CANDIDATE)
+    ]
+    view = build_view(_result(comparisons), top=top)
+    markdown, console = render_markdown(view), render_console(view)
+    if changed:
+        heading = f"Largest changes (showing {shown} of {changed})"
+        assert f"## {heading}\n" in markdown
+        assert f"{heading}:\n" in console
+        assert len(view.largest) == shown
+    else:
+        assert "Largest changes" not in markdown
+        assert "Largest changes" not in console

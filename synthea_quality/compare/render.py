@@ -138,7 +138,7 @@ class ComparisonView:
     largest: list[tuple[str, ...]]
     blocks: tuple[BlockView, ...]
     counts: str
-    top: int
+    changed: int
     baseline_dir: str
     candidate_dir: str
     module_file: str
@@ -201,7 +201,8 @@ def build_view(result: ComparisonResult, *, top: int = 20) -> ComparisonView:
         tuple(notices), references, shared,
         _not_compared_rows([c for c in result.comparisons if c.state in NOT_COMPARED_STATES]),
         _change_rows(largest_changes(result.comparisons, top)), tuple(blocks),
-        summary_counts(result.comparisons), top, result.baseline_dir, result.candidate_dir, result.module_file,
+        summary_counts(result.comparisons), sum(c.state == CHANGED for c in result.comparisons),
+        result.baseline_dir, result.candidate_dir, result.module_file,
     )
 
 
@@ -214,6 +215,24 @@ def _markdown_text(text: str) -> str:
     for character in "`*[]":
         text = text.replace(character, "\\" + character)
     return table_cell(text)
+
+
+# Only single-backtick, ASCII-whitelisted spans without boundary spaces are prose code.
+PROSE_CODE_SPAN = re.compile(
+    r"(?<!`)(`[A-Za-z0-9_.:=/@+,-](?:[A-Za-z0-9_.:=/@+, -]*[A-Za-z0-9_.:=/@+,-])?`)(?!`)"
+)
+
+
+def _prose_text(text: str, *, markdown: bool) -> str:
+    """Keep deliberate code only when every backtick belongs to a safe span."""
+    parts = PROSE_CODE_SPAN.split(text)
+    literal = _markdown_text if markdown else _console_text
+    if any("`" in part for part in parts[::2]):
+        return literal(text)
+    return "".join(
+        (part if markdown else part[1:-1]) if index % 2 else literal(part)
+        for index, part in enumerate(parts)
+    )
 
 
 def _console_text(text: str) -> str:
@@ -241,13 +260,13 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
     lines = [f"# Comparison: {_markdown_text(view.name)}", "", headline, ""]
     if view.notices:
         lines += ["## Notes", ""]
-        lines += [f"> {_markdown_text(note)}" for note in view.notices] + [""]
+        lines += [f"> {_prose_text(note, markdown=True)}" for note in view.notices] + [""]
     if view.not_compared:
         lines += ["## Not compared", ""] + _table(
             NOT_COMPARED_HEADER, view.not_compared, align=("", "", "", "", "r", "r", "")
         ) + [""]
     if view.largest:
-        lines += [f"## Largest changes (top {view.top})", ""] + _table(
+        lines += [f"## Largest changes (showing {len(view.largest)} of {view.changed})", ""] + _table(
             LARGEST_HEADER, view.largest, align=("", "", "", "", "r", "r", "r", "r")
         ) + ["", UNITS_LEGEND, ""]
     lines += ["<details>",
@@ -257,16 +276,17 @@ def render_markdown(result: ComparisonResult | ComparisonView, *, top: int = 20)
               f"vs {_inline_code(view.candidate_dir)}.",
               f"Module: {_inline_code(view.module_file)}", f"Version: synthea-quality {__version__}", "",
               "## Reference date", ""]
-    lines += [f"- {_markdown_text(reference)}" for reference in view.references] + [""]
+    lines += [f"- {_prose_text(reference, markdown=True)}" for reference in view.references] + [""]
     if not view.largest:
         lines += [UNITS_LEGEND, ""]
     if view.shared_notes:
-        lines += ["## Shared notes", ""] + [f"- {_markdown_text(note)}" for note in view.shared_notes] + [""]
+        lines += ["## Shared notes", ""]
+        lines += [f"- {_prose_text(note, markdown=True)}" for note in view.shared_notes] + [""]
     lines += ["## Summary", "", f"{view.counts}.", ""]
     for block in view.blocks:
         lines += [f"## {block.title}", "", f"{block.counts}.", ""]
         for notice in block.notices:
-            lines += [_markdown_text(notice), ""]
+            lines += [_prose_text(notice, markdown=True), ""]
         if block.changed:
             lines += _table(LARGEST_HEADER[1:], block.changed, align=("", "", "", "r", "r", "r", "r")) + [""]
     lines += ["## Parts not compared", "",
@@ -291,11 +311,11 @@ def render_console(
     lines = [f"synthea-compare (synthea-quality {__version__})",
              f"Comparison: {_console_text(view.name)}", "", view.headline, ""]
     if view.notices:
-        lines += ["Notes:"] + [_console_text(note) for note in view.notices] + [""]
+        lines += ["Notes:"] + [_prose_text(note, markdown=False) for note in view.notices] + [""]
     if view.not_compared:
         lines += ["Not compared:"] + _console_table(NOT_COMPARED_HEADER, view.not_compared) + [""]
     if view.largest:
-        lines += [f"Largest changes (top {view.top}):"]
+        lines += [f"Largest changes (showing {len(view.largest)} of {view.changed}):"]
         lines += _console_table(LARGEST_HEADER, view.largest) + ["", UNITS_LEGEND, ""]
     if view.largest or view.not_compared:
         lines += [f"{block.title}:  {block.counts}" for block in view.blocks] + [""]

@@ -106,7 +106,7 @@ Verify the install:
 ```
 
 ```
-synthea-quality 0.15.0
+synthea-quality 0.15.1
 
 Dataset:  /path/to/synthea/output/csv
 Tables:   18 of 19 described by the contract (missing: patient_expenses)
@@ -258,7 +258,7 @@ The same information in JSON:
 {
   "schema_version": 1,
   "dataset": {
-    "tool_version": "0.15.0",
+    "tool_version": "0.15.1",
     "generated_at": "2026-09-12T15:46:37+00:00",
     "schema_contract": "synthea-csv-2026-08",
     "contract_tables": 19,
@@ -423,12 +423,12 @@ Compared with a copy of the sample with the myocardial infarction rows of two pa
 removed, the console reads:
 
 ```
-synthea-compare (synthea-quality 0.15.0)
+synthea-compare (synthea-quality 0.15.1)
 Comparison: Myocardial infarction
 
 11 of 46 figures changed. 46 of 46 figures compared, 0 not compared. Only these figures are compared, not every row of the CSV files.
 
-Largest changes (top 20):
+Largest changes (showing 11 of 11):
 Block       Element                Measure    Stratum  Baseline           Candidate         Difference  Relative
 conditions  Myocardial infarction  incidence           2.16 (0.05–12.04)  0.00 (0.00–7.85)  -2.16       -100.00%
 ...
@@ -520,7 +520,7 @@ simulation** — `DEATHDATE` empty; the deceased are counted but not profiled fu
 | Distributions | the alive patients by `GENDER`, `RACE`, `ETHNICITY` and `STATE`, and the top 10 `COUNTY` values (`--top-counties N`), with count and percentage; an empty value is its own row, and a tie split by the top-N cut is noted (ties are broken alphabetically) |
 | Date range | earliest and latest `BIRTHDATE` and `DEATHDATE` |
 | Empty and unparseable values | per column used, counted rather than dropped |
-| Most common codes | one section per clinical table (`conditions`, `medications`, `procedures`, `observations`, `immunizations`, `allergies`, `careplans`): the top 20 codes (`--top N`) by distinct alive patients, with description, percentage of the alive patients and records |
+| Most common codes | one section per clinical table (`conditions`, `medications`, `procedures`, `observations`, `immunizations`, `allergies`, `careplans`): the 20 most frequent codes (`--top N`) by distinct alive patients, with description, percentage of the alive patients and records |
 
 A missing table or column skips only the sections that need it, as `SKIPPED` with the
 reason.
@@ -576,7 +576,7 @@ shows it right after its title, and records it as `export_history` in its JSON.
 ### Example (official sample)
 
 ```
-synthea-profile (synthea-quality 0.15.0)
+synthea-profile (synthea-quality 0.15.1)
 
 Dataset:    /…/csv-latest
 Reference:  2026-08-17 (APPROXIMATION, source: max_encounter_date)
@@ -607,7 +607,7 @@ Alive patients: **99**, with a known age: **99**. Median **36**, minimum **0**, 
 
 > Patients are alive patients with at least one record of the code ever (historical), not patients in whom it is active at the reference date; that distinction belongs to prevalence.
 
-Alive patients: **99**, with at least one record: **99**. Rows: 3517 (3199 of alive patients). Distinct codes: 186 in the table, 174 among the alive; the top 20 are listed.
+Alive patients: **99**, with at least one record: **99**. Rows: 3517 (3199 of alive patients). Distinct codes: 186 in the table, 174 among the alive; the 20 most frequent are listed.
 
 | # | SYSTEM | CODE | DESCRIPTION | Patients | % alive | Records |
 | ---: | --- | --- | --- | ---: | ---: | ---: |
@@ -1234,7 +1234,7 @@ one outcome at a time, and survival estimates (Kaplan-Meier).
 
 | Suite | Command | Needs the dataset | What it is |
 | --- | --- | --- | --- |
-| Fast | `.venv/bin/pytest -m "not integration"` | no | 1378 unit and component tests, about 25 seconds |
+| Fast | `.venv/bin/pytest -m "not integration"` | no | 1405 unit and component tests, about 25 seconds |
 | Acceptance | `.venv/bin/pytest -m integration` | yes | 91 end-to-end tests that run the commands as a user would, about 90 seconds |
 | Everything | `.venv/bin/pytest` | optional | both; the acceptance tests skip with a clear message when the dataset is absent |
 
