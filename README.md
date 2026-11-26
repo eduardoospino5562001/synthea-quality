@@ -1247,6 +1247,16 @@ python scripts/fetch_official_sample.py     # → ~/synthea-sample-data/csv-late
 An existing extraction can be used instead with
 `SYNTHEA_QUALITY_SAMPLE=/path/to/csv-latest .venv/bin/pytest -m integration`.
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `push` and `pull_request` targeting `main` with `TZ=UTC`:
+
+- **`lint-and-typecheck`** (Python 3.11): runs `ruff check .` and checks `mypy` against [`scripts/mypy-baseline.txt`](scripts/mypy-baseline.txt), failing on any new error.
+- **`unit-tests`** (Python 3.11 and 3.12): runs `pytest -q -m "not integration"`.
+- **`integration-tests`** (Python 3.11 and 3.12): downloads (with cache) the pinned official Synthea sample archive (`synthetichealth/synthea-sample-data` commit `9959d917`), verifies both its ZIP SHA-256 and extracted CSV dataset digest (`7ecb7460…769d`), and runs `pytest -q -m integration`.
+
+Pip dependencies are cached against [`pyproject.toml`](pyproject.toml), and the sample archive is cached with `actions/cache`.
+
 ## Acceptance baseline
 
 `docs/acceptance.md` is the reproducible contract of the tool with the dataset Synthea

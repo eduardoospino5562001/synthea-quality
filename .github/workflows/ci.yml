@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TZ: UTC
+
+jobs:
+  lint-and-typecheck:
+    name: Lint and Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Run Ruff lint
+        run: ruff check .
+
+      - name: Run mypy against baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="$(mktemp)"
+          ACTUAL="$(mktemp)"
+          NEW_ERRORS="$(mktemp)"
+          SHRUNK="$(mktemp)"
+          trap 'rm -f "$RAW" "$ACTUAL" "$NEW_ERRORS" "$SHRUNK"' EXIT
+
+          mypy_status=0
+          mypy > "$RAW" 2>&1 || mypy_status=$?
+
+          if [ "$mypy_status" -gt 1 ]; then
+            cat "$RAW"
+            exit 1
+          fi
+
+          if [ ! -f scripts/mypy-baseline.txt ]; then
+            echo "error: scripts/mypy-baseline.txt not found" >&2
+            exit 1
+          fi
+
+          { grep ": error:" "$RAW" || true; } | sed -E 's/^([^:]+):[0-9]+: error:/\1: error:/' | LC_ALL=C sort > "$ACTUAL"
+
+          if [ "$mypy_status" -ne 0 ] && [ ! -s "$ACTUAL" ]; then
+            cat "$RAW"
+            exit 1
+          fi
+
+          LC_ALL=C comm -13 scripts/mypy-baseline.txt "$ACTUAL" > "$NEW_ERRORS"
+          if [ -s "$NEW_ERRORS" ]; then
+            echo "New mypy errors not in scripts/mypy-baseline.txt:" >&2
+            cat "$NEW_ERRORS" >&2
+            echo "--- Full mypy output ---" >&2
+            cat "$RAW" >&2
+            exit 1
+          fi
+
+          LC_ALL=C comm -23 scripts/mypy-baseline.txt "$ACTUAL" > "$SHRUNK"
+          if [ -s "$SHRUNK" ]; then
+            echo "Resolved baseline entries that can be removed from scripts/mypy-baseline.txt:"
+            cat "$SHRUNK"
+          fi
+
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest -q -m "not integration"
+
+  integration-tests:
+    name: Integration Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Cache official Synthea sample archive
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/synthea-sample-cache
+          key: synthea-sample-data-d61417b551e5b0997c33851b339c157421751f0ea68c18ea686ceb1850907c35
+
+      - name: Fetch, verify, and extract official Synthea sample
+        env:
+          SAMPLE_URL: https://github.com/synthetichealth/synthea-sample-data/raw/9959d9178ea28f4ec10f17ee238b6fabe6eb0de5/downloads/latest/synthea_sample_data_csv_latest.zip
+          SAMPLE_ZIP: ${{ runner.temp }}/synthea-sample-cache/synthea_sample_data_csv_latest.zip
+          SAMPLE_ZIP_SHA256: d61417b551e5b0997c33851b339c157421751f0ea68c18ea686ceb1850907c35
+          SAMPLE_DATASET_DIGEST: 7ecb7460dd31f9921f433a9c8d341f265e7b55b2a2ae9f0b32199deb8760769d
+          SAMPLE_DEST: ${{ runner.temp }}/synthea-sample-data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$SAMPLE_ZIP")"
+          if [ ! -f "$SAMPLE_ZIP" ]; then
+            curl --fail --show-error --silent --location --retry 3 --output "$SAMPLE_ZIP" "$SAMPLE_URL"
+          fi
+          echo "${SAMPLE_ZIP_SHA256}  ${SAMPLE_ZIP}" | sha256sum -c -
+          python scripts/fetch_official_sample.py --destination "$SAMPLE_DEST" --zip "$SAMPLE_ZIP"
+          PYTHONPATH=. python -c '
+          import os, sys
+          from pathlib import Path
+          from scripts.fetch_official_sample import dataset_digest
+
+          expected = os.environ["SAMPLE_DATASET_DIGEST"]
+          actual = dataset_digest(Path(os.environ["SAMPLE_DEST"]) / "csv-latest")
+          if actual != expected:
+              print(f"error: dataset digest mismatch: expected {expected}, got {actual}", file=sys.stderr)
+              sys.exit(1)
+          print(f"Verified dataset digest: {actual}")
+          '
+
+      - name: Run integration tests
+        env:
+          SYNTHEA_QUALITY_SAMPLE: ${{ runner.temp }}/synthea-sample-data/csv-latest
+        run: pytest -q -m integration
