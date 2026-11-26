@@ -16,6 +16,8 @@ dist/
 # Test & tooling caches
 .pytest_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # Local working data (downloaded Synthea samples are never committed)

@@ -1252,10 +1252,34 @@ An existing extraction can be used instead with
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `push` and `pull_request` targeting `main` with `TZ=UTC`:
 
 - **`lint-and-typecheck`** (Python 3.11): runs `ruff check .` and checks `mypy` against [`scripts/mypy-baseline.txt`](scripts/mypy-baseline.txt), failing on any new error.
-- **`unit-tests`** (Python 3.11 and 3.12): runs `pytest -q -m "not integration"`.
+- **`unit-tests`** (Python 3.11 and 3.12): runs `pytest -q -m "not integration" --cov --cov-report=term-missing --cov-report=html --cov-report=xml`, measuring line and branch coverage and uploading HTML and XML reports as workflow artifacts (`coverage-unit-py3.11`, `coverage-unit-py3.12`).
 - **`integration-tests`** (Python 3.11 and 3.12): downloads (with cache) the pinned official Synthea sample archive (`synthetichealth/synthea-sample-data` commit `9959d917`), verifies both its ZIP SHA-256 and extracted CSV dataset digest (`7ecb7460…769d`), and runs `pytest -q -m integration`.
 
 Pip dependencies are cached against [`pyproject.toml`](pyproject.toml), and the sample archive is cached with `actions/cache`.
+
+### Code coverage
+
+Line and branch coverage across `synthea_quality` are configured in [`pyproject.toml`](pyproject.toml) under `[tool.coverage.run]` and `[tool.coverage.report]`. Both line and branch coverage are measured without enforcing a minimum threshold yet.
+
+Run coverage locally on the fast unit suite:
+
+```bash
+.venv/bin/pytest -m "not integration" --cov --cov-report=term-missing --cov-report=html --cov-report=xml
+```
+
+Run coverage locally across the full suite (including integration tests when the sample is present):
+
+```bash
+.venv/bin/pytest --cov --cov-report=term-missing --cov-report=html --cov-report=xml
+```
+
+Generated outputs:
+
+- **Terminal summary**: per-file statement and branch percentages, with `Missing` line numbers and partial branches (formatted as `line->branch`).
+- **`htmlcov/index.html`**: browsable line-by-line and branch-level HTML report.
+- **`coverage.xml`**: Cobertura XML report for tooling integration.
+
+Each CI run on GitHub Actions also uploads `coverage-unit-py3.11` and `coverage-unit-py3.12` as workflow artifacts (retained for 14 days), which can be downloaded from the run summary page.
 
 ## Acceptance baseline
 
