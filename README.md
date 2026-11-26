@@ -1325,8 +1325,6 @@ will need chunked or streamed processing. The dependency is measured, not theore
   `encounters.csv`, reported as such.
 - **Three documented relations are not enforced** because their semantics are not yet fully
   confirmed.
-- **No CI configuration yet.** Both suites run locally; no workflow runs them on every
-  change.
 - **One dataset is the automated baseline.** The official sample is the reference; the tool
   has also been exercised on a 2021 dataset from another repository, but that is not part
   of the automated acceptance run.
@@ -1351,8 +1349,6 @@ order, none of them started:
   and reference values, for one module (step 5). Still to come: episodes of recurrent
   conditions, and grouping observations by `CATEGORY`;
 - chunked or streamed processing for datasets much larger than the sample;
-- CI that runs both suites on every change, which would also enforce the acceptance
-  baseline continuously;
 - further schema or temporal rules, for instance the three unresolved relations above,
   once their semantics are confirmed.
 
