@@ -1247,6 +1247,16 @@ python scripts/fetch_official_sample.py     # → ~/synthea-sample-data/csv-late
 An existing extraction can be used instead with
 `SYNTHEA_QUALITY_SAMPLE=/path/to/csv-latest .venv/bin/pytest -m integration`.
 
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `push` and `pull_request` targeting `main` with `TZ=UTC`:
+
+- **`lint-and-typecheck`** (Python 3.11): runs `ruff check .` and checks `mypy` against [`scripts/mypy-baseline.txt`](scripts/mypy-baseline.txt), failing on any new error.
+- **`unit-tests`** (Python 3.11 and 3.12): runs `pytest -q -m "not integration"`.
+- **`integration-tests`** (Python 3.11 and 3.12): downloads (with cache) the pinned official Synthea sample archive (`synthetichealth/synthea-sample-data` commit `9959d917`), verifies both its ZIP SHA-256 and extracted CSV dataset digest (`7ecb7460…769d`), and runs `pytest -q -m integration`.
+
+Pip dependencies are cached against [`pyproject.toml`](pyproject.toml), and the sample archive is cached with `actions/cache`.
+
 ## Acceptance baseline
 
 `docs/acceptance.md` is the reproducible contract of the tool with the dataset Synthea
@@ -1315,8 +1325,6 @@ will need chunked or streamed processing. The dependency is measured, not theore
   `encounters.csv`, reported as such.
 - **Three documented relations are not enforced** because their semantics are not yet fully
   confirmed.
-- **No CI configuration yet.** Both suites run locally; no workflow runs them on every
-  change.
 - **One dataset is the automated baseline.** The official sample is the reference; the tool
   has also been exercised on a 2021 dataset from another repository, but that is not part
   of the automated acceptance run.
@@ -1341,8 +1349,6 @@ order, none of them started:
   and reference values, for one module (step 5). Still to come: episodes of recurrent
   conditions, and grouping observations by `CATEGORY`;
 - chunked or streamed processing for datasets much larger than the sample;
-- CI that runs both suites on every change, which would also enforce the acceptance
-  baseline continuously;
 - further schema or temporal rules, for instance the three unresolved relations above,
   once their semantics are confirmed.
 
