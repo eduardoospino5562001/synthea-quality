@@ -195,8 +195,6 @@ jobs:
     name: Dependency Security
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      AUDIT_VENV: ${{ runner.temp }}/audit-venv
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -211,6 +209,8 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
+        env:
+          AUDIT_VENV: ${{ runner.temp }}/audit-venv
         shell: bash
         run: |
           set -euo pipefail
@@ -219,6 +219,8 @@ jobs:
           python -m pip --python "$AUDIT_VENV/bin/python" install pip -e ".[dev]"
 
       - name: Run pip-audit
+        env:
+          AUDIT_VENV: ${{ runner.temp }}/audit-venv
         shell: bash
         run: |
           set -euo pipefail
