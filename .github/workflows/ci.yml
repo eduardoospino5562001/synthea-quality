@@ -195,6 +195,8 @@ jobs:
     name: Dependency Security
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      AUDIT_VENV: ${{ runner.temp }}/audit-venv
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,15 +211,20 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m venv --without-pip "$AUDIT_VENV"
+          python -m pip --python "$AUDIT_VENV/bin/python" install pip -e ".[dev]"
 
       - name: Run pip-audit
         shell: bash
         run: |
           set -euo pipefail
           audit_status=0
-          pip-audit --skip-editable --desc on --format json --output pip-audit-report.json || audit_status=$?
-          python -c '
+          "$AUDIT_VENV/bin/pip-audit" --skip-editable --desc on --format json --output pip-audit-report.json || audit_status=$?
+          "$AUDIT_VENV/bin/python" -c '
           import json
           from pathlib import Path
 
