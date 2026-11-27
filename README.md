@@ -1249,11 +1249,12 @@ An existing extraction can be used instead with
 
 ### Continuous integration
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `push` and `pull_request` targeting `main` with `TZ=UTC`:
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on `push` and `pull_request` targeting `main` and on a weekly `schedule` (`0 9 * * 1`, Mondays at `09:00 UTC`) with `TZ=UTC`:
 
-- **`lint-and-typecheck`** (Python 3.11): runs `ruff check .` and checks `mypy` against [`scripts/mypy-baseline.txt`](scripts/mypy-baseline.txt), failing on any new error.
-- **`unit-tests`** (Python 3.11 and 3.12): runs `pytest -q -m "not integration" --cov --cov-report=term-missing --cov-report=html --cov-report=xml`, measuring line and branch coverage and uploading HTML and XML reports as workflow artifacts (`coverage-unit-py3.11`, `coverage-unit-py3.12`).
-- **`integration-tests`** (Python 3.11 and 3.12): downloads (with cache) the pinned official Synthea sample archive (`synthetichealth/synthea-sample-data` commit `9959d917`), verifies both its ZIP SHA-256 and extracted CSV dataset digest (`7ecb7460…769d`), and runs `pytest -q -m integration`.
+- **`lint-and-typecheck`** (Python 3.11, `push`/`pull_request` only): runs `ruff check .` and checks `mypy` against [`scripts/mypy-baseline.txt`](scripts/mypy-baseline.txt), failing on any new error.
+- **`unit-tests`** (Python 3.11 and 3.12, `push`/`pull_request` only): runs `pytest -q -m "not integration" --cov --cov-report=term-missing --cov-report=html --cov-report=xml`, measuring line and branch coverage and uploading HTML and XML reports as workflow artifacts (`coverage-unit-py3.11`, `coverage-unit-py3.12`).
+- **`integration-tests`** (Python 3.11 and 3.12, `push`/`pull_request` only): downloads (with cache) the pinned official Synthea sample archive (`synthetichealth/synthea-sample-data` commit `9959d917`), verifies both its ZIP SHA-256 and extracted CSV dataset digest (`7ecb7460…769d`), and runs `pytest -q -m integration`.
+- **`dependency-security`** (`Dependency Security`, Python 3.11, runs on `push`, `pull_request`, and the weekly Monday `09:00 UTC` schedule): runs `pip-audit` against the installed production and development dependencies and uploads `pip-audit-report.json` as the `pip-audit-report` workflow artifact.
 
 Pip dependencies are cached against [`pyproject.toml`](pyproject.toml), and the sample archive is cached with `actions/cache`.
 
@@ -1280,6 +1281,18 @@ Generated outputs:
 - **`coverage.xml`**: Cobertura XML report for tooling integration.
 
 Each CI run on GitHub Actions also uploads `coverage-unit-py3.11` and `coverage-unit-py3.12` as workflow artifacts (retained for 14 days), which can be downloaded from the run summary page.
+
+### Dependency security
+
+[`.github/dependabot.yml`](.github/dependabot.yml) schedules weekly pull requests every Monday at `09:00 UTC` targeting `main` for both `pip` packages and `github-actions` workflows (up to 5 open PRs per ecosystem, without auto-merge).
+
+Run the vulnerability audit locally from `.venv`:
+
+```bash
+.venv/bin/pip-audit --skip-editable --desc on --format json --output pip-audit-report.json
+```
+
+The audit checks all installed direct and transitive production and development dependencies (excluding the editable `synthea-quality` package itself) and exits non-zero if any known vulnerability is detected. In GitHub Actions, the `dependency-security` job uploads `pip-audit-report.json` as the `pip-audit-report` workflow artifact with 14-day retention.
 
 ## Acceptance baseline
 

@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "0 9 * * 1"
 
 permissions:
   contents: read
@@ -19,6 +21,7 @@ env:
 jobs:
   lint-and-typecheck:
     name: Lint and Typecheck
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -87,6 +90,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests (Python ${{ matrix.python-version }})
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -124,6 +128,7 @@ jobs:
 
   integration-tests:
     name: Integration Tests (Python ${{ matrix.python-version }})
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -185,3 +190,68 @@ jobs:
         env:
           SYNTHEA_QUALITY_SAMPLE: ${{ runner.temp }}/synthea-sample-data/csv-latest
         run: pytest -q -m integration
+
+  dependency-security:
+    name: Dependency Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Run pip-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit_status=0
+          pip-audit --skip-editable --desc on --format json --output pip-audit-report.json || audit_status=$?
+          python -c '
+          import json
+          from pathlib import Path
+
+          report_path = Path("pip-audit-report.json")
+          if not report_path.is_file():
+              print("error: pip-audit-report.json was not created")
+              raise SystemExit(1)
+          data = json.loads(report_path.read_text(encoding="utf-8"))
+          deps = data.get("dependencies", [])
+          scanned = [d for d in deps if not d.get("skip_reason")]
+          skipped = [d for d in deps if d.get("skip_reason")]
+          vuln_deps = [d for d in scanned if d.get("vulns")]
+          print(f"Dependencies scanned: {len(scanned)} (skipped: {len(skipped)})")
+          print(f"Vulnerable dependencies: {len(vuln_deps)}")
+          seen = set()
+          for dep in vuln_deps:
+              name = dep["name"]
+              version = dep["version"]
+              for vuln in dep["vulns"]:
+                  vuln_id = vuln["id"]
+                  key = (name, version, vuln_id)
+                  if key in seen:
+                      continue
+                  seen.add(key)
+                  fixes = ", ".join(vuln.get("fix_versions", [])) or "none listed"
+                  aliases = ", ".join(vuln.get("aliases", [])) or "none"
+                  print(f"- {name}=={version}: {vuln_id} (aliases: {aliases}; fix versions: {fixes})")
+          '
+          exit "$audit_status"
+
+      - name: Upload pip-audit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+          retention-days: 14

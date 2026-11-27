@@ -19,6 +19,7 @@ dist/
 .coverage.*
 coverage.xml
 htmlcov/
+pip-audit-report.json
 
 # Local working data (downloaded Synthea samples are never committed)
 data/
